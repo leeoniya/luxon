@@ -1,0 +1,295 @@
+// The timing kernel shared by benchmarks/suite.ts, upstream.ts and format.ts.
+//
+// These benches compare builds of luxon against each other rather than reporting
+// an absolute rate, so what they need from a timer is that the ERROR BETWEEN
+// COLUMNS be small — a systematic drift across the measurement window is the one
+// error a ratio does not cancel. Hence the two things this does that a general
+// benchmarking library does not: it sizes every entry's pass to a wall-time
+// budget rather than a value count (paths here span a 20x cost range), and it
+// interleaves passes across all entries rather than running each to completion.
+//
+// It is deliberately not tinybench, which luxon's own suites in datetime.js and
+// info.js use. Those measure one build's cases against each other and want an
+// ops/sec with a confidence interval; these measure the same case across four
+// builds and want the difference between them to mean something.
+
+import { readFile } from "node:fs/promises";
+
+export interface SampleBudget {
+  min: number; // always take at least this many passes, however slow
+  max: number; // never take more, however cheap
+  budgetMs: number; // stop past `min` once this much per-entry wall time is spent
+}
+
+// ---- report headers ---------------------------------------------------------
+
+const REPO = new URL("../../", import.meta.url);
+
+/**
+ * Version of luxon itself, or of an installed benchmark dependency, for the line
+ * every bench opens with.
+ */
+export async function pkgVersion(name = "luxon"): Promise<string> {
+  const path =
+    name === "luxon" ? new URL("package.json", REPO) : new URL(`../node_modules/${name}/package.json`, import.meta.url);
+
+  const pkg = JSON.parse(await readFile(path, "utf8")) as { version: string };
+
+  return pkg.version;
+}
+
+/**
+ * Which engine these numbers came off. Worth printing rather than assuming: bun
+ * is JavaScriptCore and node is V8, and the patches turn on allocation and
+ * inline-cache behavior that the two do not have to agree about.
+ */
+export function runtime(): string {
+  const versions = process.versions as Record<string, string | undefined>;
+
+  return versions["bun"] === undefined
+    ? `node ${versions["node"]!} (V8 ${versions["v8"]!})`
+    : `bun ${versions["bun"]} (JavaScriptCore)`;
+}
+
+// ---- measurement ------------------------------------------------------------
+
+/**
+ * One unit of the work being measured: given an instant, do the thing, and
+ * return a number for the loop to sum so the engine cannot elide the call.
+ *
+ * A number rather than the output itself, because the tables measure different
+ * work. A formatting entry returns its output's length; a parsing entry
+ * (benchmarks/upstream.ts) returns the instant it parsed, which doubles as a
+ * check — a parse that quietly fails returns NaN rather than a suspiciously fast
+ * success, and NaN then poisons the checksum the caller asserts on.
+ */
+export type Work = (ts: number) => number;
+
+export interface LoopResult {
+  ms: number;
+  /** summed Work results — consumed by the caller so the loop can't be elided */
+  checksum: number;
+}
+
+export function timeLoop(work: Work, base: number, step: number, n: number): LoopResult {
+  let checksum = 0;
+
+  // performance.now() rather than Bun.nanoseconds(), so these benches run under
+  // node too: luxon's users are overwhelmingly on V8, and bun is JavaScriptCore
+  const t0 = performance.now();
+
+  for (let i = 0; i < n; i++) {
+    checksum += work(base + i * step);
+  }
+
+  return { ms: performance.now() - t0, checksum };
+}
+
+// Default wall-time budget for ONE timed pass. Paths here span a 20x cost range
+// — stock luxon on an abbreviation format constructs an Intl.DateTimeFormat per
+// value at ~100µs, against ~5µs for everything else — so timing them all over
+// the same value count spends almost the whole benchmark inside the slowest
+// column, which is also the column whose number nobody is surprised by. Each
+// entry instead gets the number of values that fits this budget, and its result
+// is scaled back to `report` values.
+//
+// This is a resolution knob, not just a speed one: a path whose full pass fits
+// under the budget is timed in full, and shortening a pass costs precision. Set
+// it above a full pass of everything the caller needs to resolve finely and only
+// the outliers get shortened. The default clears a full 10k-value pass on the
+// ~5µs/value paths.
+const DEFAULT_BUDGET_MS = 75;
+
+// Floor on a timed pass regardless of cost. Below a few hundred values the
+// timing is dominated by whatever else the engine is doing: at n=250 the stock
+// abbr path reads ~40% high, at n=500 it is back in line with n=2000.
+const MIN_PASS = 500;
+
+// Floor on how long a timed pass should RUN, which is the same concern in the
+// other direction. The cheapest paths here get through `report` values in
+// 10-20ms, and at that scale scheduling jitter rivals the signal — those were
+// the rows whose control disagreed by ~11% while the expensive ones sat at 1-2%.
+// A path that cheap is given more than `report` values so its pass reaches this
+// floor, and the result is scaled back down the same way a shortened pass is
+// scaled up. Unlike shortening, this only buys precision: it costs a few hundred
+// ms across a whole bench, and the rows it lengthens are the ones that were
+// least trustworthy.
+const MIN_PASS_MS = 40;
+
+// How long a calibration sample has to run before its rate is worth using. Only
+// needs to be right to within a factor that would change the chosen n
+// materially, and 4ms is ~40x the clock's resolution — at 8ms the doubling ran
+// one extra round per entry, which across a bench's cells cost more than the
+// sizing saved.
+const CALIBRATE_MS = 4;
+
+// How many values to time `work` over: what it gets through in `budgetMs`,
+// bounded below by MIN_PASS and above by `report` — or by whatever exceeds
+// `report` if a full pass would be too quick to time (MIN_PASS_MS). Grows a
+// sample until it is long enough to extrapolate from, so a cheap path is never
+// made to run a long pass just to be measured.
+//
+// The first sample is thrown away. Read cold it is worthless — first-call costs
+// alone put a ~4µs/value path over the threshold, which sizes it like a ~60µs
+// one — and by the time the doubling reaches a usable sample the entry has run a
+// few thousand values, which is the warm-up the drivers used to do by hand. The
+// best of two samples is taken at the end for the same reason timing noise is
+// one-sided: a slow reading is interference, a fast one is not.
+function passSize(
+  work: Work,
+  base: number,
+  step: number,
+  report: number,
+  budgetMs: number
+): { n: number; checksum: number } {
+  let n = 256;
+  let checksum = timeLoop(work, base, step, n).checksum;
+  let run = timeLoop(work, base, step, n);
+
+  checksum += run.checksum;
+
+  while (run.ms < CALIBRATE_MS && n < report) {
+    n *= 2;
+    run = timeLoop(work, base, step, n);
+    checksum += run.checksum;
+  }
+
+  const again = timeLoop(work, base, step, n);
+  const ms = Math.min(run.ms, again.ms);
+
+  checksum += again.checksum;
+
+  const perValue = ms / n;
+  // `report`, or more if that is too quick to time
+  const ceiling = Math.max(report, Math.round(MIN_PASS_MS / perValue));
+  const wanted = Math.min(Math.round(budgetMs / perValue), ceiling);
+
+  return { n: Math.max(MIN_PASS, wanted), checksum };
+}
+
+/**
+ * Repeatedly times every entry INTERLEAVED — one pass of each per round, rather
+ * than all of one entry's passes back to back — and reports each entry's FASTEST
+ * pass, normalized to `report` values.
+ *
+ * Fastest, not median: the slow passes are JIT ramp and ambient interference,
+ * and both only ever add time. That matters more than usual here, because these
+ * benches run long enough on a thermally limited host to throttle partway
+ * through — under which a median tracks the throttling and a minimum does not.
+ * It is also what lets the pass count come down: a median needs enough samples
+ * to place a middle, whereas a minimum needs only one clean pass, so three
+ * passes buy what seven did.
+ *
+ * Interleaving still earns its keep alongside the minimum. It spreads each
+ * entry's passes across the whole measurement window, so a cool moment early or
+ * a throttled stretch late is offered to every entry rather than to whichever
+ * happened to be running — and since the reported number is a ratio between
+ * entries, systematic drift across them is the one error that does not cancel.
+ *
+ * There is no separate warm-up pass. Both engines allocate type feedback per
+ * CALL SITE, so a warm-up loop trains different slots than the timed loop, and
+ * only re-running the timed loop itself tiers it up. The pass sizing above
+ * already runs a few thousand values per entry getting its rate, which covers
+ * what a warm-up would have.
+ *
+ * `scaled` names the entries measured over fewer than `report` values, so the
+ * caller can say so rather than implying every column was timed identically, and
+ * `sizes` gives the value count each entry was actually timed over, for a caller
+ * whose whole table is scaled and wants to print the range it really ran.
+ * `passes` reports how many rounds the budget allowed — the reader's check that
+ * a row was not measured once and believed. The summed checksum comes back so
+ * the caller can keep feeding its sink.
+ *
+ * `group`, when the entry list is consecutive groups of that size measuring the
+ * same operation different ways, rotates the order WITHIN each group per pass.
+ * See rotateGroups for why that is not cosmetic.
+ */
+export function interleavedBest<K>(
+  entries: { key: K; work: Work }[],
+  base: number,
+  step: number,
+  report: number,
+  passBudget: SampleBudget,
+  budgetMs = DEFAULT_BUDGET_MS,
+  group = 0
+): { best: Map<K, number>; checksum: number; scaled: K[]; sizes: Map<K, number>; passes: number } {
+  const best = new Map<K, number>();
+  const scaled: K[] = [];
+  let checksum = 0;
+
+  const sized = entries.map(({ key, work }) => {
+    const sample = passSize(work, base, step, report, budgetMs);
+    const n = sample.n;
+
+    checksum += sample.checksum;
+
+    if (n < report) scaled.push(key);
+
+    return { key, work, n };
+  });
+
+  let passes = 0;
+  let spent = 0; // per-entry timed ms, which the sizing has made roughly equal
+
+  while (passes < passBudget.max) {
+    let round = 0;
+
+    for (const { key, work, n } of rotateGroups(sized, group, passes)) {
+      const run = timeLoop(work, base, step, n);
+
+      checksum += run.checksum;
+      round += run.ms;
+
+      // per-value cost is flat across n for every path here (the expensive one
+      // does the same fixed work per value), so this is a unit conversion
+      const ms = (run.ms * report) / n;
+      const prev = best.get(key);
+
+      if (prev === undefined || ms < prev) best.set(key, ms);
+    }
+
+    passes++;
+    spent += round / sized.length;
+
+    if (passes >= passBudget.min && spent >= passBudget.budgetMs) break;
+  }
+
+  return { best, checksum, scaled, sizes: new Map(sized.map(({ key, n }) => [key, n])), passes };
+}
+
+/**
+ * Rotates each consecutive run of `size` entries left by `by`, leaving the runs
+ * themselves in place. A no-op for size 0 or 1.
+ *
+ * What this is for: the entry measured immediately after the workload CHANGES
+ * pays for the change, and on an allocation-heavy path it pays a lot — up to 2.5x
+ * on `DateTime#add` in benchmarks/suite.ts, reproducibly, and it survives a
+ * warm-up prologue, so it is the previous entry's garbage being collected rather
+ * than this one being cold. When the list is grouped by case, that penalty always
+ * lands on the same member of every group (the one right after the previous
+ * case), so it does not cancel in a ratio and taking the fastest pass does not
+ * remove it: every pass penalizes the same member.
+ *
+ * Rotating the whole list per pass would not help — that preserves who follows
+ * whom — so the rotation has to be inside the group, which moves the boundary
+ * slot from one member to the next each pass. Over a few passes every member gets
+ * at least one pass away from the boundary, and since the reported figure is the
+ * fastest pass, that is the one that survives. Costs nothing: the same entries
+ * run the same number of times, in a different order.
+ */
+function rotateGroups<T>(entries: T[], size: number, by: number): T[] {
+  if (size < 2) {
+    return entries;
+  }
+
+  const out: T[] = [];
+
+  for (let start = 0; start < entries.length; start += size) {
+    const chunk = entries.slice(start, start + size);
+    const at = by % chunk.length;
+
+    out.push(...chunk.slice(at), ...chunk.slice(0, at));
+  }
+
+  return out;
+}

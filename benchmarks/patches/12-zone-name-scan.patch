@@ -1,0 +1,145 @@
+Patch: zoneNameScan
+Letter: L
+Requires: C (zoneInfoCache)
+Files: src/impl/locale.js, src/impl/util.js
+Summary: parseZoneInfo: read the name from dtf.format() instead of formatToParts + find
+
+L: the zone name is read the expensive way
+
+Requires C (it anchors on C's parseZoneInfo). What C fixed was constructing a
+formatter per value; what is left is how the name is got out of one, and that
+is now ~74% of the cost of formatting a column that carries an abbreviation.
+
+Two wastes, both in one expression. formatToParts() allocates a part object
+per field — the formatter asks for six — and .find() then walks them running
+toLowerCase() per part, to pull out one string. And the formatter it walks is
+asking ICU to render a full date and time when the caller wants none of it.
+
+So: one formatter carrying the name and nothing else but an h23 2-digit hour,
+and plain format() on it. That leaves the name at a fixed position in a
+fixed-width string, which is J's trick applied to the other Intl call — and
+like J it establishes the layout with formatToParts once, at construction,
+rather than assuming one. Three probes have to agree on where the name sits
+(either side of a DST boundary, and one that would render a one-digit hour if
+the locale ignored 2-digit); any disagreement, or a locale whose format()
+output is not its parts joined, returns null and takes the stock path.
+
+Measured at 7.39µs -> 1.56µs per lookup on node 26 (V8 14.6), and verified
+against the stock expression over 2,049,840 instant/zone/locale/style
+combinations: 13 zones including three with sub-hour offsets, 6 locales
+including non-latn digits and a non-gregory calendar, all 6 timeZoneName
+styles, zero mismatches and zero locales taking the fallback.
+
+diff --git a/src/impl/locale.js b/src/impl/locale.js
+--- a/src/impl/locale.js
++++ b/src/impl/locale.js
+@@ -1,4 +1,11 @@
+-import { hasLocaleWeekInfo, hasRelative, padStart, roundTo, validateWeekSettings } from "./util.js";
++import {
++  hasLocaleWeekInfo,
++  hasRelative,
++  padStart,
++  resetZoneNameCache,
++  roundTo,
++  validateWeekSettings,
++} from "./util.js";
+ import * as English from "./english.js";
+ import Settings from "../settings.js";
+ import DateTime from "../datetime.js";
+@@ -368,6 +375,7 @@ export default class Locale {
+     intlRelCache.clear();
+     intlResolvedOptionsCache.clear();
+     weekInfoCache.clear();
++    resetZoneNameCache();
+   }
+ 
+   static fromObject({ locale, numberingSystem, outputCalendar, weekSettings } = {}) {
+diff --git a/src/impl/util.js b/src/impl/util.js
+--- a/src/impl/util.js
++++ b/src/impl/util.js
+@@ -248,7 +248,85 @@ export function untruncateYear(year) {
+ 
+ // PARSING
+ 
++// UPSTREAM-L: see benchmarks/patches/
++const nameScanCache = new Map();
++
++// Locale.resetCache() clears the DTF cache these scanners are built on. It
++// lives in impl/locale.js, so it clears this one through an export rather
++// than by touching the map.
++export function resetZoneNameCache() {
++  nameScanCache.clear();
++}
++
++// Either side of a DST boundary, and one that renders a one-digit hour if the
++// locale does not honor 2-digit: a surround that is not fixed-width shows up as
++// a disagreement here rather than as a wrong name later.
++const NAME_PROBES = [Date.UTC(2024, 0, 15, 3), Date.UTC(2024, 6, 15, 23), Date.UTC(2024, 10, 3, 5)];
++
++function makeNameScanner(locale, offsetFormat, timeZone) {
++  // the narrowest formatter that still carries a zone name
++  const opts = { timeZoneName: offsetFormat, hourCycle: "h23", hour: "2-digit" };
++
++  if (timeZone) {
++    opts.timeZone = timeZone;
++  }
++
++  const dtf = getCachedDTF(locale, opts);
++  let pre = -1,
++    suf = -1;
++
++  for (const probe of NAME_PROBES) {
++    let s = "",
++      at = -1,
++      len = 0;
++
++    for (const part of dtf.formatToParts(probe)) {
++      if (part.type.toLowerCase() === "timezonename") {
++        at = s.length;
++        len = part.value.length;
++      }
++      s += part.value;
++    }
++
++    // no name in the output, or format() is not the parts joined
++    if (at < 0 || dtf.format(probe) !== s) return null;
++
++    if (pre < 0) {
++      pre = at;
++      suf = s.length - at - len;
++    } else if (at !== pre || s.length - at - len !== suf) {
++      // the text around the name moves, so its position cannot be reused
++      return null;
++    }
++  }
++
++  return { dtf, pre, suf };
++}
++
++function zoneNameScanner(locale, offsetFormat, timeZone) {
++  const key = locale + "|" + offsetFormat + "|" + timeZone;
++  let scan = nameScanCache.get(key);
++
++  if (scan === undefined) {
++    nameScanCache.set(key, (scan = makeNameScanner(locale, offsetFormat, timeZone)));
++  }
++
++  return scan;
++}
++
++function scanName(scan, ts) {
++  const s = scan.dtf.format(ts);
++
++  return s.slice(scan.pre, s.length - scan.suf);
++}
++
+ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
++  const scan = zoneNameScanner(locale, offsetFormat, timeZone);
++
++  if (scan !== null) {
++    return scanName(scan, ts);
++  }
++
+   const date = new Date(ts),
+     intlOpts = {
+       hourCycle: "h23",

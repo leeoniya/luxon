@@ -10,3 +10,9 @@ trim_trailing_whitespace = true
 
 [*.md]
 trim_trailing_whitespace = false
+
+# An empty context line in a unified diff is a single space. Trimming it would
+# silently corrupt the patches in benchmarks/patches.
+[*.patch]
+trim_trailing_whitespace = false
+insert_final_newline = true

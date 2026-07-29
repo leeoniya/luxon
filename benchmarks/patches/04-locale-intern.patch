@@ -1,0 +1,153 @@
+Patch: localeIntern
+Letter: D
+Requires: none
+Files: src/impl/locale.js
+Summary: Locale: intern Locales and memoize redefaultToEN instead of rebuilding per value
+
+D: the Locale is rebuilt twice per formatted value
+
+Two separate wastes, which only pay off fixed together:
+
+  * datetime.js calls Locale.fromObject on each fromMillis/fromObject/setZone,
+    so every DateTime allocates a Locale — parseLocaleString and
+    intlConfigString re-run, four cache objects are allocated, and the
+    fastNumbers memo starts empty again. That last part is self-defeating:
+    weekdaysCache/monthsCache/eraCache/fastNumbersCached exist precisely to be
+    reused, and a per-DateTime Locale guarantees they never are.
+
+  * toFormat() then calls loc.redefaultToEN(), and clone()'s "return this"
+    fast path can never fire there because the spread always adds
+    defaultToEN. Profiling the patched build attributes ~7% of a numeric
+    format to that one call.
+
+Locales are immutable value objects apart from those memo fields, so identical
+ones can be shared. Both the intern and the redefaultToEN memo have to notice
+mutations to the Settings fields that create() falls back to, so both go
+through one generation check — four identity compares, which is what makes
+this cheaper than the work it replaces. An earlier attempt that built a string
+cache key covering every field measured slower than no cache at all.
+
+Which shapes get interned is not a detail: a caller outside the interned set
+pays the generation check and gets nothing back. Info.months and
+Info.monthsFormat pass outputCalendar: "gregory" explicitly, so with only the
+no-outputCalendar shape interned they came out 12-17% SLOWER than stock while
+Info.weekdays (which passes null) came out 45% faster — a split with no reason
+behind it, found by benchmarks/suite.ts. Hence the second map: the "gregory"
+shape is interned separately, keyed the same way, and neither path pays a
+compound key to get there.
+
+diff --git a/src/impl/locale.js b/src/impl/locale.js
+--- a/src/impl/locale.js
++++ b/src/impl/locale.js
+@@ -331,6 +331,36 @@ class PolyRelFormatter {
+   }
+ }
+ 
++const localeCache = new Map();
++const gregoryLocaleCache = new Map();
++const LOCALE_CACHE_MAX = 1000;
++
++// Bumped whenever a Settings field that Locale.create() falls back to changes,
++// so the intern above and the redefaultToEN memo below both invalidate. Reading
++// the four getters and comparing is far cheaper than the Locale it saves, and
++// unlike a string cache key it allocates nothing.
++let localeGen = 0;
++const localeGenSnapshot = [undefined, undefined, undefined, undefined];
++
++function localeSettingsGen() {
++  if (
++    localeGenSnapshot[0] !== Settings.defaultLocale ||
++    localeGenSnapshot[1] !== Settings.defaultNumberingSystem ||
++    localeGenSnapshot[2] !== Settings.defaultOutputCalendar ||
++    localeGenSnapshot[3] !== Settings.defaultWeekSettings
++  ) {
++    localeGenSnapshot[0] = Settings.defaultLocale;
++    localeGenSnapshot[1] = Settings.defaultNumberingSystem;
++    localeGenSnapshot[2] = Settings.defaultOutputCalendar;
++    localeGenSnapshot[3] = Settings.defaultWeekSettings;
++    localeCache.clear();
++    gregoryLocaleCache.clear();
++    localeGen++;
++  }
++
++  return localeGen;
++}
++
+ const fallbackWeekSettings = {
+   firstDay: 1,
+   minimalDays: 4,
+@@ -352,17 +382,54 @@ export default class Locale {
+   }
+ 
+   static create(locale, numberingSystem, outputCalendar, weekSettings, defaultToEN = false) {
++    // UPSTREAM-D: see benchmarks/patches/. Only the plain shapes are interned:
++    // no numbering system and no week settings, and either no outputCalendar or
++    // the "gregory" that Info.months and Info.monthsFormat pass explicitly.
++    // Anything else falls through to the original uncached path.
++    //
++    // Two maps rather than one compound key, so the key stays the locale string
++    // itself and the common path allocates nothing to look itself up. The two
++    // shapes cannot share an entry: Locale keeps outputCalendar, and both
++    // intlConfigString and the DTF opts read it.
++    localeSettingsGen();
++
++    const cache =
++      numberingSystem || weekSettings || (outputCalendar && outputCalendar !== "gregory")
++        ? null
++        : outputCalendar
++          ? gregoryLocaleCache
++          : localeCache;
++
++    const cacheKey = cache === null ? null : defaultToEN ? "!" + (locale || "") : locale || "";
++
++    if (cache !== null) {
++      const interned = cache.get(cacheKey);
++
++      if (interned !== undefined) {
++        return interned;
++      }
++    }
++
+     const specifiedLocale = locale || Settings.defaultLocale;
+     // the system locale is useful for human-readable strings but annoying for parsing/formatting known formats
+     const localeR = specifiedLocale || (defaultToEN ? "en-US" : systemLocale());
+     const numberingSystemR = numberingSystem || Settings.defaultNumberingSystem;
+     const outputCalendarR = outputCalendar || Settings.defaultOutputCalendar;
+     const weekSettingsR = validateWeekSettings(weekSettings) || Settings.defaultWeekSettings;
+-    return new Locale(localeR, numberingSystemR, outputCalendarR, weekSettingsR, specifiedLocale);
++    const built = new Locale(localeR, numberingSystemR, outputCalendarR, weekSettingsR, specifiedLocale);
++
++    if (cache !== null && cache.size < LOCALE_CACHE_MAX) {
++      cache.set(cacheKey, built);
++    }
++
++    return built;
+   }
+ 
+   static resetCache() {
+     sysLocaleCache = null;
++    localeCache.clear();
++    gregoryLocaleCache.clear();
++    localeGen++;
+     intlDTCache.clear();
+     intlNumCache.clear();
+     intlRelCache.clear();
+@@ -423,6 +490,18 @@ export default class Locale {
+   }
+ 
+   redefaultToEN(alts = {}) {
++    // UPSTREAM-D: toFormat() lands here on every call with no alts at all.
++    if (Object.getOwnPropertyNames(alts).length === 0) {
++      const gen = localeSettingsGen();
++
++      if (this.redefaultedToENGen !== gen) {
++        this.redefaultedToENGen = gen;
++        this.redefaultedToEN = this.clone({ defaultToEN: true });
++      }
++
++      return this.redefaultedToEN;
++    }
++
+     return this.clone({ ...alts, defaultToEN: true });
+   }
+ 

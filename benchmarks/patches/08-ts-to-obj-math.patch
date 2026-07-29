@@ -1,0 +1,57 @@
+Patch: tsToObjMath
+Letter: H
+Requires: none
+Files: src/datetime.js
+Summary: tsToObj: integer civil-date math instead of allocating a Date
+
+H: tsToObj allocates a Date to read seven fields
+
+Every DateTime construction calls this to derive its civil fields, allocating
+a Date purely to call getUTC* on it. The same arithmetic runs without the
+allocation — easy-tz does the same thing in its shared/rules.ts for the same reason.
+
+The riskiest of the set, since it is core civil-date derivation rather than a
+cache, so benchmarks/upstream.ts checks it against Date's own getters across
+a wide timestamp range rather than trusting the format-level diff.
+
+diff --git a/src/datetime.js b/src/datetime.js
+--- a/src/datetime.js
++++ b/src/datetime.js
+@@ -131,16 +131,29 @@ function fixOffset(localTS, o, tz) {
+ function tsToObj(ts, offset) {
+   ts += offset * 60 * 1000;
+ 
+-  const d = new Date(ts);
++  // UPSTREAM-H: was `new Date(ts)` plus seven getUTC* calls. Same result, no
++  // allocation (Howard Hinnant's civil_from_days, valid for any Gregorian year).
++  const days = Math.floor(ts / 86400000);
++  const msOfDay = ts - days * 86400000;
++
++  const z = days + 719468;
++  const era = Math.floor(z / 146097);
++  const doe = z - era * 146097;
++  const yoe = Math.floor(
++    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365
++  );
++  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
++  const mp = Math.floor((5 * doy + 2) / 153);
++  const month = mp < 10 ? mp + 3 : mp - 9;
+ 
+   return {
+-    year: d.getUTCFullYear(),
+-    month: d.getUTCMonth() + 1,
+-    day: d.getUTCDate(),
+-    hour: d.getUTCHours(),
+-    minute: d.getUTCMinutes(),
+-    second: d.getUTCSeconds(),
+-    millisecond: d.getUTCMilliseconds(),
++    year: yoe + era * 400 + (month <= 2 ? 1 : 0),
++    month,
++    day: doy - Math.floor((153 * mp + 2) / 5) + 1,
++    hour: Math.floor(msOfDay / 3600000),
++    minute: Math.floor(msOfDay / 60000) % 60,
++    second: Math.floor(msOfDay / 1000) % 60,
++    millisecond: msOfDay % 1000,
+   };
+ }
+ 

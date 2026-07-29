@@ -1,0 +1,85 @@
+Patch: zoneNameInterval
+Letter: M
+Requires: L (zoneNameScan)
+Files: src/impl/util.js
+Summary: parseZoneInfo: cache the name across the transition-free interval around the value (needs L)
+
+M: the same name is re-derived for every value
+
+Requires L (it anchors on L's scanner). K's argument, for the other Intl call
+the formatter makes: names change only at transitions, so a value inside a
+span two agreeing probes prove transition-free needs no Intl call at all.
+
+The bound is the stricter of the two easy-tz's tools/tz-transition-gap.ts measures. A
+name can move while the offset stays put — America/Cambridge_Bay spent the
+2000 Nunavut experiment doing exactly that — so the offset bound J and K rely
+on cannot cover this, and the signature bound (CLDR name + offset) can. It is
+6.96 days over the same window, which leaves the 2-day probe spacing the same
+3.5x margin it has there. That tool asserts this spacing against a fresh
+measurement of the runtime's own ICU, so tzdata tightening past it fails
+loudly.
+
+Probe budget, fan direction and decay are K's, for K's reason: a caller
+walking a column in order earns a wide interval within a few misses, and
+random access decays to no probing and pays exactly what L alone costs.
+
+diff --git a/src/impl/util.js b/src/impl/util.js
+--- a/src/impl/util.js
++++ b/src/impl/util.js
+@@ -251,6 +251,38 @@ export function untruncateYear(year) {
+ // UPSTREAM-L: see benchmarks/patches/
+ const nameScanCache = new Map();
+ 
++// UPSTREAM-M: well under the 6.96d change-and-return bound on the CLDR name
++const NAME_PROBE_MS = 2 * 86400000;
++const NAME_MAX_REACH = 256;
++const NAME_MAX_TS = 8.64e15;
++
++function intervalName(scan, t) {
++  if (t >= scan.lo && t <= scan.hi) {
++    scan.hits++;
++    return scan.name;
++  }
++
++  const name = scanName(scan, t);
++  const forward = t > scan.hi;
++
++  scan.name = name;
++  scan.lo = t;
++  scan.hi = t;
++
++  for (let k = 1; k <= scan.reach; k++) {
++    const p = t + (forward ? k : -k) * NAME_PROBE_MS;
++    if (!(Math.abs(p) <= NAME_MAX_TS) || scanName(scan, p) !== name) break;
++    if (forward) scan.hi = p;
++    else scan.lo = p;
++  }
++
++  scan.misses++;
++  scan.reach = scan.hits > 0 ? Math.min(scan.hits, NAME_MAX_REACH) : (scan.misses & 15) === 0 ? 1 : 0;
++  scan.hits = 0;
++
++  return name;
++}
++
+ // Locale.resetCache() clears the DTF cache these scanners are built on. It
+ // lives in impl/locale.js, so it clears this one through an export rather
+ // than by touching the map.
+@@ -300,7 +332,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
+     }
+   }
+ 
+-  return { dtf, pre, suf };
++  return { dtf, pre, suf, lo: 1, hi: 0, name: null, reach: 0, hits: 0, misses: 0 };
+ }
+ 
+ function zoneNameScanner(locale, offsetFormat, timeZone) {
+@@ -324,7 +356,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
+   const scan = zoneNameScanner(locale, offsetFormat, timeZone);
+ 
+   if (scan !== null) {
+-    return scanName(scan, ts);
++    return intervalName(scan, ts);
+   }
+ 
+   const date = new Date(ts),

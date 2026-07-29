@@ -2,3 +2,12 @@ scripts/* linguist-vendored
 docker/* linguist-vendored
 site/** linguist-vendored
 .husky/* linguist-vendored
+
+# candidate upstream patches: keep the diff bytes exactly as generated
+benchmarks/patches/*.patch text eol=lf -whitespace linguist-language=Diff
+
+# vendored easy-tz build: copied verbatim, so it is neither ours to lint nor
+# ours to count. Excluded from diffs too — it is a 38K generated bundle, and the
+# thing to review when it changes is meta.json's recorded commit.
+benchmarks/vendor/easy-tz/index.mjs  linguist-vendored -diff
+benchmarks/vendor/easy-tz/index.d.mts linguist-vendored

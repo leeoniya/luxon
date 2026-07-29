@@ -1,16 +1,14 @@
-import Benchmark from "benchmark";
 import DateTime from "../src/datetime.js";
 import Settings from "../src/settings.js";
+import { runSuite } from "./lib/tinybench-suite.js";
 
 function runDateTimeSuite() {
-  return new Promise((resolve, reject) => {
-    const suite = new Benchmark.Suite();
+  const dt = DateTime.now();
 
-    const dt = DateTime.now();
+  const formatParser = DateTime.buildFormatParser("yyyy/MM/dd HH:mm:ss.SSS");
 
-    const formatParser = DateTime.buildFormatParser("yyyy/MM/dd HH:mm:ss.SSS");
-
-    suite
+  return runSuite("DateTime", (bench) => {
+    bench
       .add("DateTime.now", () => {
         DateTime.now();
       })
@@ -79,18 +77,7 @@ function runDateTimeSuite() {
       })
       .add("DateTime#toRelativeCalendar", () => {
         dt.toRelativeCalendar({ base: DateTime.now(), locale: "fi" });
-      })
-      .on("cycle", (event) => {
-        console.log(String(event.target));
-      })
-      .on("complete", function () {
-        console.log("Fastest is " + this.filter("fastest").map("name"));
-        resolve();
-      })
-      .on("error", function () {
-        reject(this.error);
-      })
-      .run();
+      });
   });
 }
 

@@ -1,0 +1,36 @@
+{
+  // Type-checking only — nothing here is ever emitted. node and bun both run
+  // these .ts files directly by stripping the types, so the build step this
+  // config would otherwise describe does not exist.
+  //
+  // Run: cd benchmarks && npm run check
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    // What the runtimes actually do: strip types, run the file, resolve the
+    // specifier as written. Imports here therefore carry a real ".ts" on the
+    // end, and anything that could not survive being erased is an error.
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"],
+  // .tmp holds generated patched copies of src/ and the entry files the bytes
+  // column bundles; node_modules is checked via skipLibCheck or not at all
+  "exclude": ["node_modules", ".tmp"]
+}

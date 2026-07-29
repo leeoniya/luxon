@@ -1,0 +1,91 @@
+Patch: offsetInterval
+Letter: K
+Requires: J (offsetScan)
+Files: src/zones/IANAZone.js
+Summary: IANAZone.offset: cache the transition-free interval around the value (needs J)
+
+K: offset() re-derives the same offset for every value
+
+Requires J (it anchors on J's fast path). Offsets only change at transitions,
+so a value that falls inside an interval already known to be transition-free
+needs no Intl call at all.
+
+The interval is exact, not a heuristic. Probes are spaced 2 days apart, and
+the shortest window in which any zone's offset changes and returns to where
+it started is 6.96 days (America/Boa_Vista, Oct 2000; measured over all 68214
+transitions the runtime's own ICU reports, via easy-tz's tools/tz-transition-gap.ts).
+Departing and returning inside a probe pair is the only way two agreeing
+probes could be wrong, so a shorter window proves the span transition-free.
+
+How far to fan out is decided by what the previous interval actually
+returned, which keeps the cache from betting on workloads it isn't getting:
+a sequential reader earns a wide fan within a few misses, while random access
+settles at no probing at all and pays exactly what J alone would.
+
+diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
+--- a/src/zones/IANAZone.js
++++ b/src/zones/IANAZone.js
+@@ -3,6 +3,46 @@ import Zone from "../zone.js";
+ 
+ const dtfCache = new Map();
+ const scanCache = new Map();
++const intervalCache = new Map();
++
++// well under the 6.96d change-and-return bound, leaving room for it to tighten
++const PROBE_MS = 2 * 86400000;
++const MAX_REACH = 256;
++const MAX_TS = 8.64e15;
++
++function intervalOffset(zoneName, scan, t) {
++  let st = intervalCache.get(zoneName);
++
++  if (st === undefined) intervalCache.set(zoneName, (st = { lo: 1, hi: 0, off: 0, reach: 0, hits: 0, misses: 0 }));
++
++  if (t >= st.lo && t <= st.hi) {
++    st.hits++;
++    return st.off;
++  }
++
++  const off = scan(t);
++  const forward = t > st.hi;
++
++  st.off = off;
++  st.lo = t;
++  st.hi = t;
++
++  for (let k = 1; k <= st.reach; k++) {
++    const p = t + (forward ? k : -k) * PROBE_MS;
++    if (!(Math.abs(p) <= MAX_TS) || scan(p) !== off) break;
++    if (forward) st.hi = p;
++    else st.lo = p;
++  }
++
++  st.misses++;
++  // probe budget = what the last interval paid back; a miss streak (random
++  // access) decays it to zero, with an occasional single probe to notice if
++  // the caller has started walking in order after all
++  st.reach = st.hits > 0 ? Math.min(st.hits, MAX_REACH) : (st.misses & 15) === 0 ? 1 : 0;
++  st.hits = 0;
++
++  return off;
++}
+ 
+ /** days since the epoch for a proleptic-gregorian date (Howard Hinnant) */
+ function daysFromCivil(y, m, d) {
+@@ -156,6 +196,7 @@ export default class IANAZone extends Zone {
+     ianaZoneCache.clear();
+     dtfCache.clear();
+     scanCache.clear();
++    intervalCache.clear();
+   }
+ 
+   /**
+@@ -283,7 +324,7 @@ export default class IANAZone extends Zone {
+     if (scan !== null) {
+       const t = Math.trunc(ts);
+       if (!(Math.abs(t) <= 8.64e15)) return NaN;
+-      return scan(t);
++      return intervalOffset(this.name, scan, t);
+     }
+ 
+     const date = new Date(ts);

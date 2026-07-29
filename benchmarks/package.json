@@ -1,3 +1,27 @@
 {
-  "type": "module"
+  "name": "luxon-benchmarks",
+  "private": true,
+  "type": "module",
+  "description": "Luxon's own benchmark suite, plus the harness for the candidate upstream patches in benchmarks/patches. Its own package so the root install stays as it is; see README.md.",
+  "scripts": {
+    "bench": "node index.js",
+    "suite": "node suite.ts",
+    "format": "node format.ts",
+    "upstream": "node upstream.ts",
+    "cross-engine": "node cross-engine.ts",
+    "verify": "node format.ts --verify && node upstream.ts --verify",
+    "test": "node --test 'test/*.test.ts'",
+    "test:bun": "bun test test/",
+    "check": "tsc -p tsconfig.json",
+    "vendor:easy-tz": "node vendor/update-easy-tz.ts"
+  },
+  "dependencies": {
+    "moment-timezone": "0.6.3",
+    "tinybench": "6.1.2"
+  },
+  "devDependencies": {
+    "@types/luxon": "3.7.2",
+    "@types/node": "26.1.1",
+    "typescript": "7.0.2"
+  }
 }

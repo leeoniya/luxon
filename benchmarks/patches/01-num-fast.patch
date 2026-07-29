@@ -1,0 +1,51 @@
+Patch: numFast
+Letter: A
+Requires: none
+Files: src/impl/formatter.js
+Summary: Formatter.num: skip the per-token formatter allocation for latn locales
+
+A: Formatter.num allocates four objects per numeric token
+
+toFormat() never sets forceSimple, so every numeric token takes the slow
+branch: an opts spread, a PolyNumberFormatter, a rest-destructure and an
+Object.keys array. For a latn-digit locale that formatter then just calls
+padStart, so all four allocations are dead weight. `yyyy-MM-dd HH:mm:ss` has
+six numeric tokens, so this is ~24 throwaway objects per formatted value.
+
+signDisplay is only ever passed by Duration formatting, never by any DateTime
+token, so the fast path can't miss a sign-sensitive case.
+
+diff --git a/src/impl/formatter.js b/src/impl/formatter.js
+--- a/src/impl/formatter.js
++++ b/src/impl/formatter.js
+@@ -1,6 +1,6 @@
+ import * as English from "./english.js";
+ import * as Formats from "./formats.js";
+-import { padStart } from "./util.js";
++import { padStart, roundTo } from "./util.js";
+ 
+ function stringifyTokens(splits, tokenToString) {
+   let s = "";
+@@ -132,6 +132,22 @@ export default class Formatter {
+       return padStart(n, p);
+     }
+ 
++    // UPSTREAM-A: when the locale renders latn digits and this formatter carries
++    // no number-affecting options, PolyNumberFormatter provably falls through to
++    // padStart. Do that directly rather than allocating an options object, a
++    // formatter, a rest object and a key array for every numeric token.
++    if (signDisplay === undefined) {
++      if (this.simpleNumsCached === undefined) {
++        const { padTo: _padTo, floor: _floor, ...otherOpts } = this.opts;
++        this.simpleNumsCached = Object.keys(otherOpts).length === 0 && this.loc.fastNumbers;
++      }
++
++      if (this.simpleNumsCached) {
++        const fixed = this.opts.floor ? Math.floor(n) : roundTo(n, 3);
++        return padStart(fixed, p > 0 ? p : this.opts.padTo || 0);
++      }
++    }
++
+     const opts = { ...this.opts };
+ 
+     if (p > 0) {

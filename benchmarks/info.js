@@ -1,106 +1,25 @@
-import Benchmark from "benchmark";
 import Info from "../src/info.js";
 import Locale from "../src/impl/locale.js";
+import { runSuite } from "./lib/tinybench-suite.js";
 
-function runWeekdaysSuite() {
-  return new Promise((resolve, reject) => {
-    const locale = Locale.create(null, null, null);
+// Each pair is the point: once with a Locale handed in, once leaving Info to
+// build one. The second is the path a caller actually takes.
+function runInfoSuite(method) {
+  const locale = Locale.create(null, null, null);
 
-    new Benchmark.Suite()
-      .add("Info.weekdays with existing locale", () => {
-        Info.weekdays("long", { locObj: locale });
+  return runSuite(`Info.${method}`, (bench) => {
+    bench
+      .add(`Info.${method} with existing locale`, () => {
+        Info[method]("long", { locObj: locale });
       })
-      .add("Info.weekdays", () => {
-        Info.weekdays("long");
-      })
-      .on("cycle", (event) => {
-        console.log(String(event.target));
-      })
-      .on("complete", function () {
-        console.log("Fastest is " + this.filter("fastest").map("name"));
-        resolve();
-      })
-      .on("error", function () {
-        reject(this.error);
-      })
-      .run();
+      .add(`Info.${method}`, () => {
+        Info[method]("long");
+      });
   });
 }
 
-function runWeekdaysFormatSuite() {
-  return new Promise((resolve, reject) => {
-    const locale = Locale.create(null, null, null);
-
-    new Benchmark.Suite()
-      .add("Info.weekdaysFormat with existing locale", () => {
-        Info.weekdaysFormat("long", { locObj: locale });
-      })
-      .add("Info.weekdaysFormat", () => {
-        Info.weekdaysFormat("long");
-      })
-      .on("cycle", (event) => {
-        console.log(String(event.target));
-      })
-      .on("complete", function () {
-        console.log("Fastest is " + this.filter("fastest").map("name"));
-        resolve();
-      })
-      .on("error", function () {
-        reject(this.error);
-      })
-      .run();
-  });
-}
-
-function runMonthsSuite() {
-  return new Promise((resolve, reject) => {
-    const locale = Locale.create(null, null, null);
-    new Benchmark.Suite()
-      .add("Info.months with existing locale", () => {
-        Info.months("long", { locObj: locale });
-      })
-      .add("Info.months", () => {
-        Info.months("long");
-      })
-      .on("cycle", (event) => {
-        console.log(String(event.target));
-      })
-      .on("complete", function () {
-        console.log("Fastest is " + this.filter("fastest").map("name"));
-        resolve();
-      })
-      .on("error", function () {
-        reject(this.error);
-      })
-      .run();
-  });
-}
-
-function runMonthsFormatSuite() {
-  return new Promise((resolve, reject) => {
-    const locale = Locale.create(null, null, null);
-
-    new Benchmark.Suite()
-      .add("Info.monthsFormat with existing locale", () => {
-        Info.monthsFormat("long", { locObj: locale });
-      })
-      .add("Info.monthsFormat", () => {
-        Info.monthsFormat("long");
-      })
-      .on("cycle", (event) => {
-        console.log(String(event.target));
-      })
-      .on("complete", function () {
-        console.log("Fastest is " + this.filter("fastest").map("name"));
-        resolve();
-      })
-      .on("error", function () {
-        reject(this.error);
-      })
-      .run();
-  });
-}
-
-const allSuites = [runMonthsSuite, runMonthsFormatSuite, runWeekdaysSuite, runWeekdaysFormatSuite];
+const allSuites = ["months", "monthsFormat", "weekdays", "weekdaysFormat"].map(
+  (method) => () => runInfoSuite(method)
+);
 
 export default allSuites;

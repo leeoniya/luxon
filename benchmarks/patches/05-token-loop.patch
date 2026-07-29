@@ -1,0 +1,46 @@
+Patch: tokenLoop
+Letter: E
+Requires: none
+Files: src/impl/formatter.js
+Summary: parseFormat/stringifyTokens: emit letterless tokens verbatim, drop the iterator
+
+E: punctuation runs go through the whole token machinery
+
+parseFormat only marks a token literal when it was bracketed or is pure
+whitespace, so the "-" and ":" in `yyyy-MM-dd HH:mm:ss` are ordinary tokens:
+each one walks tokenToString's ~70-case switch, misses, calls maybeMacro, and
+does a macro-dictionary lookup — four times per value here — only to be
+returned unchanged. A token containing no ASCII letters can't match any switch
+case or macro name, so its output is provably itself.
+
+Recorded as a separate field rather than by widening `literal`, because
+literal also drives the parser (buildRegex/unitForToken) and duration's
+realTokens reduction. Pairs with B, which makes the classification a
+once-per-pattern cost.
+
+diff --git a/src/impl/formatter.js b/src/impl/formatter.js
+--- a/src/impl/formatter.js
++++ b/src/impl/formatter.js
+@@ -5,5 +5,8 @@ import { padStart } from "./util.js";
+ function stringifyTokens(splits, tokenToString) {
++  // UPSTREAM-E: indexed loop (no iterator allocation per format) and a verbatim
++  // check so punctuation skips tokenToString entirely.
+   let s = "";
+-  for (const token of splits) {
+-    if (token.literal) {
++  for (let i = 0; i < splits.length; i++) {
++    const token = splits[i];
++    if (token.literal || token.verbatim) {
+       s += token.val;
+@@ -86,2 +89,11 @@ export default class Formatter {
+ 
++    // UPSTREAM-E: a token with no ASCII letters matches no switch case and no
++    // macro name, so formatting it is the identity. Flag it once here instead of
++    // rediscovering that per value.
++    for (const token of splits) {
++      if (!token.literal && !/[A-Za-z]/.test(token.val)) {
++        token.verbatim = true;
++      }
++    }
++
+     return splits;
