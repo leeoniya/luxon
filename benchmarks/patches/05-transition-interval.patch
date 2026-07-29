@@ -30,10 +30,53 @@ either way. That tool asserts the spacing against a fresh measurement of the
 runtime's own ICU, so tzdata tightening past it fails loudly rather than
 quietly serving a stale name.
 
-How far to fan out is decided by what the previous interval actually returned,
-which keeps the cache from betting on a workload it isn't getting: a sequential
-reader earns a wide fan within a few misses, while random access settles at no
-probing at all and pays exactly what B and D alone would.
+Two spans per zone rather than one, each anchored around the instant that missed
+rather than extended in whichever direction the last miss travelled. Both of
+those are about the CALLER, not the data, and one span extended one way was wrong
+on both counts. Placing a local time asks the zone about three instants, because
+fixOffset cannot turn a local time into an instant without an offset and cannot
+get the offset without an instant: it seeds itself with the offset at
+Settings.now(), then probes twice around the target. So a single span is evicted
+by the next lookup of the same parse, every parse, and the direction the last
+miss travelled belongs to whichever of the three sites it was.
+
+What makes that permanent rather than a warm-up is a deadlock. A span starts as a
+single point, since reach is 0 and only grows after a hit, and a point can never
+be hit. One call site escapes anyway, because with nothing else evicting it a
+widened span survives long enough to be used — which is why reading strings that
+carry their own offset, and so never call the seed, hit 99% of the time. Three
+call sites never escape: the widened span is gone before anything can hit it, so
+hits stays 0 and reach stays 0. The distance between the instants has nothing to
+do with it. Reading today's dates missed just as reliably as reading dates three
+years out, 2.13 Intl reads per parse either way, and two anchored spans take both
+to zero.
+
+The interleaved order in benchmarks/test/offset-patches.test.ts is that pattern,
+asserted by counting rather than by comparing, since a cache that never hits is
+still correct and no parity check would notice.
+
+Two is the structural minimum — one span for the seed, one for the target, whose
+probes sit about an hour apart and share a span unless a transition falls between
+them. A third span for that case measured as nothing on either a day of minutes
+near today or a day a year out, and as 0.24 reads per parse against 0.59 on a
+year read at 6-hour spacing, which was not worth its branches.
+
+How wide to fan out is still decided by what the previous span paid back, so a
+sequential reader widens toward the cap while a scattered one stays near the
+floor. The floor is one probe each way and cannot be zero, for the same reason
+the deadlock exists: a span that reaches nothing can never be hit, and a budget
+that only grows after a hit could then never grow. The pair shares the budget, so
+widening costs what it did before.
+
+Worth saying that this treats the symptom. The seed lookup is the whole reason
+there are three sites, and it exists only because fixOffset needs somewhere to
+start; probing at the target first would remove it, the interleaving with it, and
+the need for a second span. That is not a cache change, though. Stock declares a
+hole whenever its two probes disagree, which is sound only because the seed is
+already close, so a target-first fixOffset needs a third probe before it may
+conclude the same — a change to how luxon resolves ambiguous local times rather
+than a behavior-preserving one, and out of scope for a patch set that does not
+move semantics. Someone upstream could take it.
 
 The two callers differ only in where the state lives, and that difference is
 what decides how each is reset. IANAZone keeps a map keyed by zone, cleared by
@@ -41,10 +84,20 @@ its resetCache() alongside the others. The name side hangs the interval off the
 scanner that D already caches per locale and style, so Locale.resetCache() drops
 it with the scanner and no new hook is needed.
 
+One divergence from stock, and it is stock that is strange. Asked for a GENERIC
+name (shortGeneric/longGeneric), ICU answers America/Cambridge_Bay with "MT"
+everywhere except the one repeated hour of a fall-back transition, where it
+returns "MT (Cambridge Bay)" -- an instant-dependent answer for a name whose
+whole point is not to depend on the instant. A span brackets that hour and
+serves the neighbouring answer. Over 218,100 comparisons against stock across 16
+zones, 5 locales, all 6 styles and 4 access orders, that accounts for every one
+of the 258 differences, and there are none in the offset or in short/long, which
+are the only two styles luxon's own tokens ask for.
+
 diff --git a/src/impl/util.js b/src/impl/util.js
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
-@@ -258,6 +258,59 @@ export function resetZoneNameCache() {
+@@ -258,6 +258,95 @@ export function resetZoneNameCache() {
    nameScanCache.clear();
  }
  
@@ -62,8 +115,20 @@ diff --git a/src/impl/util.js b/src/impl/util.js
 +const INTERVAL_MAX_REACH = 256;
 +const INTERVAL_MAX_TS = 8.64e15;
 +
++// Two spans, most-recently-used first. One is not enough, and the reason is the
++// caller rather than the data: placing a local time asks the zone about three
++// instants -- fixOffset seeds itself with the offset at Settings.now(), then
++// probes twice around the target -- so a single span is evicted by the next
++// lookup in the same parse, every parse. Two is the structural minimum, one for
++// the seed and one for the target, whose probes sit about an hour apart and so
++// share a span unless a transition falls between them. A third for that case
++// measured as nothing on any realistic range and is not worth its branches.
 +export function newInterval() {
-+  return { lo: 1, hi: 0, val: null, reach: 0, hits: 0, misses: 0 };
++  return {
++    lo0: 1, hi0: 0, val0: null,
++    lo1: 1, hi1: 0, val1: null,
++    reach: 0, hits: 0,
++  };
 +}
 +
 +/**
@@ -72,30 +137,54 @@ diff --git a/src/impl/util.js b/src/impl/util.js
 + * scanner -- is the caller's business and its reset is too.
 + */
 +export function intervalLookup(st, lookup, ctx, t) {
-+  if (t >= st.lo && t <= st.hi) {
++  if (t >= st.lo0 && t <= st.hi0) {
 +    st.hits++;
-+    return st.val;
++    return st.val0;
++  }
++
++  // a hit in the colder span swaps it to the front, so the one a miss evicts is
++  // always the less recently used
++  if (t >= st.lo1 && t <= st.hi1) {
++    st.hits++;
++    const lo = st.lo0, hi = st.hi0, v = st.val0;
++    st.lo0 = st.lo1; st.hi0 = st.hi1; st.val0 = st.val1;
++    st.lo1 = lo; st.hi1 = hi; st.val1 = v;
++    return st.val0;
 +  }
 +
 +  const val = lookup(ctx, t);
-+  const forward = t > st.hi;
 +
-+  st.val = val;
-+  st.lo = t;
-+  st.hi = t;
++  st.lo1 = st.lo0; st.hi1 = st.hi0; st.val1 = st.val0;
++  st.val0 = val;
++  st.lo0 = t;
++  st.hi0 = t;
 +
-+  for (let k = 1; k <= st.reach; k++) {
-+    const p = t + (forward ? k : -k) * INTERVAL_PROBE_MS;
++  // Anchor the span AROUND t, both directions, rather than in the direction the
++  // last miss travelled: with several call sites interleaved that direction
++  // belongs to another site, and a reader sweeping forward would keep extending
++  // backward over ground it has already left. One probe each way is the floor,
++  // because a span that reaches nothing can never be hit, and a budget that only
++  // grows after a hit can then never grow.
++  //
++  // reach is the budget for the pair, so widening costs what it always did; only
++  // the floor is new.
++  const side = (st.reach >> 1) + 1;
++
++  for (let k = 1; k <= side; k++) {
++    const p = t + k * INTERVAL_PROBE_MS;
 +    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;
-+    if (forward) st.hi = p;
-+    else st.lo = p;
++    st.hi0 = p;
 +  }
 +
-+  st.misses++;
-+  // probe budget = what the last interval paid back; a miss streak (random
-+  // access) decays it to zero, with an occasional single probe to notice if the
-+  // caller has started walking in order after all
-+  st.reach = st.hits > 0 ? Math.min(st.hits, INTERVAL_MAX_REACH) : (st.misses & 15) === 0 ? 1 : 0;
++  for (let k = 1; k <= side; k++) {
++    const p = t - k * INTERVAL_PROBE_MS;
++    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;
++    st.lo0 = p;
++  }
++
++  // probe budget = what the last span paid back, so a sequential reader widens
++  // toward MAX_REACH while a scattered one stays near the floor
++  st.reach = Math.min(st.hits, INTERVAL_MAX_REACH);
 +  st.hits = 0;
 +
 +  return val;
@@ -104,7 +193,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
  // Either side of a DST boundary, and one that renders a one-digit hour if the
  // locale does not honor 2-digit: a surround that is not fixed-width shows up as
  // a disagreement here rather than as a wrong name later.
-@@ -300,7 +353,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
+@@ -300,7 +389,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
      }
    }
  
@@ -113,7 +202,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
  }
  
  function zoneNameScanner(locale, offsetFormat, timeZone) {
-@@ -324,7 +377,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
+@@ -324,7 +413,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
    const scan = zoneNameScanner(locale, offsetFormat, timeZone);
  
    if (scan !== null) {

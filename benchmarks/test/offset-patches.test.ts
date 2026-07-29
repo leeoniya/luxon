@@ -4,8 +4,9 @@
 //
 // E (transitionInterval) is the one that needs the coverage. It is stateful and
 // its answer depends on which instants it was asked about earlier, so every zone
-// is replayed in three access orders — a sequential reader, a random one, and a
-// backwards one — each against a fresh module.
+// is replayed in four access orders — a sequential reader, a random one, a
+// backwards one, and one interleaving each instant with `now` — each against a
+// fresh module.
 //
 // E also carries the zone-NAME half of the same cache, which
 // ./zone-name-patches.test.ts covers; loading it here pulls that in too, since it
@@ -99,6 +100,12 @@ for (const [label, keys] of VARIANTS) {
           ["sequential", points],
           ["shuffled", [...points].sort(() => 0.5 - Math.random())],
           ["reversed", [...points].reverse()],
+          // Every real parse looks like this: fixOffset seeds itself with the
+          // offset at Settings.now() and then probes around the instant it is
+          // actually placing, so the zone is asked about the two in turn,
+          // forever. It is the pattern a one-span cache cannot serve — each
+          // lookup evicts the other's span — and the reason there are two.
+          ["interleaved with now", points.flatMap((ts) => [Date.now(), ts])],
         ];
 
         for (const [order, list] of orders) {
@@ -140,3 +147,81 @@ for (const [label, keys] of VARIANTS) {
     }
   });
 }
+
+// The orders above prove the cache is INVISIBLE. They cannot prove it is doing
+// anything, because a cache that never hits is still correct — and the one that
+// shipped first never hit on this pattern at all, which no parity assertion
+// would have noticed. So this counts instead of comparing.
+describe("transitionInterval actually caches", () => {
+  /**
+   * Intl reads the zone performs over `list`, with a formatter that counts them.
+   *
+   * resetCache() first, because loadLuxon hands back one module per patch set
+   * and the interval cache would otherwise arrive warm from whatever ran before
+   * — which is exactly how a cache that cannot serve this pattern still measures
+   * as though it can.
+   */
+  async function intlReadsPerLookup(zone: string, list: number[]): Promise<number> {
+    const Real = Intl.DateTimeFormat;
+    let reads = 0;
+
+    // installed before the zone exists, so the scanner's own formatter is the
+    // counting one
+    (Intl as { DateTimeFormat: unknown }).DateTimeFormat = function (...args: unknown[]) {
+      const f = new (Real as unknown as new (...a: unknown[]) => Intl.DateTimeFormat)(...args);
+
+      for (const m of ["format", "formatToParts"] as const) {
+        // `format` is a prototype getter, so this has to be an own property
+        const real = (f[m] as (...a: unknown[]) => unknown).bind(f);
+        Object.defineProperty(f, m, {
+          configurable: true,
+          value: (...a: unknown[]) => (reads++, real(...a)),
+        });
+      }
+
+      return f;
+    };
+
+    try {
+      const lux = await loadLuxon([patchKey("offsetScan"), patchKey("transitionInterval")]);
+      lux.IANAZone.resetCache();
+
+      const z = lux.IANAZone.create(zone);
+      // the scanner itself is built on the first lookup and is not what this
+      // counts, so warm it and start the count after
+      z.offset(list[0]!);
+      reads = 0;
+
+      for (const ts of list) z.offset(ts);
+      // per lookup, not per instant: the interleaved list is twice as long, and
+      // comparing its total against the plain one's would flatter it by half
+      return reads / list.length;
+    } finally {
+      (Intl as { DateTimeFormat: unknown }).DateTimeFormat = Real;
+    }
+  }
+
+  for (const zone of ["America/New_York", "Europe/Dublin", "Asia/Kolkata"]) {
+    test(`${zone} serves a run interleaved with \`now\` from the cache`, async () => {
+      // an hour apart, which is far finer than the 2-day probe spacing, so a
+      // working cache answers nearly all of them without asking Intl
+      const run = Array.from({ length: 400 }, (_, i) => Date.UTC(2026, 0, 1) + i * 3_600_000);
+      const now = Date.now();
+
+      const plain = await intlReadsPerLookup(zone, run);
+      const interleaved = await intlReadsPerLookup(zone, run.flatMap((ts) => [now, ts]));
+
+      // Generous on purpose: the point is the difference between "caches" and
+      // "cannot cache", which is an order of magnitude, not a tuned ratio. The
+      // single-span version read Intl 1.06 times per lookup here against 0.14
+      // for the same instants in order.
+      assert.ok(plain < 0.3, `sequential run cost ${plain.toFixed(2)} Intl reads per lookup`);
+      assert.ok(
+        interleaved < 0.3,
+        `run interleaved with \`now\` cost ${interleaved.toFixed(2)} Intl reads per lookup against ` +
+          `${plain.toFixed(2)} for the same instants in order — the cache is being evicted by the other ` +
+          `call site rather than serving both`
+      );
+    });
+  }
+});

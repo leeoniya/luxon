@@ -970,23 +970,37 @@ where that leaves it. The biggest formatting wins do nothing there: A and D are
 the zone-NAME lookup and no parse performs one, C compiles a format string and no
 parse walks one, so all three sit within noise of stock in every parse column. D
 is the clearest case of it — it takes two thirds off the abbreviated format above
-and moves no parse column at all. B carries the parse-side improvement instead,
-being offset(), which every zoned parse needs before it can place a local time —
-taking an ISO string without an offset from
-${readMs("iso", "luxon (stock)")}ms to ${readMs("iso", "luxon A+B")}ms and a bare timestamp from ${readMs("millis", "luxon (stock)")}ms to ${readMs("millis", "luxon A+B")}ms.
-That makes the input's shape decide what any of it is worth: an ISO string
-carrying its own offset needs the zone barely at all (stock reads it in ${readMs("iso+off", "luxon (stock)")}ms
-against ${readMs("iso", "luxon (stock)")}ms without), so on that column the ladder has much less to remove.
+and moves no parse column at all. B and E carry the parse side instead, both
+being offset(), which every zoned parse needs before it can place a local time.
 
-Which is also where easy-tz's zone lands hardest. It beats the entire patch set on
-the zone-bound column (${readMs("iso", "easytz zone")}ms against ${readMs("iso", FULL)}ms fully patched, ${readX("iso", "luxon (stock)", "easytz zone")} off stock) and it
-flattens the difference between the two ISO shapes to nothing — with the offset
-lookup that cheap, a string that supplies its own stops being an advantage. What
-neither reaches is moment-timezone on token parsing: fully patched luxon still
-needs ${readMs("tokens", FULL)}ms against moment-timezone's ${readMs("tokens", "moment")}ms on Grafana's own format, because that
-path is bounded by luxon's tokenizer rather than by anything a zone does. On the
-other three shapes the patched builds are ahead, and on a bare timestamp it is not
-close: ${readMs("millis", FULL)}ms against ${readMs("millis", "moment")}ms.
+How many times it needs it is the whole story of this table, and the two ISO
+columns are the same parse differing only in that count. A string with no offset
+on it costs three zone lookups: fixOffset cannot turn a local time into an
+instant without knowing the offset, and cannot know the offset without an
+instant, so it seeds itself with the offset at Settings.now() and then probes
+twice around the answer. A string carrying its own offset supplies that seed,
+skips the probes, and is read in a fixed-offset zone, so it costs one — which is
+why stock reads it in ${readMs("iso+off", "luxon (stock)")}ms against ${readMs("iso", "luxon (stock)")}ms, and why B alone, which only makes each
+lookup cheaper, cannot close a gap that is about how many there are.
+
+E is what closes it, though the first version of it did not. Three lookups per
+parse is precisely the pattern a one-span cache cannot serve — each evicts the
+next, so a span never survives to be hit and the budget that would widen it never
+grows — and that version hit exactly never, while hitting 99% of the time on the
+column that makes one lookup. Not because the instants are far apart, either: it
+missed as reliably reading today's dates as dates years out. Two spans, anchored
+around the instant that missed rather than extended the way the last miss went,
+take the no-offset column from ${readMs("iso", "luxon A+B+C+D")}ms at the rung above it to ${readMs("iso", "luxon A+B+C+D+E")}ms, and the two
+ISO shapes end up level (${readMs("iso", FULL)}ms and ${readMs("iso+off", FULL)}ms fully patched) because the count stops
+mattering once the lookups are free.
+
+That also settles the two comparisons this table used to lose. easy-tz's zone no
+longer beats the patch set on the zone-bound column — ${readMs("iso", FULL)}ms fully patched against
+${readMs("iso", "easytz zone")}ms, ${readX("iso", "luxon (stock)", FULL)} off stock — because both are now bounded by luxon's own
+parsing rather than by a zone lookup. And on Grafana's token format the patched
+build reaches ${readMs("tokens", FULL)}ms against moment-timezone's ${readMs("tokens", "moment")}ms, where before E was fixed it was
+behind. The patched builds are ahead on every shape here, and on a bare timestamp
+it is not close: ${readMs("millis", FULL)}ms against ${readMs("millis", "moment")}ms.
 `;
 }
 
@@ -1136,6 +1150,16 @@ rather than a bundled copy that bound is 6.96 days, so both margins are 3.5x, an
 sharing the cache costs nothing because the two bounds coincide. The failure mode
 if tzdata ever tightened past either is a stale offset or a stale name rather than
 a crash. B and D have no such precondition and are worth filing regardless.
+
+E also has the one divergence from stock in the whole set, and it is stock that
+is strange. Asked for a GENERIC name, ICU answers America/Cambridge_Bay with "MT"
+everywhere except the single repeated hour of a fall-back transition, where it
+returns "MT (Cambridge Bay)" — an instant-dependent answer for a name whose whole
+point is not to depend on the instant. A span brackets that hour and serves the
+neighbouring answer. Over 218,100 comparisons against stock spanning 16 zones, 5
+locales, all 6 styles and 4 access orders, that is every one of the 258
+differences; there are none in the offset, and none in short or long, which are
+the only two styles luxon's own tokens ask for.
 
 Stacked, all of it takes the easy-tz path from ${ratio(num, "easytz zone")}x moment-timezone to ${ratio(num, FULL_EASY)}x and
 stock luxon from ${ratio(num, "luxon (stock)")}x to ${ratio(num, FULL)}x, without touching a public API or changing a byte
