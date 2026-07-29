@@ -1,10 +1,10 @@
 Patch: zoneInfoCache
-Letter: C
+Letter: A
 Requires: none
 Files: src/impl/locale.js, src/impl/util.js
 Summary: parseZoneInfo: reuse the existing DTF cache instead of building one per call
 
-C: parseZoneInfo builds a new Intl.DateTimeFormat per call
+A: parseZoneInfo builds a new Intl.DateTimeFormat per call
 
 Nothing caches it, so any format carrying a zone name (ZZZZ/ZZZZZ, or the
 offsetNameShort/offsetNameLong getters) pays a formatter construction per
@@ -40,7 +40,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
  import { InvalidArgumentError } from "../errors.js";
  import Settings from "../settings.js";
  import { dayOfWeek, isoWeekdayToLocal } from "./conversions.js";
-+// UPSTREAM-C: locale.js imports this module, so this is a cycle. It is safe as
++// UPSTREAM-A: locale.js imports this module, so this is a cycle. It is safe as
 +// written — getCachedDTF is a hoisted function declaration, so its binding is
 +// live before either module body runs — but an upstream PR would more likely
 +// move parseZoneInfo down into locale.js, or the DTF cache up into this file.
@@ -53,7 +53,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
    const modified = { timeZoneName: offsetFormat, ...intlOpts };
  
 -  const parsed = new Intl.DateTimeFormat(locale, modified)
-+  // UPSTREAM-C: was `new Intl.DateTimeFormat(locale, modified)` — one formatter
++  // UPSTREAM-A: was `new Intl.DateTimeFormat(locale, modified)` — one formatter
 +  // construction per value, uncached, and the single most expensive thing in
 +  // luxon's formatting path whenever the pattern includes a zone name.
 +  const parsed = getCachedDTF(locale, modified)

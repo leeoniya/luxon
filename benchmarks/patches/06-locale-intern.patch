@@ -1,10 +1,10 @@
 Patch: localeIntern
-Letter: D
+Letter: F
 Requires: none
 Files: src/impl/locale.js
 Summary: Locale: intern Locales and memoize redefaultToEN instead of rebuilding per value
 
-D: the Locale is rebuilt twice per formatted value
+F: the Locale is rebuilt twice per formatted value
 
 Two separate wastes, which only pay off fixed together:
 
@@ -80,7 +80,7 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
    }
  
    static create(locale, numberingSystem, outputCalendar, weekSettings, defaultToEN = false) {
-+    // UPSTREAM-D: see benchmarks/patches/. Only the plain shapes are interned:
++    // UPSTREAM-F: see benchmarks/patches/. Only the plain shapes are interned:
 +    // no numbering system and no week settings, and either no outputCalendar or
 +    // the "gregory" that Info.months and Info.monthsFormat pass explicitly.
 +    // Anything else falls through to the original uncached path.
@@ -136,7 +136,7 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
    }
  
    redefaultToEN(alts = {}) {
-+    // UPSTREAM-D: toFormat() lands here on every call with no alts at all.
++    // UPSTREAM-F: toFormat() lands here on every call with no alts at all.
 +    if (Object.getOwnPropertyNames(alts).length === 0) {
 +      const gen = localeSettingsGen();
 +
@@ -150,4 +150,3 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
 +
      return this.clone({ ...alts, defaultToEN: true });
    }
- 

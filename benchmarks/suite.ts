@@ -3,9 +3,10 @@
 // benchmarks/upstream.ts measures the two paths they were written for: writing a
 // column of zoned values, and reading dates back. Neither says what happens to
 // the rest of the library, and several patches are not confined to formatting —
-// B memoizes the tokenizer both directions use, D interns Locales, F/G/H are
-// arithmetic in shared helpers. A patch that buys 40% on one path and costs 10%
-// on twenty others is not filable, and no table there would have shown it.
+// F interns Locales, and G memoizes the tokenizer both directions use as well as
+// rewriting arithmetic in shared helpers. A patch that buys 40% on one path and
+// costs 10% on twenty others is not filable, and no table there would have shown
+// it.
 //
 // So this runs luxon's OWN benchmark suite against the same builds. The cases
 // are the 21 + 8 in benchmarks/datetime.js and benchmarks/info.js, which makes
@@ -35,11 +36,11 @@
 //
 // It has already earned that: on its first run it caught two things the format
 // and parse tables could not have, and both are now fixed in the patches.
-//   * D interned only Locales built with no outputCalendar, and Info.months and
-//     Info.monthsFormat pass "gregory" explicitly — so those two paid D's check
+//   * F interned only Locales built with no outputCalendar, and Info.months and
+//     Info.monthsFormat pass "gregory" explicitly — so those two paid F's check
 //     and got nothing, coming out 12-17% slower than stock while Info.weekdays
-//     (which passes null) came out 45% faster. D now interns both shapes.
-//   * J, K, L and M each added a module-level cache that Settings.resetCaches()
+//     (which passes null) came out 45% faster. F now interns both shapes.
+//   * B, D and E each added a module-level cache that Settings.resetCaches()
 //     did not reach, which is what their two resetCaches() cases are for. A cache
 //     that survives a documented reset is a behavior change rather than a
 //     memoization, and these patches only claim the latter.
@@ -94,28 +95,28 @@ interface Column {
 }
 
 /**
- * The six patches benchmarks/upstream.ts recommends filing, which is the set
+ * The five patches benchmarks/upstream.ts recommends filing, which is the set
  * whose side effects matter most — they are the ones that would actually land.
- * Kept in step with that file's LADDER by hand; the letters are asserted below,
- * so a patch inserted ahead of them fails loudly rather than silently renaming
- * this column.
+ * They are also the ladder, and the patch files are lettered in ladder order, so
+ * this is A-E. Kept in step with that file by hand; the letters are asserted
+ * below, so a patch inserted ahead of them fails loudly rather than silently
+ * renaming this column.
  */
 const SHIP: PatchKey[] = [
   "zoneInfoCache",
   "compileFormat",
   "offsetScan",
-  "offsetInterval",
   "zoneNameScan",
-  "zoneNameInterval",
+  "transitionInterval",
 ].map(patchKey);
 
 const shipLabel = SHIP.map((k) => patchLetter.get(k)!)
   .sort()
   .join("");
 
-if (shipLabel !== "CIJKLM") {
+if (shipLabel !== "ABCDE") {
   throw new Error(
-    `the ship list is no longer C+I+J+K+L+M but ${shipLabel} — is benchmarks/upstream.ts's ladder still the same?`
+    `the ship list is no longer A-E but ${shipLabel} — is benchmarks/upstream.ts's ladder still the same?`
   );
 }
 
@@ -341,7 +342,7 @@ const dateTimeCases: Case[] = [
 
 // Their four Info suites, each a pair: once with a Locale handed in, once
 // leaving Info to build one. The pair is the point — the second is the path a
-// caller actually takes, and D (localeIntern) is a patch to exactly that.
+// caller actually takes, and F (localeIntern) is a patch to exactly that.
 const infoCases: Case[] = (["months", "monthsFormat", "weekdays", "weekdaysFormat"] as const).flatMap(
   (method): Case[] => [
     {
@@ -527,7 +528,7 @@ own percentages are worth a few nanoseconds.
 Reproduced from benchmarks/datetime.js and info.js with the deviations listed at the top of this
 file. Two of their cases call Settings.resetCaches() every iteration; what that clears is luxon's
 own caches, so those two rows also report whether a patch's cache is reachable from the reset
-path — which is how the J/K/L/M reset hooks in benchmarks/patches came to be written.
+path — which is how the reset hooks in B, D and E came to be written.
 
 verdict against ${cases.length} of luxon's own cases:
 ${verdict}`);
@@ -551,16 +552,16 @@ a zone: DateTime#setZone ${d("DateTime#setZone")}, DateTime.local with a zone ${
 one, ${d("DateTime.fromFormat with zone")} and ${d(
     "DateTime.fromFormatParser with zone"
   )}. None of those formats anything — they need an offset to place a
-local time, and J and K are what that offset costs. The same four cases without a zone move by
+local time, and B and E are what that offset costs. The same four cases without a zone move by
 ${d("DateTime.local with numbers")} to ${d(
     "DateTime.fromFormatParser"
   )}, which is the size of the rest of the ladder on paths it was not written for.
 
-I is visible on DateTime#toFormat (${d("DateTime#toFormat")}, and ${d(
+C is visible on DateTime#toFormat (${d("DateTime#toFormat")}, and ${d(
     "DateTime#toFormat",
     all
-  )} with the other seven), which is the case
-benchmarks/format.ts measures in bulk. D is visible on Info: ${d("Info.months", all)} on Info.months and ${d(
+  )} with the other six), which is the case
+benchmarks/format.ts measures in bulk. F is visible on Info: ${d("Info.months", all)} on Info.months and ${d(
     "Info.weekdays",
     all
   )} on

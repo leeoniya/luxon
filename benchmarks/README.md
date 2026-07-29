@@ -1,13 +1,13 @@
 # benchmarks
 
-Luxon's own benchmark suite, plus a harness for thirteen candidate upstream
+Luxon's own benchmark suite, plus a harness for seven candidate upstream
 patches to `src/`.
 
 The patches came out of profiling luxon against moment-timezone on a formatting
 workload: a column of timestamps rendered in a named IANA zone, which is what a
 dashboard or a data table produces thousands of at a time. Stock luxon runs that
 at ~3x moment-timezone with a plain `yyyy-MM-dd HH:mm:ss`, and ~26x once the
-pattern includes a zone abbreviation. All thirteen are pure memoization or
+pattern includes a zone abbreviation. All seven are pure memoization or
 provable short-circuits: no API changes, no output changes.
 
 Nothing here modifies `src/`. Each patch is a unified diff in
@@ -66,7 +66,7 @@ the change above it:
 
 ```
 Patch: zoneInfoCache
-Letter: C
+Letter: A
 Requires: none
 Summary: parseZoneInfo: reuse the existing DTF cache instead of building one per call
 
@@ -86,7 +86,7 @@ Each distinct subset of patches gets its own directory and therefore its own
 module instance, so one variant's internal caches can never warm another's. That
 matters more than it sounds — most of these patches *are* caches.
 
-Three patches are written against another's output and cannot be applied alone
+Two patches are written against another's output and cannot be applied alone
 (`Requires:` says which); the loader pulls in what they need.
 
 ## Layout
@@ -97,7 +97,7 @@ suite.ts                         those 29 cases across build columns
 format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
 cross-engine.ts                  upstream.ts under node and bun, diffed
-patches/                         the thirteen diffs
+patches/                         the seven diffs
 test/                            parity tests for the four zone patches
 lib/                             harness (see each file's header)
 ```

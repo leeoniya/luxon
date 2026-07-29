@@ -10,7 +10,7 @@
  * Worth running deliberately rather than never. format.ts's agreement tables are
  * what license the speed claims (a fast formatter that prints the wrong
  * abbreviation is not a result), and upstream.ts's parity scan is the only place
- * all 13 candidate patches are checked for behavior preservation — the tests in
+ * all seven candidate patches are checked for behavior preservation — the tests in
  * benchmarks/test/ cover just the four zone ones.
  */
 export const withVerify: boolean = process.argv.includes("--verify");
@@ -42,11 +42,11 @@ export const allTables: boolean = asked.length === 0 || asked.length === TABLES.
  * Whether benchmarks/upstream.ts reports each build's rss and
  * Intl.DateTimeFormat constructions (one subprocess per row, ~2.5s) as columns.
  * Off by default because the two columns earned less than the width they took:
- * the Intl counts collapse to 3 for every rung from C onward, which is one
+ * the Intl counts collapse to 3 for every rung from A onward, which is one
  * sentence rather than a column, and under V8 the rungs differ in rss by less
  * than re-measuring one of them does, so the column invited conclusions it could
  * not support. Both are still worth asking for when a patch is supposed to change
- * what a build allocates or how many formatters it builds — patch C is the case
+ * what a build allocates or how many formatters it builds — patch A is the case
  * that showed up loudly (2,002 formatters for 2,000 values, down to 3) and future
  * cache patches are the same shape of claim.
  */

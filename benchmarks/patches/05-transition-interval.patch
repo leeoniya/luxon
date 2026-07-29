@@ -1,0 +1,175 @@
+Patch: transitionInterval
+Letter: E
+Requires: B (offsetScan), D (zoneNameScan)
+Files: src/impl/util.js, src/zones/IANAZone.js
+Summary: one transition-free interval cache, shared by the offset and the zone-name lookup
+
+E: both Intl lookups re-derive the same answer for every value
+
+Requires B and D, whose scanners it anchors on. An offset or a name only changes
+at a transition, so a value inside a span already known to be transition-free
+needs no Intl call at all. That is one idea and it applies to both of the calls
+B and D just made cheap, so this is one cache used twice rather than the same
+cache written twice: impl/util.js grows a small interval memo, and
+IANAZone#offset and parseZoneInfo each hand it their own lookup.
+
+The interval is exact, not a heuristic. Probes are spaced 2 days apart, and the
+shortest window in which any zone's offset changes and returns to where it
+started is 6.96 days (America/Boa_Vista, Oct 2000; measured over all 68214
+transitions the runtime's own ICU reports, via easy-tz's
+tools/tz-transition-gap.ts). Departing and returning inside a probe pair is the
+only way two agreeing probes could be wrong, so a shorter window proves the span
+transition-free.
+
+Sharing one cache between the two means the bound has to hold for the stricter
+of them, because a name can move while the offset stays put —
+America/Cambridge_Bay spent the 2000 Nunavut experiment doing exactly that. It
+does hold, and it is the same number: the signature bound (CLDR name + offset)
+is 6.96 days over the same window, so the 2-day spacing keeps its 3.5x margin
+either way. That tool asserts the spacing against a fresh measurement of the
+runtime's own ICU, so tzdata tightening past it fails loudly rather than
+quietly serving a stale name.
+
+How far to fan out is decided by what the previous interval actually returned,
+which keeps the cache from betting on a workload it isn't getting: a sequential
+reader earns a wide fan within a few misses, while random access settles at no
+probing at all and pays exactly what B and D alone would.
+
+The two callers differ only in where the state lives, and that difference is
+what decides how each is reset. IANAZone keeps a map keyed by zone, cleared by
+its resetCache() alongside the others. The name side hangs the interval off the
+scanner that D already caches per locale and style, so Locale.resetCache() drops
+it with the scanner and no new hook is needed.
+
+diff --git a/src/impl/util.js b/src/impl/util.js
+--- a/src/impl/util.js
++++ b/src/impl/util.js
+@@ -258,6 +258,59 @@ export function resetZoneNameCache() {
+   nameScanCache.clear();
+ }
+ 
++// UPSTREAM-E: one transition-free interval cache, shared by the two Intl
++// lookups that want one -- IANAZone#offset over in zones/IANAZone.js, and
++// parseZoneInfo below.
++//
++// An offset or a name only changes at a transition, so a value inside a span
++// that two agreeing probes prove transition-free needs no Intl call at all. The
++// span is exact rather than a guess: probes sit 2 days apart, and the shortest
++// window in which any zone's offset or CLDR name departs and returns is 6.96
++// days, so departing and returning unseen between one probe and the next cannot
++// happen.
++const INTERVAL_PROBE_MS = 2 * 86400000;
++const INTERVAL_MAX_REACH = 256;
++const INTERVAL_MAX_TS = 8.64e15;
++
++export function newInterval() {
++  return { lo: 1, hi: 0, val: null, reach: 0, hits: 0, misses: 0 };
++}
++
++/**
++ * What lookup(ctx, t) returns at t, reused across the transition-free interval
++ * around t. The caller owns the state, so where it is cached -- per zone, per
++ * scanner -- is the caller's business and its reset is too.
++ */
++export function intervalLookup(st, lookup, ctx, t) {
++  if (t >= st.lo && t <= st.hi) {
++    st.hits++;
++    return st.val;
++  }
++
++  const val = lookup(ctx, t);
++  const forward = t > st.hi;
++
++  st.val = val;
++  st.lo = t;
++  st.hi = t;
++
++  for (let k = 1; k <= st.reach; k++) {
++    const p = t + (forward ? k : -k) * INTERVAL_PROBE_MS;
++    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;
++    if (forward) st.hi = p;
++    else st.lo = p;
++  }
++
++  st.misses++;
++  // probe budget = what the last interval paid back; a miss streak (random
++  // access) decays it to zero, with an occasional single probe to notice if the
++  // caller has started walking in order after all
++  st.reach = st.hits > 0 ? Math.min(st.hits, INTERVAL_MAX_REACH) : (st.misses & 15) === 0 ? 1 : 0;
++  st.hits = 0;
++
++  return val;
++}
++
+ // Either side of a DST boundary, and one that renders a one-digit hour if the
+ // locale does not honor 2-digit: a surround that is not fixed-width shows up as
+ // a disagreement here rather than as a wrong name later.
+@@ -300,7 +353,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
+     }
+   }
+ 
+-  return { dtf, pre, suf };
++  return { dtf, pre, suf, iv: newInterval() };
+ }
+ 
+ function zoneNameScanner(locale, offsetFormat, timeZone) {
+@@ -324,7 +377,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
+   const scan = zoneNameScanner(locale, offsetFormat, timeZone);
+ 
+   if (scan !== null) {
+-    return scanName(scan, ts);
++    return intervalLookup(scan.iv, scanName, scan, ts);
+   }
+ 
+   const date = new Date(ts),
+diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
+--- a/src/zones/IANAZone.js
++++ b/src/zones/IANAZone.js
+@@ -1,9 +1,29 @@
+-import { formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/util.js";
++import {
++  formatOffset,
++  parseZoneInfo,
++  isUndefined,
++  objToLocalTS,
++  newInterval,
++  intervalLookup,
++} from "../impl/util.js";
+ import Zone from "../zone.js";
+ 
+ const dtfCache = new Map();
+ const scanCache = new Map();
+ 
++// UPSTREAM-E: the interval state for each zone's scanner. The name side keeps
++// its own on the scanner object; this side needs a map because the scanner is a
++// bare function.
++const intervalCache = new Map();
++
++function offsetInterval(zoneName) {
++  let st = intervalCache.get(zoneName);
++  if (st === undefined) intervalCache.set(zoneName, (st = newInterval()));
++  return st;
++}
++
++const callScan = (scan, t) => scan(t);
++
+ /** days since the epoch for a proleptic-gregorian date (Howard Hinnant) */
+ function daysFromCivil(y, m, d) {
+   y -= m <= 2 ? 1 : 0;
+@@ -156,6 +176,7 @@ export default class IANAZone extends Zone {
+     ianaZoneCache.clear();
+     dtfCache.clear();
+     scanCache.clear();
++    intervalCache.clear();
+   }
+ 
+   /**
+@@ -283,7 +304,7 @@ export default class IANAZone extends Zone {
+     if (scan !== null) {
+       const t = Math.trunc(ts);
+       if (!(Math.abs(t) <= 8.64e15)) return NaN;
+-      return scan(t);
++      return intervalLookup(offsetInterval(this.name), callScan, scan, t);
+     }
+ 
+     const date = new Date(ts);

@@ -36,7 +36,7 @@ export type PatchKey = string;
 
 export interface Patch {
   key: PatchKey;
-  /** A-M, its position in apply order; what the report tables label it */
+  /** A-G, its position in apply order; what the report tables label it */
   letter: string;
   /** one-line summary for report tables */
   what: string;
@@ -71,7 +71,7 @@ function parseHeader(text: string, file: string) {
     key: field("Patch"),
     letter: field("Letter"),
     what: field("Summary"),
-    // "C (zoneInfoCache), L (zoneNameScan)" -> the keys in the parens
+    // "B (offsetScan), D (zoneNameScan)" -> the keys in the parens
     needs: requires === "none" ? [] : [...requires.matchAll(/\((\w+)\)/g)].map((m) => m[1]!),
     prose: head.slice(head.indexOf("Summary:")).split("\n").slice(2).join("\n").trim(),
   };
@@ -79,7 +79,7 @@ function parseHeader(text: string, file: string) {
 
 async function readPatches(): Promise<Patch[]> {
   // numeric filename prefixes ARE the apply order, and several patches are only
-  // meaningful in it (K's diff is written against J's output, M's against L's)
+  // meaningful in it (D's diff is written against A's output, E's against B's and D's)
   const names = (await readdir(PATCH_DIR)).filter((n) => n.endsWith(".patch")).sort();
 
   return Promise.all(
@@ -107,8 +107,8 @@ export const patchProse = new Map(PATCHES.map((p) => [p.key, p.prose]));
 
 /**
  * Patches that have to be applied before this one, because its diff is written
- * against text they introduce. K needs J, M needs L, and L needs C — so those
- * pairs are only ever measurable together.
+ * against text they introduce. D needs A, and E needs B and D — so those are
+ * only ever measurable together.
  */
 export const patchNeeds = new Map(PATCHES.map((p) => [p.key, p.needs]));
 

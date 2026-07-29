@@ -1,13 +1,13 @@
 Patch: compileFormat
-Letter: I
+Letter: C
 Requires: none
 Files: src/impl/formatter.js
 Summary: Formatter: compile a format string to handlers once, instead of a switch per token per value
 
-I: compile the format instead of interpreting it
+C: compile the format instead of interpreting it
 
 The structural one, and the only patch here that is not a cache or a
-short-circuit. Everything above leaves the shape of formatDateTimeFromString
+short-circuit. Everything else leaves the shape of formatDateTimeFromString
 alone: per formatted value it builds eight closures over `dt`, then walks the
 token list calling a ~70-case string switch per token, and re-allocates the
 Intl options object literals inside the branches it happens to take.
@@ -17,9 +17,10 @@ handler once per pattern turns formatting into a walk over a prebuilt array.
 The representation is alternating literal/handler runs —
   lits[0] + fns[0]() + lits[1] + fns[1]() + ... + lits[n]
 so literal text is concatenated rather than dispatched, and adjacent literals
-collapse at compile time. That subsumes B (parseFormat now runs once per
-pattern) and E (punctuation and unknown tokens fold into the literal runs,
-which is what the interpreter's default branch effectively did anyway).
+collapse at compile time. That subsumes two of G's six: parseFormat now runs
+once per pattern rather than once per value, and punctuation and unknown tokens
+fold into the literal runs, which is what the interpreter's default branch
+effectively did anyway.
 
 The two locale-derived flags stay per call, passed as arguments rather than
 baked into the program, so the cache can be keyed on the format string alone.
@@ -35,7 +36,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
    return s;
  }
  
-+// ---- UPSTREAM-I: compiled format programs ----------------------------------
++// ---- UPSTREAM-C: compiled format programs ----------------------------------
 +// A format string compiles to alternating literal/handler runs. Handlers take
 +// (formatter, dateTime, knownEnglish, useDateTimeFormatter) so that a program
 +// depends on the pattern alone and can be shared across locales and formatters.
@@ -246,7 +247,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
    }
  
    formatDateTimeFromString(dt, fmt) {
-+    // UPSTREAM-I: see benchmarks/patches/
++    // UPSTREAM-C: see benchmarks/patches/
 +    return cfRun(this, dt, fmt);
 +  }
 +

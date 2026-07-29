@@ -1,11 +1,17 @@
-// The two offset patches proposed for upstream (J and K in benchmarks/patches)
+// The two patches that touch the offset lookup (B and E in benchmarks/patches)
 // must be invisible: the same offset, the same formatted output, and the same
 // NaN cases as stock luxon.
 //
-// K (offsetInterval) is the one that needs the coverage. It is stateful and its
-// answer depends on which instants it was asked about earlier, so every zone is
-// replayed in three access orders — a sequential reader, a random one, and a
+// E (transitionInterval) is the one that needs the coverage. It is stateful and
+// its answer depends on which instants it was asked about earlier, so every zone
+// is replayed in three access orders — a sequential reader, a random one, and a
 // backwards one — each against a fresh module.
+//
+// E also carries the zone-NAME half of the same cache, which
+// ./zone-name-patches.test.ts covers; loading it here pulls that in too, since it
+// requires D. That is inert for these assertions — nothing below formats a name
+// through parseZoneInfo — but it does mean this file no longer isolates the
+// offset side the way it did when the two intervals were separate patches.
 //
 // Run: node --test benchmarks/test/
 //      bun --test benchmarks/test/        (the same, on JavaScriptCore)
@@ -32,7 +38,7 @@ const ZONES = [
 
 const VARIANTS: [string, PatchKey[]][] = [
   ["offsetScan", [patchKey("offsetScan")]],
-  ["offsetScan + offsetInterval", [patchKey("offsetScan"), patchKey("offsetInterval")]],
+  ["offsetScan + transitionInterval", [patchKey("offsetScan"), patchKey("transitionInterval")]],
 ];
 
 // ZZ and z together, so a wrong offset shows up in the rendered wall clock, in

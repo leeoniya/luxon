@@ -90,7 +90,7 @@ const PASSES: SampleBudget = { min: 3, max: 5, budgetMs: 200 };
 // loose, because shortening a pass costs resolution and this bench attributes
 // single patches worth 10-15%: measured against a budget that also caught the
 // ladder rungs, the control rows went from ~1% to ~3-9% and the patch ranking
-// reshuffled. Everything from `luxon C` down (a full pass costs ~380ms) stays at
+// reshuffled. Everything from `luxon A` down (a full pass costs ~380ms) stays at
 // the full N. What it does cut is the unpatched abbr path, which at ~2.1s per
 // pass would otherwise spend a third of this benchmark's runtime re-establishing
 // the one number nobody disputes.
@@ -104,30 +104,35 @@ const ZONE = "America/New_York";
 // actually in benchmarks/patches, so renaming a patch file breaks this loudly
 // rather than silently measuring a smaller set.
 //
-// A-D were found by profiling stock luxon, E-H by re-profiling the A-D build.
-// A-H are all caches or short-circuits; I is the structural one, and it makes B
-// and E redundant by construction (it parses each pattern once and folds
-// punctuation into literal runs), which the ACDFGHI row below checks.
-const CORE = ["numFast", "parseFormatCache", "zoneInfoCache", "localeIntern"].map(patchKey);
-const LATER = ["tokenLoop", "intRoundTo", "padStart2", "tsToObjMath"].map(patchKey);
-const CACHES = [...CORE, ...LATER];
+// A and the first of G's six were found by profiling stock luxon, the rest of
+// G's by re-profiling that build. A, F and G are caches or short-circuits; C is
+// the structural one, and it makes two of G's six redundant by construction (it
+// parses each pattern once and folds punctuation into literal runs).
+const CACHES = ["zoneInfoCache", "localeIntern", "hotPath"].map(patchKey);
 const ALL_PATCHES = [...CACHES, patchKey("compileFormat")];
-// J and K are the zone lookup rather than the formatter, so the per-patch
-// easy-tz rows leave them out: that zone overrides the offset() they patch and
-// would time them as noise. The one easy-tz row that does carry them is the full
-// one, where the point is what the full upstream build leaves easy-tz to win.
-const OFFSET = ["offsetScan", "offsetInterval"].map(patchKey);
-// L and M are the zone NAME lookup, and stand to J and K exactly as C stands to
-// them: the same two tricks (read the cheap Intl call, then cache it across a
-// transition-free span) applied to the other call a zoned format makes. Left out
-// of the per-patch easy-tz rows for the same reason as J and K — that zone
-// answers offsetName() itself, so neither would be timed doing anything.
-const NAME = ["zoneNameScan", "zoneNameInterval"].map(patchKey);
-const UPSTREAM = [...ALL_PATCHES, ...OFFSET, ...NAME];
+// B is the zone lookup rather than the formatter, so the per-patch easy-tz rows
+// leave it out: that zone overrides the offset() it patches and would time it as
+// noise. The one easy-tz row that does carry it is the full one, where the point
+// is what the full upstream build leaves easy-tz to win.
+const OFFSET = [patchKey("offsetScan")];
+// D is the zone NAME lookup, and stands to B exactly as A stands to it: the same
+// trick (read the cheap Intl call) applied to the other call a zoned format
+// makes. E then caches both across a transition-free span. Left out of the
+// per-patch easy-tz rows for the same reason as B — that zone answers
+// offsetName() itself, so neither would be timed doing anything.
+const NAME = [patchKey("zoneNameScan")];
+const UPSTREAM = [...ALL_PATCHES, ...OFFSET, ...NAME, patchKey("transitionInterval")];
+
+const NO_G = ALL_PATCHES.filter((k) => k !== "hotPath");
 
 // The letters are the patch files' own, not this file's numbering, so a report
 // row and the diff it refers to cannot drift apart.
 const LETTER = (k: PatchKey) => patchLetter.get(k)!;
+
+// The formatter-side groups are not a contiguous run of letters — the ladder
+// owns A-E and these are what is left — so their row labels are spelled out from
+// the set rather than written by hand.
+const LETTERS = (keys: readonly PatchKey[]) => keys.map(LETTER).sort().join("");
 
 if (UPSTREAM.length !== patchKeys.length) {
   throw new Error(
@@ -136,28 +141,30 @@ if (UPSTREAM.length !== patchKeys.length) {
   );
 }
 
-const NO_B_OR_E = ALL_PATCHES.filter((k) => k !== "parseFormatCache" && k !== "tokenLoop");
-
-// The headline result: the six patches that carry the whole win, stacked one at
-// a time so each rung's cost is attributable, and then everything else piled on
-// top to show what the remaining seven are actually worth once these land.
+// The headline result: stacked one patch at a time so each rung's cost is
+// attributable, and then everything piled on to show what the rest is worth once
+// these land.
 //
-// Ordered by how easy each is to argue for upstream rather than by size: C is a
-// one-line cache, J and L are self-contained rewrites of one method each, K and
-// M need the tzdata-gap argument accepted, and I is a structural change to the
-// Formatter. L and M land after I only because C, J and K were written first and
-// the rungs are cumulative — the two pairs are independent of each other.
+// Ordered by how easy each is to argue for upstream rather than by size: A is a
+// one-line cache, B and D are self-contained rewrites of one method each, E
+// needs the tzdata-gap argument accepted, and C is a structural change to the
+// Formatter. D lands after C only because A and B were written first and the
+// rungs are cumulative — the two Intl calls are independent of each other.
+//
+// The patch files are lettered in this order, so the rungs come out alphabetical
+// and the two that are not rungs are the last two letters.
 const LADDER: { id: string; keys: PatchKey[] }[] = [
-  { id: "C", keys: ["zoneInfoCache"] },
-  { id: "C+J", keys: ["zoneInfoCache", "offsetScan"] },
-  { id: "C+J+K", keys: ["zoneInfoCache", "offsetScan", "offsetInterval"] },
-  { id: "C+J+K+I", keys: ["zoneInfoCache", "offsetScan", "offsetInterval", "compileFormat"] },
-  { id: "C+J+K+I+L", keys: ["zoneInfoCache", "offsetScan", "offsetInterval", "compileFormat", "zoneNameScan"] },
+  { id: "A", keys: ["zoneInfoCache"] },
+  { id: "A+B", keys: ["zoneInfoCache", "offsetScan"] },
+  { id: "A+B+C", keys: ["zoneInfoCache", "offsetScan", "compileFormat"] },
+  { id: "A+B+C+D", keys: ["zoneInfoCache", "offsetScan", "compileFormat", "zoneNameScan"] },
   {
-    id: "C+J+K+I+L+M",
-    keys: ["zoneInfoCache", "offsetScan", "offsetInterval", "compileFormat", "zoneNameScan", "zoneNameInterval"],
+    id: "A+B+C+D+E",
+    keys: ["zoneInfoCache", "offsetScan", "compileFormat", "zoneNameScan", "transitionInterval"],
   },
-  { id: `all ${UPSTREAM.length} (A-${LETTER(UPSTREAM.at(-1)!)})`, keys: UPSTREAM },
+  // the last letter, not the last rung's — the two patches that are not rungs
+  // are the ones this adds
+  { id: `all ${UPSTREAM.length} (A-${LETTERS(UPSTREAM).at(-1)})`, keys: UPSTREAM },
 ].map((r) => ({ id: `luxon ${r.id}`, keys: r.keys.map(patchKey) }));
 
 /** the everything-applied build, which most of the report quotes something of */
@@ -266,7 +273,7 @@ const momentSpec = (fmt: FormatKey): Promise<BuildSpec> =>
 // the Intl offset lookup that dominates that build — several patches came out at
 // or below the noise floor there. Measured against the easy-tz zone, where that
 // lookup is already gone, the same absolute saving is a large enough share of
-// the remaining total to resolve. C is the exception: its entire purpose is the
+// the remaining total to resolve. A is the exception: its entire purpose is the
 // Intl zone-name path that easy-tz bypasses, so it is only meaningful against
 // stock.
 const paths: Path[] = [
@@ -290,25 +297,28 @@ const paths: Path[] = [
   // at the timing scale where relative noise matters least. The two controls
   // below sit where the margins are thin enough to argue about.
   ...LADDER.map((rung, i) => luxonPath(rung.id, rung.keys, false, LADDER[i - 1]?.id ?? "luxon (stock)")),
-  // The formatter effort on its own, for contrast with the C+J+K rung: it is the
+  // The formatter effort on its own, for contrast with the A+B rung: it is the
   // larger diff by far and the smaller win on both formats.
-  luxonPath("luxon ABCDEFGHI (formatter only)", ALL_PATCHES, false, "luxon (stock)"),
+  luxonPath(`luxon ${LETTERS(ALL_PATCHES)} (formatter only)`, ALL_PATCHES, false, "luxon (stock)"),
   luxonPath("easytz zone", [], true, undefined),
   luxonPath("easytz zone (control)", [], true, "easytz zone"),
   ...ALL_PATCHES.filter((k) => k !== "zoneInfoCache").map((k) =>
     luxonPath(`easytz +${LETTER(k)} ${k}`, [k], true, "easytz zone")
   ),
-  luxonPath("easytz ABCDEFGH (caches)", CACHES, true, "easytz zone"),
-  luxonPath("easytz ABCDEFGHI (all)", ALL_PATCHES, true, "easytz ABCDEFGH (caches)"),
+  luxonPath(`easytz ${LETTERS(CACHES)} (caches)`, CACHES, true, "easytz zone"),
+  luxonPath(`easytz ${LETTERS(ALL_PATCHES)} (all)`, ALL_PATCHES, true, `easytz ${LETTERS(CACHES)} (caches)`),
   // the control at the scale of the fastest rows: relative noise is larger down
-  // here than it is at the stock row's ~10x slower timings, so the B/E redundancy
+  // here than it is at the stock row's ~10x slower timings, so the redundancy
   // question below has to be judged against this, not against the control up top
-  luxonPath("easytz ABCDEFGHI (control)", ALL_PATCHES, true, "easytz ABCDEFGHI (all)"),
-  luxonPath("easytz ACDFGHI (no B/E)", NO_B_OR_E, true, "easytz ABCDEFGHI (all)"),
+  luxonPath(`easytz ${LETTERS(ALL_PATCHES)} (control)`, ALL_PATCHES, true, `easytz ${LETTERS(ALL_PATCHES)} (all)`),
+  // C subsumes two of G's six by construction. Dropping G entirely is the
+  // closest this can now come to measuring that: before the merge the two were
+  // their own patches and could be removed on their own.
+  luxonPath(`easytz ${LETTERS(NO_G)} (no G)`, NO_G, true, `easytz ${LETTERS(ALL_PATCHES)} (all)`),
   // The question the report ends on: if all of them land upstream, is the easy-tz
-  // zone still worth binding? It carries J and K even though its zone overrides
-  // the offset() they patch, so this row landing on top of A-I + easy-tz is the
-  // measurement of that, rather than a claim that they cannot matter here.
+  // zone still worth binding? It carries B and E even though its zone overrides
+  // the offset() they patch, so this row landing on top of everything + easy-tz
+  // is the measurement of that, rather than a claim that they cannot matter here.
   luxonPath(FULL_EASY, UPSTREAM, true, "easytz zone"),
   {
     id: "easytz fast path",
@@ -316,7 +326,7 @@ const paths: Path[] = [
     // measured for the findings, never tabulated, so never sized or profiled
     ships: null,
     easyZone: true,
-    base: "easytz ABCDEFGHI (all)",
+    base: "easytz ACFG (all)",
     spec: null,
     make: (fmt) => {
       const fast = makeFastFormatter(ZONE, fmt);
@@ -423,7 +433,10 @@ if (tables.has("patches")) {
   const rows: (string[] | null)[] = [
     [`stock luxon ${await pkgVersion()}`, bytes(sizes.get("")!), "--", "the fork's src/, unpatched"],
     null,
-    ...UPSTREAM.map((k) => {
+    // in letter order rather than in the groups the rest of this file reasons
+    // in: this table is the one place every patch is listed once, so it is the
+    // one that should read as the lettering does
+    ...[...UPSTREAM].sort((a, b) => LETTER(a).localeCompare(LETTER(b))).map((k) => {
       const size = sizes.get(setKey(withNeeds(k)))!;
       const base = sizes.get(setKey(patchNeeds.get(k)!))!;
 
@@ -435,10 +448,11 @@ if (tables.has("patches")) {
   printTable(["patch", "bytes", "d bytes", "change"], rows, false, [3]);
   console.log(
     `\nbytes is src/ bundled through \`bun build --minify\`, no gzip; d bytes is what the patch adds to it.\n` +
-      `C is the only one that pays for itself in bytes too — it deletes a constructor call in favor of a\n` +
-      `cache lookup luxon already has. Three of them build on another and cannot be applied alone, so\n` +
-      `their rows are the bundle including what they need, and the delta is over that: K on J, L on C,\n` +
-      `and M on L (and so on C).\n`
+      `A is the only one that pays for itself in bytes too — it deletes a constructor call in favor of a\n` +
+      `cache lookup luxon already has. Two of them build on another and cannot be applied alone, so\n` +
+      `their rows are the bundle including what they need, and the delta is over that: D on A, and E on\n` +
+      `B and D (and so on A). E's delta is also what the merge saved: one interval cache serving both\n` +
+      `lookups instead of a copy per lookup.\n`
   );
 }
 
@@ -603,11 +617,11 @@ if (tables.has("format")) {
             `read that column no finer.\n`)
     );
   } else {
-    // the finding survives the columns: it is why C leads the ladder, and unlike
+    // the finding survives the columns: it is why A leads the ladder, and unlike
     // every timing here it is exact and the same on both engines
     console.log(
       `rss and Intl.DateTimeFormat counts are not shown — one look at them answered the question. Stock\n` +
-        `luxon constructs a formatter per value formatted; every rung from C on constructs three for the\n` +
+        `luxon constructs a formatter per value formatted; every rung from A on constructs three for the\n` +
         `whole run, and moment-timezone none. rss separates the two baselines and little else on V8.\n` +
         `Pass --footprint for both as columns, profiled one subprocess per row (~2.5s).\n`
     );
@@ -641,11 +655,12 @@ if (tables.has("format") && scaledPaths.size > 0) {
 //
 // Worth a table of its own because the patches split unevenly across the two
 // directions, and the split is not guessable from the patch descriptions. Some
-// are formatter-only by construction (I compiles a format string to handlers; C
-// caches the zone-NAME lookup, which no parse performs). Some are shared
-// machinery that parsing happens to route through (B memoizes the tokenizer both
-// directions use; D interns Locales that both build). And J/K are the zone's
-// offset(), which every zoned parse needs before it can place a local time.
+// are formatter-only by construction (C compiles a format string to handlers; A
+// and D cache and then cheaply read the zone-NAME lookup, which no parse
+// performs). Some are shared machinery that parsing happens to route through (F
+// interns Locales that both build, and G memoizes the tokenizer both directions
+// use). And B and E are the zone's offset(), which every zoned parse needs
+// before it can place a local time.
 //
 // The columns are the shapes a caller actually has, not a sweep: an ISO string
 // with and without an offset on it, Grafana's two token formats likewise, and a
@@ -853,7 +868,7 @@ if (parseBroken.length > 0) {
 // informational rather than pass/fail.
 //
 // Opt-in (--verify): 20k values per path per format, which the timings do not
-// need. It is still the only check that covers all 13 patches — the tests in
+// need. It is still the only check that covers all seven patches — the tests in
 // benchmarks/test/ cover the offset and zone-name ones — so it has to pass
 // before any is argued for upstream.
 //
@@ -951,14 +966,14 @@ if (tables.has("parse")) {
 
   reading = `
 Reading dates was never what any of this was aimed at, and the reading table shows
-where that leaves it. The biggest formatting wins do nothing there: C, L and M are
-all the zone-NAME lookup and no parse performs one, I compiles a format string and
-no parse walks one, so all four sit within noise of stock in every parse column.
-The name patches are the clearest case of it — they take two thirds off the
-abbreviated format above and move no parse column at all. J and K carry the entire
-parse-side improvement instead — they are offset(), which every zoned parse needs
-before it can place a local time — taking an ISO string without an offset from
-${readMs("iso", "luxon (stock)")}ms to ${readMs("iso", "luxon C+J+K")}ms and a bare timestamp from ${readMs("millis", "luxon (stock)")}ms to ${readMs("millis", "luxon C+J+K")}ms.
+where that leaves it. The biggest formatting wins do nothing there: A and D are
+the zone-NAME lookup and no parse performs one, C compiles a format string and no
+parse walks one, so all three sit within noise of stock in every parse column. D
+is the clearest case of it — it takes two thirds off the abbreviated format above
+and moves no parse column at all. B carries the parse-side improvement instead,
+being offset(), which every zoned parse needs before it can place a local time —
+taking an ISO string without an offset from
+${readMs("iso", "luxon (stock)")}ms to ${readMs("iso", "luxon A+B")}ms and a bare timestamp from ${readMs("millis", "luxon (stock)")}ms to ${readMs("millis", "luxon A+B")}ms.
 That makes the input's shape decide what any of it is worth: an ISO string
 carrying its own offset needs the zone barely at all (stock reads it in ${readMs("iso+off", "luxon (stock)")}ms
 against ${readMs("iso", "luxon (stock)")}ms without), so on that column the ladder has much less to remove.
@@ -992,9 +1007,12 @@ if (tables.has("format")) {
   const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
 
   /**
-   * Every patch except C, ranked by what it saves on the easy-tz numeric path
-   * and bucketed against the noise floor. Computed rather than asserted in
-   * prose, because the ranking is not the same on V8 and JavaScriptCore.
+   * Every formatter-side patch except A, ranked by what it saves on the easy-tz
+   * numeric path and bucketed against the noise floor. Computed rather than
+   * asserted in prose, because the ranking is not the same on V8 and
+   * JavaScriptCore. Since the merge all three land in one bucket, so the two
+   * empty ones read as "--" — they are kept because which bucket a patch falls
+   * into is the point, and an engine that disagreed would show up here.
    */
   function tiers(): string {
     const zone = num.get("easytz zone")!;
@@ -1020,7 +1038,7 @@ if (tables.has("format")) {
   }
 
   const noiseMid = noiseBetween("easytz zone", "easytz zone (control)");
-  const noiseFast = noiseBetween("easytz ABCDEFGHI (all)", "easytz ABCDEFGHI (control)");
+  const noiseFast = noiseBetween("easytz ACFG (all)", "easytz ACFG (control)");
 
   const ratio = (ms: Map<string, number>, id: string) => (ms.get(id)! / ms.get("moment")!).toFixed(2);
 
@@ -1035,84 +1053,89 @@ findings (noise floor from two configurations measured twice each, which the tab
 above does not report: ~${pct(noiseMid)} at the easy-tz zone and ~${pct(noiseFast)} at the fully patched — the
 two timing scales where a patch's margin is close enough to the floor to matter)
 
-C is the one that matters and is barely an optimization: parseZoneInfo built a
+A is the one that matters and is barely an optimization: parseZoneInfo built a
 fresh Intl.DateTimeFormat per value, so any pattern containing a zone name paid
 formatter construction per formatted value. Routing it through luxon's existing
-getCachedDTF saves ${saved(abbr, "luxon C")} of that format's cost — ${(abbr.get("luxon (stock)")! / abbr.get("moment")!).toFixed(1)}x moment-timezone
-down to ${(abbr.get("luxon C")! / abbr.get("moment")!).toFixed(1)}x — as a one-line change.
+getCachedDTF saves ${saved(abbr, "luxon A")} of that format's cost — ${(abbr.get("luxon (stock)")! / abbr.get("moment")!).toFixed(1)}x moment-timezone
+down to ${(abbr.get("luxon A")! / abbr.get("moment")!).toFixed(1)}x — as a one-line change.
 
-I is the biggest single patch: ${saved(num, "easytz +I compileFormat")} of the numeric format against the easy-tz zone,
+C is the biggest single patch: ${saved(num, "easytz +C compileFormat")} of the numeric format against the easy-tz zone,
 more than any one cache. Compiling a pattern to handlers once removes three costs
 together — the ~70-case switch per token per value, the eight closures
 formatDateTimeFromString built per call, and the Intl options object literals its
 branches allocated — and folds punctuation into literal runs so separators cost a
 concat. It is not a substitute for the caches, though: those still come to
-${saved(num, "easytz ABCDEFGH (caches)")} between them, and I adds ${saved(num, "easytz ABCDEFGHI (all)")} on top of all of them.
+${saved(num, "easytz AFG (caches)")} between them, and C adds ${saved(num, "easytz ACFG (all)")} on top of all of them.
 
-The rest are individually modest, and which of them are worth keeping is engine
-dependent — cross-engine.ts runs this under both and diffs the two. Sorted by what
-they save here, against the easy-tz zone on the numeric format with a ~${pct(noiseMid)} noise
-floor:
+What each of the formatter-side patches is worth, against the easy-tz zone on the
+numeric format with a ~${pct(noiseMid)} noise floor:
 
 ${tiers()}
 
-I should also make B and E redundant by construction, since it parses each pattern
-once and folds punctuation into literal runs. Building ACDFGHI supports that:
-dropping both moves numeric by ${saved(num, "easytz ACDFGHI (no B/E)")} (positive meaning faster without them), against
-~${pct(noiseFast)} noise at that timing scale, and the sign is not stable across runs. Keep B
-if it is already written; do not write it for I's sake.
+G is the merge doing its job. Its six fast paths were six patches, and they did
+not agree on which engine they helped — two cleared the floor on V8 only, one on
+JavaScriptCore only, one on neither. Together they clear it on both by a wide
+margin, which is the case for filing them as one patch rather than six.
 
-C, J, L and I are the shippable core on any engine — all four remove an Intl call
-or most of one, which no engine can be fast at. Of the rest, cross-engine puts B
-above the floor on both V8 and JavaScriptCore and leaves A, D and H helping V8 and
-not JavaScriptCore, with E, F and G clearing neither — a single run of this file
-cannot tell those apart, so do not read the buckets above as a ship list on their
-own. H is the only patch that rewrites logic rather than adding a cache, and is
-verified against Date's own getters over 200k random instants across the full
-range.
+What the merge cost is the other half of that. C subsumes two of G's six by
+construction, since it parses each pattern once and folds punctuation into literal
+runs, and while those two were their own patches the build without them measured
+it directly. They cannot be removed on their own now, so all that is left is
+dropping G whole: ${saved(num, "easytz ACF (no G)")} (positive meaning faster without it) against ~${pct(noiseFast)} noise.
+That is a statement about G's weight, not about C's redundancy — the redundancy
+check is simply gone, and it is the one thing merging these six gave up.
+
+A, B, C and D are the shippable core on any engine — all four remove an Intl call
+or most of one, which no engine can be fast at. B and the tsToObj fast path inside
+G are the only places anything rewrites logic rather than adding a cache or a
+short-circuit; tsToObj is verified against Date's own getters over 200k random
+instants across the full range, and B against stock offset() over every transition
+its zones have.
 
 Reading the ladder: each rung is bounded by one of the two Intl calls a zoned
-format makes, and which format it helps says which call it removed. C, J and K
-all attack the offset: C caches the formatter, J reads it the cheap way, K stops
-calling it. That takes ${cum(num, "luxon C+J+K")} of stock off numeric — a pattern with no zone
-name in it has nothing else left to pay for — and ${cum(abbr, "luxon C+J+K")} off abbr, which is
-still bounded by the name lookup no matter how cheap the offset gets.
+format makes, and which format it helps says which call it removed. A and B both
+attack the offset — A caches the formatter, B reads it the cheap way — taking
+${cum(num, "luxon A+B")} of stock off numeric, since a pattern with no zone name in it has
+nothing else left to pay for, and ${cum(abbr, "luxon A+B")} off abbr, which is still bounded by
+the name lookup no matter how cheap the offset gets.
 
-L and M are those same two tricks aimed at the name, and they are what unbounds
-the second format. L reads it out of dtf.format() instead of allocating a part
-per field and walking them (${step(abbr, "luxon C+J+K+I+L")}ms off abbr, 4.7x on the lookup in isolation),
-and M then caches it across the interval two probes prove transition-free
-(${step(abbr, "luxon C+J+K+I+L+M")}ms more). Between them the abbreviated format goes from ${abbr.get("luxon C+J+K+I")!.toFixed(0)}ms to
-${abbr.get("luxon C+J+K+I+L+M")!.toFixed(0)}ms, and neither costs numeric anything, because a pattern without a
-zone name never asks. I compiles the pattern and is the one rung that helps both
-(${step(num, "luxon C+J+K+I")}ms and ${step(abbr, "luxon C+J+K+I")}ms).
+D is that same trick aimed at the name, and it is what unbounds the second
+format: read out of dtf.format() instead of allocating a part per field and
+walking them, worth ${step(abbr, "luxon A+B+C+D")}ms off abbr (4.7x on the lookup in isolation) and
+nothing on numeric, because a pattern without a zone name never asks. E then
+caches both lookups across the interval two probes prove transition-free
+(${step(num, "luxon A+B+C+D+E")}ms and ${step(abbr, "luxon A+B+C+D+E")}ms — the one rung after C that helps both, because it is
+the one patch that touches both calls). C compiles the pattern and helps both as
+well (${step(num, "luxon A+B+C")}ms and ${step(abbr, "luxon A+B+C")}ms).
 
-Ordering matters to how these read, and the ms column is the honest one: C alone
-takes ${(abbr.get("luxon (stock)")! - abbr.get("luxon C")!).toFixed(0)}ms off the abbreviated format, more than everything the six rungs
+Ordering matters to how these read, and the ms column is the honest one: A alone
+takes ${(abbr.get("luxon (stock)")! - abbr.get("luxon A")!).toFixed(0)}ms off the abbreviated format, more than everything the rungs
 below it remove from both formats put together (${(
-    num.get("luxon C")! -
+    num.get("luxon A")! -
     num.get(FULL)! +
-    (abbr.get("luxon C")! - abbr.get(FULL)!)
-  ).toFixed(0)}ms). Arriving fourth, I removes
-less than any rung above it despite being the largest formatter win in isolation.
+    (abbr.get("luxon A")! - abbr.get(FULL)!)
+  ).toFixed(0)}ms). Arriving third, C removes
+less than either rung above it despite being the largest formatter win in
+isolation.
 ${reading}
-The last rung answers whether the other seven still matter once these six land.
+The last rung answers whether F and G still matter once the other five land.
 They are worth nearly the same on both formats — ${step(num, FULL)}ms on numeric and ${step(abbr, FULL)}ms on
 abbr — which is what you would expect from per-value formatter costs that do not
-care which zone path ran, and it is ${pct((num.get("luxon C+J+K+I+L+M")! - num.get(FULL)!) / num.get("luxon (stock)")!)} and ${pct((abbr.get("luxon C+J+K+I+L+M")! - abbr.get(FULL)!) / abbr.get("luxon (stock)")!)} of stock. So the six rungs
-carry the result, and the seven are a tidy-up worth taking only if C, J, K, I, L
-and M are already in.
+care which zone path ran, and it is ${pct((num.get("luxon A+B+C+D+E")! - num.get(FULL)!) / num.get("luxon (stock)")!)} and ${pct((abbr.get("luxon A+B+C+D+E")! - abbr.get(FULL)!) / abbr.get("luxon (stock)")!)} of stock. So the five
+rungs carry the result, and F and G are a tidy-up worth taking only if A-E are
+already in.
 
-K and M are the two with a precondition rather than a proof from first
-principles: both assume nothing changes and changes back inside one 2-day probe
-window. K needs that of the offset, where the tightest gap in all of tzdata is
-6.92 days (America/Cambridge_Bay, Oct-Nov 2000) across all 219,232 transitions
-moment-timezone ships. M needs it of the name, which is the stricter claim — a
-zone can be renamed without moving, which is what Cambridge_Bay did in 2000 — and
-measured against the runtime's own ICU rather than a bundled copy that bound is
-6.96 days, so both margins are 3.5x. The failure mode if tzdata ever tightened
-past either is a stale offset or a stale name rather than a crash. J and L have no
-such precondition and are worth filing regardless.
+E is the one with a precondition rather than a proof from first principles: it
+assumes nothing changes and changes back inside one 2-day probe window. It needs
+that of the offset, where the tightest gap in all of tzdata is 6.92 days
+(America/Cambridge_Bay, Oct-Nov 2000) across all 219,232 transitions
+moment-timezone ships, and — because one cache now serves both lookups — of the
+name too, which is the stricter claim, since a zone can be renamed without moving,
+which is what Cambridge_Bay did in 2000. Measured against the runtime's own ICU
+rather than a bundled copy that bound is 6.96 days, so both margins are 3.5x, and
+sharing the cache costs nothing because the two bounds coincide. The failure mode
+if tzdata ever tightened past either is a stale offset or a stale name rather than
+a crash. B and D have no such precondition and are worth filing regardless.
 
 Stacked, all of it takes the easy-tz path from ${ratio(num, "easytz zone")}x moment-timezone to ${ratio(num, FULL_EASY)}x and
 stock luxon from ${ratio(num, "luxon (stock)")}x to ${ratio(num, FULL)}x, without touching a public API or changing a byte
@@ -1123,23 +1146,24 @@ either side of every modern transition (benchmarks/test/zone-name-patches.test.t
 
 That answers the question the last two rows of the table are for: same patches on
 both sides, so the only difference is where the zone comes from. It used to be
-pattern-dependent, and with L and M it is not — the full upstream build is level
+pattern-dependent, and with D and E it is not — the full upstream build is level
 with the easy-tz-bound one on both formats (${ratio(num, FULL)}x vs ${ratio(num, FULL_EASY)}x on numeric, ${ratio(abbr, FULL)}x vs
 ${ratio(abbr, FULL_EASY)}x on abbr), where before them easy-tz was an order of magnitude ahead on
-abbreviations. A luxon carrying all six would leave easy-tz nothing to win inside
-luxon's Formatter, on either kind of pattern. Skipping the Formatter entirely for
-the patterns a value formatter emits in bulk — easy-tz's own fast path, measured
-but not tabulated — is a further ${(num.get(FULL_EASY)! / num.get("easytz fast path")!).toFixed(1)}x beyond even that, and is where the remaining
-case for it lives.
+abbreviations. A luxon carrying all of these would leave easy-tz nothing to win
+inside luxon's Formatter, on either kind of pattern. Skipping the Formatter
+entirely for the patterns a value formatter emits in bulk — easy-tz's own fast
+path, measured but not tabulated — is a further ${(num.get(FULL_EASY)! / num.get("easytz fast path")!).toFixed(1)}x beyond even that, and is where
+the remaining case for it lives.
 
-Recommended to file, in order: C, J and L first — all three are self-contained and
-none needs a design argument. C and J together take stock luxon from ${ratio(num, "luxon (stock)")}x moment
-to ${ratio(num, "luxon C+J")}x on numeric, and L is the same shape of change on the other Intl call,
-worth ${step(abbr, "luxon C+J+K+I+L")}ms of abbr at the rung it lands on. Then K and M, which share the
-tzdata-gap argument and are the same patch twice, so accepting it once buys both.
-Then I: the largest single win of the six in isolation, and last anyway, because
-it is the one that changes how the Formatter is built rather than what it calls.
-The remaining seven are not worth filing separately.`);
+Recommended to file in the order they are lettered, which is what the letters are
+for. A, B and D first — all three are self-contained and none needs a design
+argument. A and B together take stock luxon from ${ratio(num, "luxon (stock)")}x moment to ${ratio(num, "luxon A+B")}x on numeric,
+and D is the same shape of change on the other Intl call, worth ${step(abbr, "luxon A+B+C+D")}ms of abbr at
+the rung it lands on. Then E, which needs the tzdata-gap argument accepted once
+and pays off on both calls for it. C sits third in the ladder because the rungs
+are cumulative, but it is the last of the five to file: the largest single win in
+isolation, and the one that changes how the Formatter is built rather than what it
+calls. F and G are the tidy-up, and are worth filing only after the rest.`);
 } else if (reading !== "") {
   // A `--parse` run still gets the part of the findings it measured. The rest
   // ranks patches by what they save on a formatting path, and there is nothing

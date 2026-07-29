@@ -18,7 +18,7 @@
 //
 // Both of those are the OUTSIDE view. What the patches in benchmarks/patches do
 // to the same two lookups from the inside is benchmarks/upstream.ts's subject —
-// J/K for the offset, C/L/M for the name.
+// B and E for the offset, A, D and E for the name.
 
 import moment from "moment-timezone";
 import { canResolve, getTimeZoneAt } from "./easy-tz.ts";
@@ -169,7 +169,7 @@ const D2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
 
 /**
  * Civil fields from an offset-shifted epoch time, using the same Hinnant
- * algorithm as patch H — no Date allocation.
+ * algorithm as the tsToObj fast path in patch G — no Date allocation.
  */
 function formatCivil(localMs: number, abbr: string | null): string {
   const days = Math.floor(localMs / DAY_MS);

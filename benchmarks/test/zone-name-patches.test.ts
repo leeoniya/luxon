@@ -1,22 +1,23 @@
-// The two zone-name patches proposed for upstream (L and M in
+// The two patches that touch the zone-name lookup (D and E in
 // benchmarks/patches) must be invisible: the same name out of offsetName(), and
 // the same formatted output, as stock luxon.
 //
-// Each patch has its own way of being wrong, so each gets its own dimension.
+// Each has its own way of being wrong, so each gets its own dimension.
 //
-// L (zoneNameScan) learns where the name sits inside one formatter's output and
+// D (zoneNameScan) learns where the name sits inside one formatter's output and
 // reuses that position, so what can break it is a locale — one that puts the
 // name first, renders the hour in a different script, or counts years off a
 // different calendar. Hence the locale and style sweep, which also covers the
 // four styles no luxon token reaches but offsetName() accepts.
 //
-// M (zoneNameInterval) is stateful: its answer depends on which instants it was
+// E (transitionInterval) is stateful: its answer depends on which instants it was
 // asked about earlier, and its interval is only sound because names cannot
 // change and change back inside a probe window. So every zone is replayed in
 // three access orders over an instant list that puts values either side of every
 // real transition — including the two Nunavut ones where America/Cambridge_Bay's
-// name moves while its offset stays put, which is the case the offset patches'
-// bound cannot see.
+// name moves while its offset stays put. That case is why the shared interval is
+// bounded by the name rather than by the offset: the offset bound alone cannot
+// see it.
 //
 // Run: node --test benchmarks/test/
 //      bun --test benchmarks/test/        (the same, on JavaScriptCore)
@@ -56,10 +57,11 @@ const STYLES: NonNullable<OffsetNameOpts["format"]>[] = [
   "longGeneric",
 ];
 
-// Both carry C, whose DTF cache L reads the formatter out of.
+// Both carry A, whose DTF cache D reads the formatter out of; the second also
+// pulls in B, since E covers both lookups and requires the offset scanner too.
 const VARIANTS: [string, PatchKey[]][] = [
   ["zoneNameScan", ["zoneInfoCache", "zoneNameScan"].map(patchKey)],
-  ["zoneNameScan + zoneNameInterval", ["zoneInfoCache", "zoneNameScan", "zoneNameInterval"].map(patchKey)],
+  ["zoneNameScan + transitionInterval", ["zoneInfoCache", "zoneNameScan", "transitionInterval"].map(patchKey)],
 ];
 
 // ZZZZ only, not ZZZZ + ZZZZZ: a second zone-name token doubles what the stock
@@ -132,7 +134,7 @@ const stock = await loadLuxon([]);
 
 // Both reference sets are derived once, here, rather than inside each test.
 // Stock luxon is the expensive side by an order of magnitude — it builds a
-// formatter per value, which is what C fixed and what these two build on — and
+// formatter per value, which is what A fixed and what these two build on — and
 // it is also stateless, so the same strings serve every patch set, every access
 // order and every repeat.
 const points = new Map(ZONES.map((zone) => [zone, instants(zone)]));

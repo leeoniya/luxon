@@ -3,7 +3,7 @@
 // Worth doing because the two engines do not agree about the small patches. Most
 // of them trade an allocation or a dispatch for slightly more code, and whether
 // that pays depends on the engine's escape analysis and inline caches rather
-// than on anything in luxon. The large wins (C, I) hold everywhere; the rest need
+// than on anything in luxon. The large wins (A, C) hold everywhere; the rest need
 // checking on both before being argued for upstream. V8 is the engine that
 // matters most for luxon's users, but a patch that only helps V8 is a weaker
 // pitch than one that helps both, and one that hurts JavaScriptCore is weaker
@@ -125,17 +125,17 @@ printTable(
   ["path", "V8 numeric", "JSC numeric", "V8 abbr", "JSC abbr"],
   [
     "luxon (stock)",
-    "luxon C+J",
-    "luxon C+J+K",
-    // the two name rungs, which are where the abbr column stops being the
-    // outlier: worth seeing per engine, since they lean on Intl behaving the
-    // same way in both, and JSC is a different ICU
-    "luxon C+J+K+I+L",
-    "luxon C+J+K+I+L+M",
-    "luxon ABCDEFGHI (formatter only)",
-    "luxon all 13 (A-M)",
+    "luxon A+B",
+    "luxon A+B+C",
+    // the two rungs that reach the name lookup, which are where the abbr column
+    // stops being the outlier: worth seeing per engine, since they lean on Intl
+    // behaving the same way in both, and JSC is a different ICU
+    "luxon A+B+C+D",
+    "luxon A+B+C+D+E",
+    "luxon ACFG (formatter only)",
+    "luxon all 7 (A-G)",
     "easytz zone",
-    "easytz ABCDEFGHI (all)",
+    "easytz ACFG (all)",
     "easytz fast path",
   ]
     .filter((path) => v8.ms[FMT]![path] !== undefined && jsc.ms[FMT]![path] !== undefined)
@@ -146,7 +146,11 @@ printTable(
     })
 );
 
-const agreed = rows.filter((r) => verdict(r) === "both").map((r) => r.label[0]!);
+// letter order, not the table's ranking, so the run reads as a set of patches
+const agreed = rows
+  .filter((r) => verdict(r) === "both")
+  .map((r) => r.label[0]!)
+  .sort();
 const split = rows.filter((r) => verdict(r) === "V8 only" || verdict(r) === "JSC only");
 
 console.log(`

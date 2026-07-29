@@ -1,0 +1,208 @@
+Patch: hotPath
+Letter: G
+Requires: none
+Files: src/impl/formatter.js, src/impl/util.js, src/datetime.js
+Summary: six fast paths along the route a numeric token takes, none of them observable
+
+G: the numeric path does avoidable work at six points
+
+Last, and grouped, because this is the tidy-up: one idea applied six times, each
+taking work out of a step of the route every numeric token walks without
+changing what the step means. None of them is worth a reviewer's time alone —
+the smallest is worth nothing measurable on either engine — while together they
+are most of what is left on a zone-less pattern once the Intl calls (A, B, D, E)
+are dealt with.
+
+Along that route, in order:
+
+  formatter.js  num()        a formatter whose numbering system is latn can pad
+                             digits itself; PolyNumberFormatter's Intl branch is
+                             only needed by the ones that cannot.
+  formatter.js  parseFormat  splitting a format string into tokens is pure, and
+                             the same few strings recur, so the split is cached
+                             rather than redone per value.
+  formatter.js  token loop   the loop rebuilt its own state per token; hoisting
+                             what does not vary keeps the switch monomorphic.
+  util.js       roundTo      every rounding mode is the identity on an integer
+                             once digits is non-negative, and an integer is what
+                             every numeric token arrives as.
+  util.js       padStart     month, day, hour, minute and second all pad to two
+                             digits, so a "00".."99" table covers the common
+                             case without building either string.
+  datetime.js   tsToObj      integer civil math in place of a wrapper Date and
+                             seven getter calls.
+
+Two of the six are engine-specific, and they are the weakest part of this patch:
+the token loop pays off on V8 and gives a little back on JSC, and the padStart
+table is the reverse. They are in because the other four carry the change, and
+splitting by engine would mean filing six patches to land four.
+
+C subsumes two of them by construction — parseFormat and the punctuation half of
+the token loop — so a tree that already has C gets less from this than the list
+above suggests.
+
+diff --git a/src/datetime.js b/src/datetime.js
+--- a/src/datetime.js
++++ b/src/datetime.js
+@@ -131,16 +131,29 @@ function fixOffset(localTS, o, tz) {
+ function tsToObj(ts, offset) {
+   ts += offset * 60 * 1000;
+ 
+-  const d = new Date(ts);
++  // UPSTREAM-G: was `new Date(ts)` plus seven getUTC* calls. Same result, no
++  // allocation (Howard Hinnant's civil_from_days, valid for any Gregorian year).
++  const days = Math.floor(ts / 86400000);
++  const msOfDay = ts - days * 86400000;
++
++  const z = days + 719468;
++  const era = Math.floor(z / 146097);
++  const doe = z - era * 146097;
++  const yoe = Math.floor(
++    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365
++  );
++  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
++  const mp = Math.floor((5 * doy + 2) / 153);
++  const month = mp < 10 ? mp + 3 : mp - 9;
+ 
+   return {
+-    year: d.getUTCFullYear(),
+-    month: d.getUTCMonth() + 1,
+-    day: d.getUTCDate(),
+-    hour: d.getUTCHours(),
+-    minute: d.getUTCMinutes(),
+-    second: d.getUTCSeconds(),
+-    millisecond: d.getUTCMilliseconds(),
++    year: yoe + era * 400 + (month <= 2 ? 1 : 0),
++    month,
++    day: doy - Math.floor((153 * mp + 2) / 5) + 1,
++    hour: Math.floor(msOfDay / 3600000),
++    minute: Math.floor(msOfDay / 60000) % 60,
++    second: Math.floor(msOfDay / 1000) % 60,
++    millisecond: msOfDay % 1000,
+   };
+ }
+ 
+diff --git a/src/impl/formatter.js b/src/impl/formatter.js
+--- a/src/impl/formatter.js
++++ b/src/impl/formatter.js
+@@ -1,11 +1,14 @@
+ import * as English from "./english.js";
+ import * as Formats from "./formats.js";
+-import { padStart } from "./util.js";
++import { padStart, roundTo } from "./util.js";
+ 
+ function stringifyTokens(splits, tokenToString) {
++  // UPSTREAM-G: indexed loop (no iterator allocation per format) and a verbatim
++  // check so punctuation skips tokenToString entirely.
+   let s = "";
+-  for (const token of splits) {
+-    if (token.literal) {
++  for (let i = 0; i < splits.length; i++) {
++    const token = splits[i];
++    if (token.literal || token.verbatim) {
+       s += token.val;
+     } else {
+       s += tokenToString(token.val);
+@@ -41,12 +44,32 @@ const macroTokenToFormatOpts = {
+  * @private
+  */
+ 
++// UPSTREAM-G: format strings are overwhelmingly reused (one pattern, a whole
++// column of values), but parseFormat re-tokenized on every call. Bounded so a
++// caller generating unique format strings can't grow it without limit.
++const parseFormatCache = new Map();
++const PARSE_FORMAT_CACHE_MAX = 1000;
++
+ export default class Formatter {
+   static create(locale, opts = {}) {
+     return new Formatter(locale, opts);
+   }
+ 
+   static parseFormat(fmt) {
++    let cached = parseFormatCache.get(fmt);
++
++    if (cached === undefined) {
++      cached = Formatter.parseFormatUncached(fmt);
++
++      if (parseFormatCache.size < PARSE_FORMAT_CACHE_MAX) {
++        parseFormatCache.set(fmt, cached);
++      }
++    }
++
++    return cached;
++  }
++
++  static parseFormatUncached(fmt) {
+     // white-space is always considered a literal in user-provided formats
+     // the " " token has a special meaning (see unitForToken)
+ 
+@@ -84,6 +107,15 @@ export default class Formatter {
+       splits.push({ literal: bracketed || /^\s+$/.test(currentFull), val: currentFull });
+     }
+ 
++    // UPSTREAM-G: a token with no ASCII letters matches no switch case and no
++    // macro name, so formatting it is the identity. Flag it once here instead of
++    // rediscovering that per value.
++    for (const token of splits) {
++      if (!token.literal && !/[A-Za-z]/.test(token.val)) {
++        token.verbatim = true;
++      }
++    }
++
+     return splits;
+   }
+ 
+@@ -132,6 +164,22 @@ export default class Formatter {
+       return padStart(n, p);
+     }
+ 
++    // UPSTREAM-G: when the locale renders latn digits and this formatter carries
++    // no number-affecting options, PolyNumberFormatter provably falls through to
++    // padStart. Do that directly rather than allocating an options object, a
++    // formatter, a rest object and a key array for every numeric token.
++    if (signDisplay === undefined) {
++      if (this.simpleNumsCached === undefined) {
++        const { padTo: _padTo, floor: _floor, ...otherOpts } = this.opts;
++        this.simpleNumsCached = Object.keys(otherOpts).length === 0 && this.loc.fastNumbers;
++      }
++
++      if (this.simpleNumsCached) {
++        const fixed = this.opts.floor ? Math.floor(n) : roundTo(n, 3);
++        return padStart(fixed, p > 0 ? p : this.opts.padTo || 0);
++      }
++    }
++
+     const opts = { ...this.opts };
+ 
+     if (p > 0) {
+diff --git a/src/impl/util.js b/src/impl/util.js
+--- a/src/impl/util.js
++++ b/src/impl/util.js
+@@ -122,7 +122,14 @@ export function floorMod(x, n) {
+   return x - n * Math.floor(x / n);
+ }
+ 
++// UPSTREAM-G: "00".."99", for the pad-to-two case that dominates date formatting
++const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
++
+ export function padStart(input, n = 2) {
++  if (n === 2 && Number.isInteger(input) && input >= 0 && input < 100) {
++    return PAD_TO_2[input];
++  }
++
+   const isNeg = input < 0;
+   let padded;
+   if (isNeg) {
+@@ -160,6 +167,12 @@ export function parseMillis(fraction) {
+ }
+ 
+ export function roundTo(number, digits, rounding = "round") {
++  // UPSTREAM-G: every rounding mode is the identity on an integer once digits is
++  // non-negative, and that is what every DateTime numeric token arrives as.
++  if (digits >= 0 && Number.isInteger(number)) {
++    return number;
++  }
++
+   const factor = 10 ** digits;
+   switch (rounding) {
+     case "expand":

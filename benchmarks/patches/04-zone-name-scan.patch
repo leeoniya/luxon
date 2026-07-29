@@ -1,12 +1,12 @@
 Patch: zoneNameScan
-Letter: L
-Requires: C (zoneInfoCache)
+Letter: D
+Requires: A (zoneInfoCache)
 Files: src/impl/locale.js, src/impl/util.js
 Summary: parseZoneInfo: read the name from dtf.format() instead of formatToParts + find
 
-L: the zone name is read the expensive way
+D: the zone name is read the expensive way
 
-Requires C (it anchors on C's parseZoneInfo). What C fixed was constructing a
+Requires A (it anchors on A's parseZoneInfo). What A fixed was constructing a
 formatter per value; what is left is how the name is got out of one, and that
 is now ~74% of the cost of formatting a column that carries an abbreviation.
 
@@ -17,8 +17,8 @@ asking ICU to render a full date and time when the caller wants none of it.
 
 So: one formatter carrying the name and nothing else but an h23 2-digit hour,
 and plain format() on it. That leaves the name at a fixed position in a
-fixed-width string, which is J's trick applied to the other Intl call — and
-like J it establishes the layout with formatToParts once, at construction,
+fixed-width string, which is B's trick applied to the other Intl call — and
+like B it establishes the layout with formatToParts once, at construction,
 rather than assuming one. Three probes have to agree on where the name sits
 (either side of a DST boundary, and one that would render a one-digit hour if
 the locale ignored 2-digit); any disagreement, or a locale whose format()
@@ -61,7 +61,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
  
  // PARSING
  
-+// UPSTREAM-L: see benchmarks/patches/
++// UPSTREAM-D: see benchmarks/patches/
 +const nameScanCache = new Map();
 +
 +// Locale.resetCache() clears the DTF cache these scanners are built on. It
