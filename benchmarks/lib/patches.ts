@@ -19,7 +19,7 @@
 // comparing each case's result across builds.
 
 import { execFile } from "node:child_process";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
 import { applyFileDiff, parseDiff, type FileDiff } from "./diff.ts";
@@ -229,10 +229,22 @@ async function writeBuild(id: string, keys: readonly PatchKey[]): Promise<URL> {
 
   const dir = new URL(`${id}/`, OUT_DIR);
 
+  // `node --test` runs the test files in parallel processes, and they ask for
+  // overlapping build ids, so several of them write this same tree at once. A
+  // plain writeFile lets one process import a module another is halfway through
+  // writing, which surfaces as a SyntaxError about a missing export. Writing
+  // beside the target and renaming makes each file appear whole: rename is
+  // atomic within a directory, and every writer is producing identical bytes
+  // from the same src/ and patch files, so whichever lands last is still right.
+  // The rebuild stays unconditional, which is what keeps an edited patch from
+  // being read out of a stale build.
   for (const [rel, text] of tree) {
     const out = new URL(rel, dir);
     await mkdir(dirname(out.pathname), { recursive: true });
-    await writeFile(out, text);
+
+    const staging = new URL(`${rel}.${process.pid}.tmp`, dir);
+    await writeFile(staging, text);
+    await rename(staging, out);
   }
 
   return new URL("src/luxon.js", dir);

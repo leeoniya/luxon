@@ -41,10 +41,15 @@
 //                                    PARSE_PASSES)
 //      ... --footprint              (+ rss and Intl counts, ~2.5s)
 //
-// The three tables can be run alone, which is the loop for iterating on a patch:
+// The four tables can be run alone, which is the loop for iterating on a patch:
 // --patches (~1s), --format (~18s, and the findings come with it), --parse (~9s
-// under node, ~14s under bun). Any combination works, and naming none runs all
-// three. Only a full run writes the JSON that cross-engine.ts reads.
+// under node, ~14s under bun), --default (~13s). Any combination works, and
+// naming none runs all four. Only a full run writes the JSON that
+// cross-engine.ts reads.
+//
+// The first three name a zone. --default is the same ladder with none named,
+// which is the configuration a caller who never sets one gets and the only one
+// where SystemZone rather than IANAZone answers the offset.
 
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -53,8 +58,10 @@ import { bakedRules, tablesHost, yearStart } from "./lib/easy-tz.ts";
 import { parseCases, parserFor, formatterFor, type BuildSpec, type ParseCase, type ParseCaseKey } from "./lib/build.ts";
 import { formatKeys, LOCALE, makeFastFormatter, patternFor, type FormatKey } from "./lib/format-paths.ts";
 import { interleavedBest, pkgVersion, runtime, type SampleBudget, type Work } from "./lib/kernel.ts";
+import type { LuxonModule } from "./lib/luxon-types.ts";
 import { allTables, tables, withFootprint, withVerify } from "./lib/opts.ts";
 import {
+  loadLuxon,
   minifiedSize,
   patchedEntry,
   patchKey,
@@ -878,6 +885,197 @@ if (parseBroken.length > 0) {
   console.log();
 }
 
+// ---- the default zone -------------------------------------------------------
+// Every table above names a zone, which is the configuration the patches were
+// written for and not the one most callers run. With no zone option, luxon uses
+// SystemZone, whose offset() is a getTimezoneOffset call rather than an Intl
+// one — so stock is already several times cheaper there, and the Intl-removing
+// patches have correspondingly less to remove. This table is here so that gap is
+// a measured number rather than an assumption, and so the rungs that do reach
+// the default path (D, G, H) are visible somewhere.
+//
+// It shares the format table's kernel and reads its own cases: these are whole
+// operations rather than formatter closures, since the point is the API a caller
+// uses, and half of them do not format anything.
+
+const NUM_PATTERN = patternFor("luxon", "numeric");
+
+interface DefaultCase {
+  key: string;
+  what: string;
+  /** the operation with no zone named, which is what this table is about */
+  system: (m: LuxonModule) => Work;
+  /** the same against ZONE, for the column that says what the default is worth */
+  named: (m: LuxonModule) => Work;
+}
+
+const DEFAULT_CASES: DefaultCase[] = [
+  {
+    key: "toFormat",
+    what: `writing ${NUM_PATTERN}`,
+    system: (m) => (ts) => m.DateTime.fromMillis(ts).toFormat(NUM_PATTERN).length,
+    named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).toFormat(NUM_PATTERN).length,
+  },
+  {
+    key: "fromISO",
+    what: "reading an ISO string with no offset in it",
+    system: (m) => {
+      const pool = isoPool(m, undefined);
+      let i = 0;
+      return () => m.DateTime.fromISO(pool[i++ % pool.length]!).valueOf();
+    },
+    named: (m) => {
+      const pool = isoPool(m, ZONE);
+      let i = 0;
+      return () => m.DateTime.fromISO(pool[i++ % pool.length]!, { zone: ZONE }).valueOf();
+    },
+  },
+  {
+    key: "fromFormat",
+    what: "reading that same numeric pattern back",
+    system: (m) => {
+      const pool = tokenPool(m, undefined);
+      let i = 0;
+      return () => m.DateTime.fromFormat(pool[i++ % pool.length]!, NUM_PATTERN).valueOf();
+    },
+    named: (m) => {
+      const pool = tokenPool(m, ZONE);
+      let i = 0;
+      return () => m.DateTime.fromFormat(pool[i++ % pool.length]!, NUM_PATTERN, { zone: ZONE }).valueOf();
+    },
+  },
+  {
+    key: "startOf",
+    what: "startOf('day'), which formats nothing and still needs an offset",
+    system: (m) => (ts) => m.DateTime.fromMillis(ts).startOf("day").valueOf(),
+    named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).startOf("day").valueOf(),
+  },
+  {
+    key: "plus",
+    what: "plus({ days: 1 }), the other half of H's unit tables",
+    system: (m) => (ts) => m.DateTime.fromMillis(ts).plus({ days: 1 }).valueOf(),
+    named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).plus({ days: 1 }).valueOf(),
+  },
+  {
+    key: "now",
+    what: "DateTime.now(), which can only be the default zone",
+    system: (m) => () => m.DateTime.now().valueOf(),
+    named: (m) => () => m.DateTime.now().valueOf(),
+  },
+];
+
+/** rendered by the build under test, so every column reads identical strings */
+function isoPool(m: LuxonModule, zone: string | undefined): string[] {
+  const opts = zone === undefined ? {} : { zone };
+  return Array.from({ length: PARSE_POOL }, (_, i) =>
+    m.DateTime.fromMillis(BASE_TS + i * STEP_MS, opts).toISO({ includeOffset: false })!
+  );
+}
+
+function tokenPool(m: LuxonModule, zone: string | undefined): string[] {
+  const opts = zone === undefined ? {} : { zone };
+  return Array.from({ length: PARSE_POOL }, (_, i) =>
+    m.DateTime.fromMillis(BASE_TS + i * STEP_MS, opts).toFormat(NUM_PATTERN)
+  );
+}
+
+// The control is stock a second time, as a separate module instance of identical
+// source rather than the same one timed twice, so it carries what a second module
+// costs as well as ambient noise. Whatever it reports is the floor a real
+// difference in this table has to clear — which matters here more than in the
+// tables above, because several of these cases have no patch on them at all and
+// should read as zero.
+const DEFAULT_BUILDS: { id: string; keys: PatchKey[]; copy?: number }[] = [
+  { id: "stock", keys: [] },
+  { id: "control", keys: [], copy: 1 },
+  { id: `ship A-${LETTER(patchKey("transitionInterval"))}`, keys: LADDER.at(-2)!.keys },
+  { id: FULL.replace("luxon ", ""), keys: [...UPSTREAM] },
+];
+
+if (tables.has("default")) {
+  const loaded = new Map<string, LuxonModule>();
+
+  for (const build of DEFAULT_BUILDS) {
+    loaded.set(build.id, await loadLuxon(build.keys, build.copy ?? 0));
+  }
+
+  const results = new Map<string, Map<string, number>>();
+  const namedStock = new Map<string, number>();
+  let defaultPasses = 0;
+
+  for (const kase of DEFAULT_CASES) {
+    // the three builds of one case timed adjacently, so drift between cases
+    // cannot be read as a difference between builds
+    const entries = DEFAULT_BUILDS.map((b) => ({ key: b.id, work: kase.system(loaded.get(b.id)!) }));
+
+    entries.push({ key: "named", work: kase.named(loaded.get("stock")!) });
+
+    const { best, checksum, passes } = interleavedBest(
+      entries,
+      BASE_TS,
+      STEP_MS,
+      N,
+      PASSES,
+      PASS_BUDGET_MS,
+      entries.length
+    );
+
+    sink += checksum;
+    defaultPasses = passes;
+
+    results.set(kase.key, best);
+    namedStock.set(kase.key, best.get("named")!);
+  }
+
+  const delta = (kase: string, id: string) => {
+    const got = results.get(kase)!;
+    return `${(((got.get(id)! - got.get("stock")!) / got.get("stock")!) * 100).toFixed(1)}%`;
+  };
+
+  const rows = DEFAULT_CASES.map((kase) => {
+    const got = results.get(kase.key)!;
+
+    return [
+      kase.key,
+      got.get("stock")!.toFixed(1),
+      delta(kase.key, "control"),
+      ...DEFAULT_BUILDS.slice(2).flatMap((b) => [got.get(b.id)!.toFixed(1), delta(kase.key, b.id)]),
+      namedStock.get(kase.key)!.toFixed(1),
+    ];
+  });
+
+  console.log(`the default zone: the same ladder with no zone named at all\n`);
+  printTable(
+    [
+      "case",
+      "stock ms",
+      "control d",
+      ...DEFAULT_BUILDS.slice(2).flatMap((b) => [`${b.id} ms`, "d"]),
+      `stock, ${ZONE} ms`,
+    ],
+    rows
+  );
+
+  const ratio = (key: string) => namedStock.get(key)! / results.get(key)!.get("stock")!;
+  const worst = DEFAULT_CASES.reduce((a, b) => (ratio(a.key) > ratio(b.key) ? a : b));
+
+  console.log(
+    `\n${DEFAULT_CASES.map((kase) => `${kase.key}: ${kase.what}`).join("\n")}\n\n` +
+      `Same units and kernel as the format table — ms per ${N} values, fastest of ${defaultPasses} interleaved\n` +
+      `passes, the builds of one case timed adjacently. The parse cases read from a pool of ` +
+      `${PARSE_POOL.toLocaleString("en-US")},\nrendered by the build that reads it.\n\n` +
+      `Read the two d columns against the control's, which is stock measured as its own neighbour and\n` +
+      `so is what a difference here has to beat. Several of these cases have no patch on them at all,\n` +
+      `and a run where those read as zero and the control reads as a percent or two is the table\n` +
+      `working rather than a null result.\n\n` +
+      `The last column is why this table is short. Stock luxon in the default zone is already ` +
+      `${ratio(worst.key).toFixed(1)}x\ncheaper than the same call against ${ZONE} on ${worst.key}, because ` +
+      `SystemZone answers offset()\nwith getTimezoneOffset and never calls Intl at all. A, B, E and F exist to ` +
+      `remove Intl calls,\nso against the default zone there is much less for them to remove, and what is left ` +
+      `is D on\nthe reading cases, G, and H's four constants — which is what the middle columns are measuring.\n`
+  );
+}
+
 // ---- agreement --------------------------------------------------------------
 // The patches are supposed to be behavior-preserving, so every patched path must
 // match stock luxon byte for byte. The easy-tz paths are expected to differ on
@@ -1126,6 +1324,15 @@ H is the merge doing its job. Its six fast paths were six patches, and they did
 not agree on which engine they helped — two cleared the floor on V8 only, one on
 JavaScriptCore only, one on neither. Together they clear it on both by a wide
 margin, which is the case for filing them as one patch rather than six.
+
+H carries four more that this table cannot see, because they are not on the
+formatting path: three lookup tables and one Date that luxon was rebuilding per
+call, in DateTime.normalizeUnit, Duration.normalizeUnit, formatRelativeTime and
+SystemZone#offset. They land on arithmetic, on relative time, and on the default
+zone, none of which the columns here exercise — every row names a zone. What they
+are worth is in benchmarks/suite.ts, which does call those, and the same engine
+split runs through them: V8 escape-analyzes some of the allocations away and
+JavaScriptCore does not, so node sees a few percent where bun sees twenty.
 
 What the merge cost is the other half of that. C subsumes two of H's six by
 construction, since it parses each pattern once and folds punctuation into literal

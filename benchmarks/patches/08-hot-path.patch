@@ -1,19 +1,18 @@
 Patch: hotPath
 Letter: H
 Requires: none
-Files: src/impl/formatter.js, src/impl/util.js, src/datetime.js
-Summary: six fast paths along the route a numeric token takes, none of them observable
+Files: src/impl/formatter.js, src/impl/util.js, src/datetime.js, src/duration.js, src/impl/english.js, src/zones/systemZone.js
+Summary: ten fast paths: six along the route a numeric token takes, four constants that were being rebuilt per call
 
-H: the numeric path does avoidable work at six points
+H: avoidable work at ten points, in two families
 
-Last, and grouped, because this is the tidy-up: one idea applied six times, each
-taking work out of a step of the route every numeric token walks without
-changing what the step means. None of them is worth a reviewer's time alone —
-the smallest is worth nothing measurable on either engine — while together they
-are most of what is left on a zone-less pattern once the Intl calls (A, B, E, F)
-are dealt with.
+Last, and grouped, because this is the tidy-up: one idea applied ten times, each
+taking work out of a step without changing what the step means. None of them is
+worth a reviewer's time alone — the smallest is worth nothing measurable on
+either engine — while together they are most of what is left once the Intl calls
+(A, B, E, F) are dealt with.
 
-Along that route, in order:
+The first six are the route every numeric token walks, in order:
 
   formatter.js  num()        a formatter whose numbering system is latn can pad
                              digits itself; PolyNumberFormatter's Intl branch is
@@ -32,14 +31,51 @@ Along that route, in order:
   datetime.js   tsToObj      integer civil math in place of a wrapper Date and
                              seven getter calls.
 
-Two of the six are engine-specific, and they are the weakest part of this patch:
-the token loop pays off on V8 and gives a little back on JSC, and the padStart
-table is the reverse. They are in because the other four carry the change, and
-splitting by engine would mean filing six patches to land four.
+Two of those six are engine-specific, and they are the weakest part of this
+patch: the token loop pays off on V8 and gives a little back on JSC, and the
+padStart table is the reverse. They are in because the other four carry the
+change, and splitting by engine would mean filing six patches to land four.
 
 C subsumes two of them by construction — parseFormat and the punctuation half of
-the token loop — so a tree that already has C gets less from this than the list
-above suggests.
+the token loop — so a tree that already has C gets less from that half of this
+patch than the list above suggests.
+
+The other four are constants that were being built inside the function that
+reads them, and are simply moved to module scope:
+
+  datetime.js   normalizeUnit       a 24-key table, allocated to read one key
+                                    and dropped, on every startOf, endOf, set,
+                                    get, hasSame and ISO precision.
+  duration.js   normalizeUnit       the same again, 18 keys, on every Duration
+                                    built from an object — so on every plus,
+                                    minus, diff, shiftTo, as and get.
+  english.js    formatRelativeTime  an 8-key table and the nine arrays inside
+                                    it, plus a three-element list, per call to
+                                    toRelative or toRelativeCalendar.
+  systemZone.js offset              one Date per offset lookup, replaced by one
+                                    Date reused. JS is single threaded and
+                                    getTimezoneOffset reads it on the next line,
+                                    so the instance cannot be observed in
+                                    between.
+
+None of the four captures anything, so each is a move rather than a rewrite, and
+no output changes: 82,016 comparisons across five zones, nine units, the unit
+aliases and the throwing path are identical on both engines.
+
+They are worth listing separately from the six because they reach somewhere the
+rest of the ladder does not. A, B, E and F pay for themselves only when a zone is
+named; C, D and the six above only when something is formatted or parsed. These
+four land on arithmetic (startOf -3% node / -27% bun, plus -7% / -19%, hasSame
+-8% / -22%), on relative time (toRelativeCalendar -9% / -22%), and on
+SystemZone, which is the default zone and therefore the configuration none of
+the tables in benchmarks/upstream.ts name.
+
+The engine split runs the same way as it does for the six: V8 escape-analyzes
+some of these allocations away and JSC does not, so node sees -2% to -11% where
+bun sees -6% to -27%. A fifth candidate of the same shape, the table of closures
+impl/diff.js builds per call in highOrderDiffs, is deliberately not here: it
+measured as nothing on either engine, both apparently inlining it, and a change
+that cannot be measured is not worth a reviewer reading it.
 
 diff --git a/src/datetime.js b/src/datetime.js
 --- a/src/datetime.js
@@ -82,6 +118,172 @@ diff --git a/src/datetime.js b/src/datetime.js
    };
  }
  
+@@ -342,33 +355,37 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
+   orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
+ 
+ // standardize case and plurality in units
++// UPSTREAM-H: hoisted. This table is a constant, and was being built
++// per call to read one key off it.
++const normalizedUnits = {
++  year: "year",
++  years: "year",
++  month: "month",
++  months: "month",
++  day: "day",
++  days: "day",
++  hour: "hour",
++  hours: "hour",
++  minute: "minute",
++  minutes: "minute",
++  quarter: "quarter",
++  quarters: "quarter",
++  second: "second",
++  seconds: "second",
++  millisecond: "millisecond",
++  milliseconds: "millisecond",
++  weekday: "weekday",
++  weekdays: "weekday",
++  weeknumber: "weekNumber",
++  weeksnumber: "weekNumber",
++  weeknumbers: "weekNumber",
++  weekyear: "weekYear",
++  weekyears: "weekYear",
++  ordinal: "ordinal",
++};
++
+ function normalizeUnit(unit) {
+-  const normalized = {
+-    year: "year",
+-    years: "year",
+-    month: "month",
+-    months: "month",
+-    day: "day",
+-    days: "day",
+-    hour: "hour",
+-    hours: "hour",
+-    minute: "minute",
+-    minutes: "minute",
+-    quarter: "quarter",
+-    quarters: "quarter",
+-    second: "second",
+-    seconds: "second",
+-    millisecond: "millisecond",
+-    milliseconds: "millisecond",
+-    weekday: "weekday",
+-    weekdays: "weekday",
+-    weeknumber: "weekNumber",
+-    weeksnumber: "weekNumber",
+-    weeknumbers: "weekNumber",
+-    weekyear: "weekYear",
+-    weekyears: "weekYear",
+-    ordinal: "ordinal",
+-  }[unit.toLowerCase()];
++  const normalized = normalizedUnits[unit.toLowerCase()];
+ 
+   if (!normalized) throw new InvalidUnitError(unit);
+ 
+diff --git a/src/duration.js b/src/duration.js
+--- a/src/duration.js
++++ b/src/duration.js
+@@ -118,6 +118,29 @@ const reverseUnits = orderedUnits.slice(0).reverse();
+ // for toHuman due to missing support from Intl.
+ // if value is set, then key is what to convert to and value is what to convert
+ // if value is null, then key is a unit to be ignored
++// UPSTREAM-H: hoisted out of Duration.normalizeUnit, which was building
++// it per call.
++const normalizedUnits = {
++  year: "years",
++  years: "years",
++  quarter: "quarters",
++  quarters: "quarters",
++  month: "months",
++  months: "months",
++  week: "weeks",
++  weeks: "weeks",
++  day: "days",
++  days: "days",
++  hour: "hours",
++  hours: "hours",
++  minute: "minutes",
++  minutes: "minutes",
++  second: "seconds",
++  seconds: "seconds",
++  millisecond: "milliseconds",
++  milliseconds: "milliseconds",
++};
++
+ const humanizeUnitConversion = {
+   months: "quarters",
+   quarters: null,
+@@ -406,26 +429,7 @@ export default class Duration {
+    * @private
+    */
+   static normalizeUnit(unit) {
+-    const normalized = {
+-      year: "years",
+-      years: "years",
+-      quarter: "quarters",
+-      quarters: "quarters",
+-      month: "months",
+-      months: "months",
+-      week: "weeks",
+-      weeks: "weeks",
+-      day: "days",
+-      days: "days",
+-      hour: "hours",
+-      hours: "hours",
+-      minute: "minutes",
+-      minutes: "minutes",
+-      second: "seconds",
+-      seconds: "seconds",
+-      millisecond: "milliseconds",
+-      milliseconds: "milliseconds",
+-    }[unit ? unit.toLowerCase() : unit];
++    const normalized = normalizedUnits[unit ? unit.toLowerCase() : unit];
+ 
+     if (!normalized) throw new InvalidUnitError(unit);
+ 
+diff --git a/src/impl/english.js b/src/impl/english.js
+--- a/src/impl/english.js
++++ b/src/impl/english.js
+@@ -124,19 +124,25 @@ export function eraForDateTime(dt, length) {
+   return eras(length)[dt.year < 0 ? 0 : 1];
+ }
+ 
++// UPSTREAM-H: hoisted. Both were per call, the first of them along with
++// the nine arrays inside it.
++const relativeUnits = {
++  years: ["year", "yr."],
++  quarters: ["quarter", "qtr."],
++  months: ["month", "mo."],
++  weeks: ["week", "wk."],
++  days: ["day", "day", "days"],
++  hours: ["hour", "hr."],
++  minutes: ["minute", "min."],
++  seconds: ["second", "sec."],
++};
++
++const lastableUnits = ["hours", "minutes", "seconds"];
++
+ export function formatRelativeTime(unit, count, numeric = "always", narrow = false) {
+-  const units = {
+-    years: ["year", "yr."],
+-    quarters: ["quarter", "qtr."],
+-    months: ["month", "mo."],
+-    weeks: ["week", "wk."],
+-    days: ["day", "day", "days"],
+-    hours: ["hour", "hr."],
+-    minutes: ["minute", "min."],
+-    seconds: ["second", "sec."],
+-  };
+-
+-  const lastable = ["hours", "minutes", "seconds"].indexOf(unit) === -1;
++  const units = relativeUnits;
++
++  const lastable = lastableUnits.indexOf(unit) === -1;
+ 
+   if (numeric === "auto" && lastable) {
+     const isDay = unit === "days";
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
@@ -206,3 +408,27 @@ diff --git a/src/impl/util.js b/src/impl/util.js
    const factor = 10 ** digits;
    switch (rounding) {
      case "expand":
+diff --git a/src/zones/systemZone.js b/src/zones/systemZone.js
+--- a/src/zones/systemZone.js
++++ b/src/zones/systemZone.js
+@@ -3,6 +3,10 @@ import Zone from "../zone.js";
+ 
+ let singleton = null;
+ 
++// UPSTREAM-H: one Date, reused by offset() below, in place of one per
++// call. setTime and getTimezoneOffset are adjacent and nothing else holds it.
++const probe = new Date(0);
++
+ /**
+  * Represents the local zone for this JavaScript environment.
+  * @implements {Zone}
+@@ -46,7 +50,8 @@ export default class SystemZone extends Zone {
+ 
+   /** @override **/
+   offset(ts) {
+-    return -new Date(ts).getTimezoneOffset();
++    probe.setTime(ts);
++    return -probe.getTimezoneOffset();
+   }
+ 
+   /** @override **/

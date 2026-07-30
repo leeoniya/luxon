@@ -95,10 +95,10 @@ interface Column {
 }
 
 /**
- * The five patches benchmarks/upstream.ts recommends filing, which is the set
+ * The six patches benchmarks/upstream.ts recommends filing, which is the set
  * whose side effects matter most — they are the ones that would actually land.
  * They are also the ladder, and the patch files are lettered in ladder order, so
- * this is A-E. Kept in step with that file by hand; the letters are asserted
+ * this is A-F. Kept in step with that file by hand; the letters are asserted
  * below, so a patch inserted ahead of them fails loudly rather than silently
  * renaming this column.
  */
@@ -106,6 +106,7 @@ const SHIP: PatchKey[] = [
   "zoneInfoCache",
   "compileFormat",
   "offsetScan",
+  "tokenParserCache",
   "zoneNameScan",
   "transitionInterval",
 ].map(patchKey);
@@ -114,9 +115,9 @@ const shipLabel = SHIP.map((k) => patchLetter.get(k)!)
   .sort()
   .join("");
 
-if (shipLabel !== "ABCDE") {
+if (shipLabel !== "ABCDEF") {
   throw new Error(
-    `the ship list is no longer A-E but ${shipLabel} — is benchmarks/upstream.ts's ladder still the same?`
+    `the ship list is no longer A-F but ${shipLabel} — is benchmarks/upstream.ts's ladder still the same?`
   );
 }
 
@@ -528,7 +529,7 @@ own percentages are worth a few nanoseconds.
 Reproduced from benchmarks/datetime.js and info.js with the deviations listed at the top of this
 file. Two of their cases call Settings.resetCaches() every iteration; what that clears is luxon's
 own caches, so those two rows also report whether a patch's cache is reachable from the reset
-path — which is how the reset hooks in B, D and E came to be written.
+path — which is how the reset hooks in B, D, E and F came to be written.
 
 verdict against ${cases.length} of luxon's own cases:
 ${verdict}`);
@@ -552,7 +553,7 @@ a zone: DateTime#setZone ${d("DateTime#setZone")}, DateTime.local with a zone ${
 one, ${d("DateTime.fromFormat with zone")} and ${d(
     "DateTime.fromFormatParser with zone"
   )}. None of those formats anything — they need an offset to place a
-local time, and B and E are what that offset costs. The same four cases without a zone move by
+local time, and B and F are what that offset costs. The same four cases without a zone move by
 ${d("DateTime.local with numbers")} to ${d(
     "DateTime.fromFormatParser"
   )}, which is the size of the rest of the ladder on paths it was not written for.
@@ -560,12 +561,22 @@ ${d("DateTime.local with numbers")} to ${d(
 C is visible on DateTime#toFormat (${d("DateTime#toFormat")}, and ${d(
     "DateTime#toFormat",
     all
-  )} with the other six), which is the case
-benchmarks/format.ts measures in bulk. F is visible on Info: ${d("Info.months", all)} on Info.months and ${d(
+  )} with the other seven), which is the case
+benchmarks/format.ts measures in bulk. G is visible on Info: ${d("Info.months", all)} on Info.months and ${d(
     "Info.weekdays",
     all
   )} on
 Info.weekdays under all ${patchKeys.length}, both of which build a Locale per call and now get an interned one.
+
+This suite is also where H's four hoisted constants show up, since they are the
+part of the set that is not about formatting and this is the only table that calls
+anything else. The relative-time table lands on DateTime#toRelativeCalendar (${d(
+    "DateTime#toRelativeCalendar",
+    all
+  )}),
+the Duration unit table on DateTime#add (${d("DateTime#add", all)}), and the reused Date inside
+SystemZone on DateTime.now (${d("DateTime.now", all)}) — which is the default zone, and so the one
+configuration benchmarks/upstream.ts never names.
 
 The two most expensive cases here are the ones that call Settings.resetCaches() every iteration
 (${cost("DateTime#toFormat with macro no cache")} and ${cost(
