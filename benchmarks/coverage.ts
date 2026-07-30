@@ -16,15 +16,20 @@
 // and Interval#splitBy, and upstream.ts has a row for none of those.
 //
 // So this table is the other axis: one operation per row, chosen for being what
-// callers actually reach for, with the moment equivalent beside it. It does not
-// re-derive the ladder — upstream.ts owns that, rung by rung — and carries only
-// the two endpoints, stock and the full patched build.
+// callers actually reach for. It does not re-derive the ladder — upstream.ts owns
+// that, rung by rung — and carries only the two endpoints, stock and the full
+// patched build.
 //
-// Three columns of absolute milliseconds, then the two ratios worth carrying:
-// the patched build's time as a fraction of stock's, and of moment's. Lower is
-// better in every column, so the whole table reads one way. Both ratios are kept
-// because a row where the patches take a twentieth of stock's time and still
-// trail moment is a different result from one where they overtake it, and
+// moment leads, because it is the number the work is aimed at. Nobody adopts a
+// date library to be a given multiple of its own previous self; the question a
+// row answers is whether luxon is now something you would pick over the thing
+// people already have, and stock luxon is the distance travelled rather than the
+// target. So: moment's milliseconds, then stock's, then the patched build's, then
+// the same two as ratios in the same order.
+//
+// Lower is better in every column, so the whole table reads one way. Both ratios
+// are kept because a row where the patches take a twentieth of stock's time and
+// still trail moment is a different result from one where they overtake it, and
 // neither the milliseconds nor a single ratio says which happened.
 //
 //   node coverage.ts
@@ -535,11 +540,11 @@ for (const [, count] of SECTIONS) {
 
     rows.push([
       kase.key + (kase.approx === true ? " *" : ""),
+      mo === undefined ? "--" : ms(mo),
       ms(base),
       ms(all),
-      mo === undefined ? "--" : ms(mo),
-      ratio(all, base),
       mo === undefined ? "--" : ratio(all, mo),
+      ratio(all, base),
     ]);
   }
 
@@ -550,7 +555,7 @@ if (at !== CASES.length) {
   throw new Error(`the section list covers ${at} cases but there are ${CASES.length}`);
 }
 
-printTable(["case", "stock ms", `all ${ALL.length} ms`, "moment ms", "vs stock", "vs moment"], rows);
+printTable(["case", "moment ms", "stock ms", `all ${ALL.length} ms`, "vs moment", "vs stock"], rows);
 
 // The rows still above 1.000, named from the run rather than written down, so the
 // paragraph below cannot drift from the table above it.
