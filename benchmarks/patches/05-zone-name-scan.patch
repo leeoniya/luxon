@@ -1,10 +1,10 @@
 Patch: zoneNameScan
-Letter: D
+Letter: E
 Requires: A (zoneInfoCache)
 Files: src/impl/locale.js, src/impl/util.js
 Summary: parseZoneInfo: read the name from dtf.format() instead of formatToParts + find
 
-D: the zone name is read the expensive way
+E: the zone name is read the expensive way
 
 Requires A (it anchors on A's parseZoneInfo). What A fixed was constructing a
 formatter per value; what is left is how the name is got out of one, and that
@@ -61,7 +61,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
  
  // PARSING
  
-+// UPSTREAM-D: see benchmarks/patches/
++// UPSTREAM-E: see benchmarks/patches/
 +const nameScanCache = new Map();
 +
 +// Locale.resetCache() clears the DTF cache these scanners are built on. It

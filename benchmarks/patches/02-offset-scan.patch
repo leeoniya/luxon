@@ -6,7 +6,7 @@ Summary: IANAZone.offset: read dtf.format() digits instead of formatToParts + pa
 
 B: IANAZone.offset decodes Intl output the expensive way
 
-With A and the formatter work in G done, this is essentially all that is left
+With A and the formatter work in H done, this is essentially all that is left
 between luxon and moment on a zone-less pattern: every formatted value calls
 offset(), and offset() costs a formatToParts (an array of seven {type, value}
 objects), six parseInt calls on those strings, a wrapper Date and a second Date

@@ -1,16 +1,16 @@
-// The two patches that touch the offset lookup (B and E in benchmarks/patches)
+// The two patches that touch the offset lookup (B and F in benchmarks/patches)
 // must be invisible: the same offset, the same formatted output, and the same
 // NaN cases as stock luxon.
 //
-// E (transitionInterval) is the one that needs the coverage. It is stateful and
+// F (transitionInterval) is the one that needs the coverage. It is stateful and
 // its answer depends on which instants it was asked about earlier, so every zone
 // is replayed in four access orders — a sequential reader, a random one, a
 // backwards one, and one interleaving each instant with `now` — each against a
 // fresh module.
 //
-// E also carries the zone-NAME half of the same cache, which
+// F also carries the zone-NAME half of the same cache, which
 // ./zone-name-patches.test.ts covers; loading it here pulls that in too, since it
-// requires D. That is inert for these assertions — nothing below formats a name
+// requires E. That is inert for these assertions — nothing below formats a name
 // through parseZoneInfo — but it does mean this file no longer isolates the
 // offset side the way it did when the two intervals were separate patches.
 //

@@ -169,7 +169,7 @@ const D2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
 
 /**
  * Civil fields from an offset-shifted epoch time, using the same Hinnant
- * algorithm as the tsToObj fast path in patch G — no Date allocation.
+ * algorithm as the tsToObj fast path in patch H — no Date allocation.
  */
 function formatCivil(localMs: number, abbr: string | null): string {
   const days = Math.floor(localMs / DAY_MS);

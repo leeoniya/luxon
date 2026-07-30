@@ -36,7 +36,7 @@ export type PatchKey = string;
 
 export interface Patch {
   key: PatchKey;
-  /** A-G, its position in apply order; what the report tables label it */
+  /** A-H, its position in apply order; what the report tables label it */
   letter: string;
   /** one-line summary for report tables */
   what: string;
@@ -71,7 +71,7 @@ function parseHeader(text: string, file: string) {
     key: field("Patch"),
     letter: field("Letter"),
     what: field("Summary"),
-    // "B (offsetScan), D (zoneNameScan)" -> the keys in the parens
+    // "B (offsetScan), E (zoneNameScan)" -> the keys in the parens
     needs: requires === "none" ? [] : [...requires.matchAll(/\((\w+)\)/g)].map((m) => m[1]!),
     prose: head.slice(head.indexOf("Summary:")).split("\n").slice(2).join("\n").trim(),
   };

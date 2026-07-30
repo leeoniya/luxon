@@ -1,0 +1,109 @@
+Patch: tokenParserCache
+Letter: D
+Requires: none
+Files: src/impl/tokenParser.js, src/settings.js
+Summary: fromFormat: reuse the parser it builds per call, the way buildFormatParser already lets callers do
+
+D: fromFormat compiles a regex for every string it reads
+
+C's counterpart on the reading side, and the same observation: the work depends
+on the format, not on the value. fromFormat calls explainFromTokens, which
+constructs a TokenParser and drops it. That constructor tokenizes the format,
+expands macro tokens, builds a unit per token, concatenates the units' sources
+into one pattern and compiles it with RegExp. Then it matches one string against
+it and the whole thing is garbage.
+
+Unlike C this needs no restructuring, because the object to cache already
+exists. It is even already public: DateTime.buildFormatParser hands a
+TokenParser out and DateTime.fromFormatParser takes one back, an API whose only
+purpose is to let a caller hoist this out of a loop. So reuse is not a property
+being claimed here, it is one luxon already documents. What is left is to do it
+for the callers who did not, which is fromFormat and everything routed through
+it — the common case, and the one that reads a column of a CSV.
+
+Keyed on locale, numberingSystem and outputCalendar plus the format string.
+Those first three are exactly what Locale#equals compares, and they are also the
+whole of what a parser reads from a Locale: text tokens resolve through
+loc.eras, loc.months, loc.weekdays and loc.meridiems, and each of those is a
+function of those three and nothing else. weekSettings never reaches this file.
+JSON.stringify for the composite key is the shape luxon's own DTF, number,
+relative and resolved-options caches already use, and it is unambiguous in a way
+a joined string would not be, since a format string may contain any character.
+
+The measurable point is that a compiled RegExp costs out of all proportion to
+what removing it costs: about 190 bytes minified takes roughly half off one token
+column and nearly two thirds off the other, which is more than F and H remove
+between them on either, on both engines.
+
+The reset hangs off Settings.resetCaches(), beside the resetDigitRegexCache()
+call already there, which is the same shape: a module-level cache in impl/
+cleared from the one documented entry point. Locale.resetCache() would read
+better, since what a stale parser holds is locale-derived text and that is the
+clear which invalidates it, but Settings.resetCaches() calls it anyway, and its
+six-line body is already spoken for by A, E and G.
+
+diff --git a/src/impl/tokenParser.js b/src/impl/tokenParser.js
+--- a/src/impl/tokenParser.js
++++ b/src/impl/tokenParser.js
+@@ -479,9 +479,41 @@ export class TokenParser {
+   }
+ }
+ 
++// UPSTREAM-D: fromFormat built a TokenParser per call and then threw it
++// away -- tokenizing the format, building a unit per token, concatenating a
++// pattern and compiling it to a RegExp, all to read one string. None of that
++// depends on the input, only on the format and the locale.
++//
++// That the object survives reuse is not an assumption being made here: luxon
++// already exports it through DateTime.buildFormatParser, whose entire purpose is
++// to let a caller hoist this out of a loop and hand the same parser back to
++// fromFormatParser. This does it for the callers who did not, which is
++// fromFormat and everything routed through it.
++//
++// Keyed on the three fields Locale#equals compares, which are also the only part
++// of a Locale a parser reads: text tokens go through loc.eras, loc.months,
++// loc.weekdays and loc.meridiems, and each of those is a function of exactly
++// those three. JSON.stringify for the composite key is the shape luxon's own
++// DTF, number, relative and resolved-options caches already use.
++const parserCache = new Map();
++
++export function resetTokenParserCache() {
++  parserCache.clear();
++}
++
++function cachedTokenParser(locale, format) {
++  const key = JSON.stringify([locale.locale, locale.numberingSystem, locale.outputCalendar, format]);
++  let parser = parserCache.get(key);
++
++  if (parser === undefined) {
++    parserCache.set(key, (parser = new TokenParser(locale, format)));
++  }
++
++  return parser;
++}
++
+ export function explainFromTokens(locale, input, format) {
+-  const parser = new TokenParser(locale, format);
+-  return parser.explainFromTokens(input);
++  return cachedTokenParser(locale, format).explainFromTokens(input);
+ }
+ 
+ export function parseFromTokens(locale, input, format) {
+diff --git a/src/settings.js b/src/settings.js
+--- a/src/settings.js
++++ b/src/settings.js
+@@ -6,6 +6,7 @@ import DateTime from "./datetime.js";
+ import { normalizeZone } from "./impl/zoneUtil.js";
+ import { validateWeekSettings } from "./impl/util.js";
+ import { resetDigitRegexCache } from "./impl/digits.js";
++import { resetTokenParserCache } from "./impl/tokenParser.js";
+ 
+ let now = () => Date.now(),
+   defaultZone = "system",
+@@ -176,5 +177,6 @@ export default class Settings {
+     IANAZone.resetCache();
+     DateTime.resetCache();
+     resetDigitRegexCache();
++    resetTokenParserCache();
+   }
+ }

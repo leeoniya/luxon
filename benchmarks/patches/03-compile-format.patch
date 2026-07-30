@@ -17,7 +17,7 @@ handler once per pattern turns formatting into a walk over a prebuilt array.
 The representation is alternating literal/handler runs —
   lits[0] + fns[0]() + lits[1] + fns[1]() + ... + lits[n]
 so literal text is concatenated rather than dispatched, and adjacent literals
-collapse at compile time. That subsumes two of G's six: parseFormat now runs
+collapse at compile time. That subsumes two of H's six: parseFormat now runs
 once per pattern rather than once per value, and punctuation and unknown tokens
 fold into the literal runs, which is what the interpreter's default branch
 effectively did anyway.

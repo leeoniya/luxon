@@ -1,16 +1,16 @@
-// The two patches that touch the zone-name lookup (D and E in
+// The two patches that touch the zone-name lookup (E and F in
 // benchmarks/patches) must be invisible: the same name out of offsetName(), and
 // the same formatted output, as stock luxon.
 //
 // Each has its own way of being wrong, so each gets its own dimension.
 //
-// D (zoneNameScan) learns where the name sits inside one formatter's output and
+// E (zoneNameScan) learns where the name sits inside one formatter's output and
 // reuses that position, so what can break it is a locale — one that puts the
 // name first, renders the hour in a different script, or counts years off a
 // different calendar. Hence the locale and style sweep, which also covers the
 // four styles no luxon token reaches but offsetName() accepts.
 //
-// E (transitionInterval) is stateful: its answer depends on which instants it was
+// F (transitionInterval) is stateful: its answer depends on which instants it was
 // asked about earlier, and its interval is only sound because names cannot
 // change and change back inside a probe window. So every zone is replayed in
 // three access orders over an instant list that puts values either side of every
@@ -57,8 +57,8 @@ const STYLES: NonNullable<OffsetNameOpts["format"]>[] = [
   "longGeneric",
 ];
 
-// Both carry A, whose DTF cache D reads the formatter out of; the second also
-// pulls in B, since E covers both lookups and requires the offset scanner too.
+// Both carry A, whose DTF cache E reads the formatter out of; the second also
+// pulls in B, since F covers both lookups and requires the offset scanner too.
 const VARIANTS: [string, PatchKey[]][] = [
   ["zoneNameScan", ["zoneInfoCache", "zoneNameScan"].map(patchKey)],
   ["zoneNameScan + transitionInterval", ["zoneInfoCache", "zoneNameScan", "transitionInterval"].map(patchKey)],

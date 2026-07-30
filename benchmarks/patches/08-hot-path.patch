@@ -1,16 +1,16 @@
 Patch: hotPath
-Letter: G
+Letter: H
 Requires: none
 Files: src/impl/formatter.js, src/impl/util.js, src/datetime.js
 Summary: six fast paths along the route a numeric token takes, none of them observable
 
-G: the numeric path does avoidable work at six points
+H: the numeric path does avoidable work at six points
 
 Last, and grouped, because this is the tidy-up: one idea applied six times, each
 taking work out of a step of the route every numeric token walks without
 changing what the step means. None of them is worth a reviewer's time alone —
 the smallest is worth nothing measurable on either engine — while together they
-are most of what is left on a zone-less pattern once the Intl calls (A, B, D, E)
+are most of what is left on a zone-less pattern once the Intl calls (A, B, E, F)
 are dealt with.
 
 Along that route, in order:
@@ -49,7 +49,7 @@ diff --git a/src/datetime.js b/src/datetime.js
    ts += offset * 60 * 1000;
  
 -  const d = new Date(ts);
-+  // UPSTREAM-G: was `new Date(ts)` plus seven getUTC* calls. Same result, no
++  // UPSTREAM-H: was `new Date(ts)` plus seven getUTC* calls. Same result, no
 +  // allocation (Howard Hinnant's civil_from_days, valid for any Gregorian year).
 +  const days = Math.floor(ts / 86400000);
 +  const msOfDay = ts - days * 86400000;
@@ -92,7 +92,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +import { padStart, roundTo } from "./util.js";
  
  function stringifyTokens(splits, tokenToString) {
-+  // UPSTREAM-G: indexed loop (no iterator allocation per format) and a verbatim
++  // UPSTREAM-H: indexed loop (no iterator allocation per format) and a verbatim
 +  // check so punctuation skips tokenToString entirely.
    let s = "";
 -  for (const token of splits) {
@@ -107,7 +107,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
   * @private
   */
  
-+// UPSTREAM-G: format strings are overwhelmingly reused (one pattern, a whole
++// UPSTREAM-H: format strings are overwhelmingly reused (one pattern, a whole
 +// column of values), but parseFormat re-tokenized on every call. Bounded so a
 +// caller generating unique format strings can't grow it without limit.
 +const parseFormatCache = new Map();
@@ -140,7 +140,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
        splits.push({ literal: bracketed || /^\s+$/.test(currentFull), val: currentFull });
      }
  
-+    // UPSTREAM-G: a token with no ASCII letters matches no switch case and no
++    // UPSTREAM-H: a token with no ASCII letters matches no switch case and no
 +    // macro name, so formatting it is the identity. Flag it once here instead of
 +    // rediscovering that per value.
 +    for (const token of splits) {
@@ -156,7 +156,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
        return padStart(n, p);
      }
  
-+    // UPSTREAM-G: when the locale renders latn digits and this formatter carries
++    // UPSTREAM-H: when the locale renders latn digits and this formatter carries
 +    // no number-affecting options, PolyNumberFormatter provably falls through to
 +    // padStart. Do that directly rather than allocating an options object, a
 +    // formatter, a rest object and a key array for every numeric token.
@@ -182,7 +182,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
    return x - n * Math.floor(x / n);
  }
  
-+// UPSTREAM-G: "00".."99", for the pad-to-two case that dominates date formatting
++// UPSTREAM-H: "00".."99", for the pad-to-two case that dominates date formatting
 +const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
 +
  export function padStart(input, n = 2) {
@@ -197,7 +197,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
  }
  
  export function roundTo(number, digits, rounding = "round") {
-+  // UPSTREAM-G: every rounding mode is the identity on an integer once digits is
++  // UPSTREAM-H: every rounding mode is the identity on an integer once digits is
 +  // non-negative, and that is what every DateTime numeric token arrives as.
 +  if (digits >= 0 && Number.isInteger(number)) {
 +    return number;
