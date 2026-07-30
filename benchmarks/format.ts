@@ -32,6 +32,9 @@
 // Run: node format.ts            (timings only, ~13s)
 //      node format.ts --verify   (+ the output comparisons, ~4s more)
 //      bun format.ts             (same, on JavaScriptCore)
+//
+// What the tables mean, and the known tzdata-vintage and irregular-zone
+// differences, are in benchmarks/docs/format.md. This file prints tables.
 
 import { spawnSync } from "node:child_process";
 import moment from "moment-timezone";
@@ -47,9 +50,10 @@ import {
   type FormatKey,
   type VariantId,
 } from "./lib/format-paths.ts";
-import { interleavedBest, pkgVersion, runtime, type SampleBudget } from "./lib/kernel.ts";
-import { withVerify } from "./lib/opts.ts";
+import { cooldown, measureRows, pkgVersion, runtime, type SampleBudget } from "./lib/kernel.ts";
+import { cooldownMs, withVerify } from "./lib/opts.ts";
 import { printTable } from "./lib/print-table.ts";
+import { streamTable } from "./lib/stream-table.ts";
 import { scanChanges, strideSteps } from "./lib/step-scan.ts";
 
 const MIN_MS = 60_000;
@@ -57,6 +61,9 @@ const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 
 const N = 10_000; // values the timings are reported per ("column height")
+
+/** where the prose went */
+const DOCS = "benchmarks/docs";
 
 // How many interleaved passes each cell gets, budgeted rather than fixed. The
 // pass sizing aims every pass at ~75ms, so this stops at `min` on essentially
@@ -101,27 +108,15 @@ let sink = 0;
 const scaledVariants = new Set<VariantId>();
 const passCounts = new Set<number>();
 
-/** Times every available variant for one (zone, format, step) cell, interleaved. */
-function measureRow(zone: string, fmt: FormatKey, step: number): Map<VariantId, number> {
-  const entries = variantIds
+/** Every available variant for one (zone, format) row, for the kernel to interleave. */
+const rowEntries = (zone: string, fmt: FormatKey) =>
+  variantIds
     .filter((v) => variantAvailable(v, zone))
     .map((variant) => {
       const format = makeFormatter(variant, zone, fmt);
 
       return { key: variant, work: (ts: number) => format(ts).length };
     });
-
-  const { best, checksum, scaled, passes } = interleavedBest(entries, BASE_TS, step, N, PASSES);
-
-  sink += checksum;
-  passCounts.add(passes);
-
-  for (const v of scaled) {
-    scaledVariants.add(v);
-  }
-
-  return best;
-}
 
 console.log(
   `luxon ${await pkgVersion()} (this fork's src/) vs moment ${await pkgVersion("moment")} / ` +
@@ -154,12 +149,33 @@ function timingRow(label: string, ms: Map<VariantId, number>): string[] {
   return [label, base.toFixed(1), luxMs, easyMs, luxRatio, easyRatio];
 }
 
+// One zone at a time, printed as it lands and with an idle between, so a table
+// that takes minutes is watchable and each zone starts from a comparable thermal
+// state. The variants of a zone — which is what these rows compare — keep the
+// tight interleaved window they always had.
 for (const fmt of formatKeys) {
-  const rows = TIMING_ZONES.map((zone) => timingRow(zone, measureRow(zone, fmt, STEP_MS)));
-
   console.log(`${fmt} format (${patternFor("moment", fmt)}) -- ms per ${N} values, ratio vs moment\n`);
-  printTable(["zone", "moment", "luxon", "luxon+easytz", "luxon", "luxon+easytz"], rows);
+
+  const table = streamTable(["zone", "moment", "luxon", "luxon+easytz", "luxon", "luxon+easytz"], {
+    minWidths: { 0: 20, 1: 9, 2: 9, 3: 12, 4: 7 },
+  });
+
+  const run = await measureRows(
+    TIMING_ZONES,
+    (zone) => rowEntries(zone, fmt),
+    { base: BASE_TS, step: STEP_MS, report: N, passBudget: PASSES, cooldownMs },
+    (zone, { best }) => table.row(timingRow(zone, best))
+  );
+
+  sink += run.checksum;
+  for (const p of run.passes) passCounts.add(p);
+  for (const v of run.scaled) scaledVariants.add(v);
+
   console.log();
+
+  // between the two format tables as well as between their rows: the second one
+  // is otherwise the row measured straight after a table's worth of load
+  await cooldown(cooldownMs);
 }
 
 // A column-density sweep used to live here: the same zone timed at 1 min, 15
@@ -175,9 +191,7 @@ console.log(`passes taken per cell: ${[...passCounts].sort((a, b) => a - b).join
 
 if (scaledVariants.size > 0) {
   console.log(
-    `note: the ${[...scaledVariants].join(", ")} cells cost enough per value that timing ${N} of them per pass\n` +
-      `would dominate this benchmark's runtime, so they are timed over fewer values and scaled to ${N}.\n` +
-      `Per-value cost is flat in the pass length — the work is fixed per value — so the ratios stand.\n` +
+    `note: the ${[...scaledVariants].join(", ")} cells are timed over fewer than ${N} values and scaled up.\n` +
       `Every other cell, including the moment baseline every ratio is against, is timed over the full ${N}.\n`
   );
 }
@@ -248,9 +262,8 @@ if (scaledVariants.size > 0) {
 
 if (!withVerify) {
   console.log(
-    `output agreement and cross-zone fidelity skipped -- pass --verify to run them (~4s, and they are\n` +
-      `most of what this file has that benchmarks/upstream.ts does not).\n` +
-      `The timings above are only a result if the three paths agree, so run them before quoting any.\n`
+    `output agreement and cross-zone fidelity skipped -- pass --verify to run them (~4s). The timings\n` +
+      `above are only a result if the three paths agree, so run them before quoting any.`
   );
 }
 
@@ -369,8 +382,7 @@ if (withVerify) {
   if (localAbbr === "") {
     console.log(
       `\nnote: the ${SYSTEM} row's two "!=moment" abbr counts are vacuous -- moment renders \`z\` as an\n` +
-        `empty string in local mode (no zone attached), so nothing there is comparable. Both luxon\n` +
-        `paths emit the host abbreviation, and they agree with each other.`
+        `empty string in local mode, so nothing there is comparable.`
     );
   }
 
@@ -528,21 +540,20 @@ if (withVerify) {
     [3]
   );
 
+  // Which zones, since the doc cannot know what this host's ICU is missing.
   if (vintageZones.size > 0) {
     console.log(
-      `\nthe numeric rows differ only on ${vintageZones.size} vintage zone(s) -- ${[...vintageZones].join(", ")} --\n` +
-        `where moment's bundled tzdata (${moment.tz.dataVersion}) already has a rule change the host ICU doesn't;\n` +
-        `stock luxon is off there too, so it's a data-freshness difference, not an easy-tz one.`
+      `\ntzdata vintage (see ${DOCS}/format.md): ${[...vintageZones].join(", ")} -- moment ` +
+        `${moment.tz.dataVersion} has a\nrule the host ICU lacks. Stock luxon is off there too.`
     );
   }
 
   console.log(
-    `\n${skipped} zone(s) excluded -- the ${irregularZones.size} irregular ones ` +
-      `(${[...irregularZones].join(", ")}),\n` +
-      `whose Ramadan-driven transition dates easy-tz's baked step table only approximates, so they\n` +
-      `keep luxon's exact Intl lookup.`
+    `${skipped} zone(s) excluded, the ${irregularZones.size} irregular ones: ${[...irregularZones].join(", ")}.`
   );
 }
+
+console.log(`\nwhat these tables mean: ${DOCS}/format.md   how they are timed: ${DOCS}/methodology.md`);
 
 if (sink < 0) {
   throw new Error("unreachable");

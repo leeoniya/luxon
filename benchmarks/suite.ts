@@ -45,16 +45,21 @@
 //     that survives a documented reset is a behavior change rather than a
 //     memoization, and these patches only claim the latter.
 //
-// Run: node suite.ts               (~21s)
+// Run: node suite.ts               (~15s of timing, plus a cooldown per row)
 //      bun suite.ts                (the same under JavaScriptCore, which is
-//                                   noisier — see the control drift under the
+//                                   noisier — see the pass spread under the
 //                                   table)
 //      ... --only <substring>      (just the matching cases, for iterating)
+//      ... --cooldown 0            (no idling between rows, for the same)
+//
+// Which patch moves which case, and why the two resetCaches() rows are supposed
+// to read as null, is in benchmarks/docs/suite.md. This file prints the table.
 
-import { printTable } from "./lib/print-table.ts";
-import { interleavedBest, pkgVersion, runtime, type SampleBudget, type Work } from "./lib/kernel.ts";
+import { measureRows, pkgVersion, runtime, type SampleBudget, type Work } from "./lib/kernel.ts";
 import type { DateTimeWithLoc } from "./lib/luxon-types.ts";
+import { cooldownMs } from "./lib/opts.ts";
 import { loadLuxon, patchKeys, type LuxonModule, type PatchKey } from "./lib/patches.ts";
+import { streamTable } from "./lib/stream-table.ts";
 
 // Reported per call, which is what a suite of unrelated one-shot operations
 // wants: these cases span ~0.1µs (DateTime.now) to ~100µs (a formatted value
@@ -63,26 +68,35 @@ import { loadLuxon, patchKeys, type LuxonModule, type PatchKey } from "./lib/pat
 // is already µs per call.
 const REPORT = 1_000;
 
+/** where the prose went */
+const DOCS = "benchmarks/docs";
+
 // Per-pass budget handed to the kernel's sizing, and the pass count, traded
 // against each other: this table's error is jitter rather than resolution — no
 // case here costs more than ~150µs, so every cell clears the kernel's own pass
 // floor easily — and against jitter more passes buy more than longer ones do.
-// Measured on the control column, which is the same library twice and so reports
-// exactly this error: 3 passes of 40ms drifted 1.3% median and 13% worst, 6 of
-// 25ms drift 2.4-3.1% median and 7-11% worst, and 8 of 20ms were no better than
-// 6. The middle setting was chosen there, at 116 cells (29 cases x the 4 columns
-// this had before the per-patch column was dropped); it now runs 3 columns wide.
+// Measured back when this table carried a control column, which is the same
+// library twice and so reported exactly this error: 3 passes of 40ms drifted
+// 1.3% median and 13% worst, 6 of 25ms drift 2.4-3.1% median and 7-11% worst,
+// and 8 of 20ms were no better than 6. The middle setting was chosen there, at
+// 116 cells (29 cases x the 4 columns this had at the time); it now runs 2
+// columns wide, and the passes it keeps are also what the spread is read off.
 const PASS_BUDGET_MS = 25;
 const PASSES: SampleBudget = { min: 6, max: 8, budgetMs: 150 };
 
 // Below either of these a difference is not worth reading as one, whatever the
-// control column happened to do.
+// measured spread happened to be.
 //
-// The percentage is set from the control column's median drift, which is ~1-3%.
-// The absolute one is for the cheapest cases: Info's four "with existing locale"
-// calls are ~65ns of map lookups, and the control moves them 5-15% — under 10ns,
-// which is neither resolvable here nor actionable if it were. Both thresholds
-// have to be cleared, which leaves them listing only what a reader could act on.
+// Both were set against the control column this table used to carry, on a quiet
+// host: the percentage from that control's median drift (~1-3%), and the
+// absolute one from the cheapest cases, Info's four "with existing locale" calls
+// at ~65ns of map lookups, which the control moved 5-15% — under 10ns, neither
+// resolvable here nor actionable if it were. Both have to be cleared, which
+// leaves the verdict listing only what a reader could act on.
+//
+// They have NOT been re-confirmed against the pass-spread floor that replaced
+// the control, which wants a run on an idle machine rather than a thermally
+// limited one. Treat them as inherited until then.
 const MIN_INTERESTING_PCT = 3;
 const MIN_INTERESTING_US = 0.02;
 
@@ -91,21 +105,10 @@ const MIN_INTERESTING_US = 0.02;
 interface Column {
   label: string;
   keys: readonly PatchKey[];
-  /** loads a second module instance of the same source — see the control below */
-  copy?: number;
 }
 
 const COLUMNS: Column[] = [
   { label: "stock", keys: [] },
-  // The control: stock a second time, as a SEPARATE module instance of identical
-  // source. Whatever it reports against the first column is what a difference has
-  // to beat to be one, and loading it twice rather than timing one instance twice
-  // is what makes that floor the right one — it carries the cost of being a
-  // different module (its own inline caches, its own code objects, its own place
-  // in the heap) as well as ambient noise. On the cheapest cases here, where an
-  // operation is two map lookups, that is most of the spread: they moved 5-15%
-  // between builds that do not touch them at all.
-  { label: "control", keys: [], copy: 1 },
   // The whole set. There is no intermediate column: every patch in
   // benchmarks/patches is intended to land, so the question this table answers is
   // what a caller gets, and the per-patch attribution is benchmarks/upstream.ts's
@@ -114,7 +117,6 @@ const COLUMNS: Column[] = [
 ];
 
 const STOCK = "stock";
-const CONTROL = "control";
 
 // ---- the cases --------------------------------------------------------------
 
@@ -365,32 +367,90 @@ if (cases.length === 0) {
 
 console.log(`luxon ${await pkgVersion()}, its own benchmark suite (benchmarks/datetime.js + info.js)`);
 console.log(`runtime: ${runtime()}, host ICU ${process.versions["icu"] ?? "?"}`);
-console.log(`µs per call, fastest of ${PASSES.min}-${PASSES.max} interleaved passes\n`);
+console.log(
+  `µs per call, fastest of ${PASSES.min}-${PASSES.max} interleaved passes` +
+    `${cooldownMs > 0 ? `, ${cooldownMs / 1000}s idle between rows` : ", no cooldown"}\n`
+);
 
 const modules = new Map<string, LuxonModule>();
 
 for (const col of COLUMNS) {
-  modules.set(col.label, await loadLuxon(col.keys, col.copy ?? 0));
+  modules.set(col.label, await loadLuxon(col.keys));
 }
 
 const key = (col: string, name: string) => `${col}\u0000${name}`;
 
-// Case-major, so the columns of one case are timed next to each other:
-// what is compared is their ratio, and drift over the window is the one error a
-// ratio does not cancel.
-const entries = cases.flatMap((kase) =>
-  COLUMNS.map((col) => ({ key: key(col.label, kase.name), work: kase.make(modules.get(col.label)!) }))
-);
+// ---- report -----------------------------------------------------------------
 
+const us = (v: number) => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
+const pct = (v: number) => (v > 0 ? "+" : "") + v.toFixed(1);
+
+const patched = COLUMNS.filter((c) => c.label !== STOCK);
+
+const best = new Map<string, number>();
+/** how far apart two independent readings of a cell landed, as a percentage */
+const jitter = new Map<string, number>();
+
+const delta = (col: string, name: string) => {
+  const base = best.get(key(STOCK, name))!;
+
+  return ((best.get(key(col, name))! - base) / base) * 100;
+};
+
+const table = streamTable(["case", "stock µs", ...patched.flatMap((col) => [`${col.label} µs`, "Δ%"])], {
+  minWidths: { 0: 40, 1: 8, 2: 8, 3: 6 },
+});
+
+// Case-major, so the columns of one case are timed next to each other: what is
+// compared is their ratio, and drift over the window is the one error a ratio
+// does not cancel. Rows are then cooled between, since nothing compares one case
+// against another.
+//
 // Every case ignores the instant it is handed — luxon's suite feeds each of its
 // callbacks one fixed input, and the point here is to reproduce their case, not
 // to sweep it — so the step is 0 and the base is only there to satisfy the kernel.
-//
-// COLUMNS.length as the group size, which is what makes the columns of a case
-// comparable at all: the cell measured right after the previous case pays
-// for that case, by up to 2.5x on the allocating cases, and without the rotation
-// it is the same column every pass. See rotateGroups in the kernel.
-const timed = interleavedBest(entries, DT_TS, 0, REPORT, PASSES, PASS_BUDGET_MS, COLUMNS.length);
+const run = await measureRows(
+  cases,
+  (kase) => COLUMNS.map((col) => ({ key: key(col.label, kase.name), work: kase.make(modules.get(col.label)!) })),
+  {
+    base: DT_TS,
+    step: 0,
+    report: REPORT,
+    passBudget: PASSES,
+    budgetMs: PASS_BUDGET_MS,
+    // COLUMNS.length as the group size, which is what makes the columns of a
+    // case comparable at all: the cell measured right after the previous case
+    // pays for that case, by up to 2.5x on the allocating cases, and without the
+    // rotation it is the same column every pass. See rotateGroups in the kernel.
+    group: COLUMNS.length,
+    cooldownMs,
+  },
+  (kase, measured) => {
+    for (const [k, v] of measured.best) best.set(k, v);
+    for (const [k, v] of measured.spread) jitter.set(k, v * 100);
+
+    table.row([
+      kase.name,
+      us(best.get(key(STOCK, kase.name))!),
+      ...patched.flatMap((col) => [us(best.get(key(col.label, kase.name))!), pct(delta(col.label, kase.name))]),
+    ]);
+  }
+);
+
+/**
+ * The suite's overall verdict on one column: the geometric mean of its per-case
+ * ratios, which is the right average of ratios and weights every case equally —
+ * as luxon's own suite does, having no notion of which of its cases an app runs
+ * more often. A sum of the µs columns would instead let the two cases that reset
+ * the caches decide the answer.
+ */
+const geomean = (col: string) =>
+  (Math.exp(cases.reduce((s, k) => s + Math.log(1 + delta(col, k.name) / 100), 0) / cases.length) - 1) * 100;
+
+if (cases.length > 1) {
+  table.rule();
+  table.row(["geometric mean", "", ...patched.flatMap((col) => ["", pct(geomean(col.label))])]);
+}
 
 // Checksums, gathered outside the timed loop: one call per cell, compared across
 // columns. A patch is supposed to be invisible from the API, and a case whose
@@ -412,66 +472,57 @@ const mismatched = cases.flatMap((kase) => {
     : [`${kase.name}: stock ${want}, ${off.map((c) => `${c.label} ${checks.get(key(c.label, kase.name))}`).join(", ")}`];
 });
 
-// ---- report -----------------------------------------------------------------
+// ---- what a difference has to beat ------------------------------------------
+//
+// This used to be a control column: stock loaded a second time, timed as its own
+// neighbour, its Δ% read as the floor. That measured the right thing and paid for
+// it in the currency it was measuring — a third more time under sustained load on
+// a host that throttles, to find out how much the load was distorting things.
+//
+// The replacement is free, because the passes were run anyway: each cell's
+// passes split in half, each half's fastest taken, and the two compared. That is
+// the same statistic the control reported — the gap between two minima of
+// identical code — without the second column. See `spread` in the kernel.
+//
+// It is narrower than the control in one respect: both halves are inside one
+// row, so it cannot see drift between rows. That is what the cooldown is for.
 
-const us = (v: number) => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
-const pct = (v: number) => (v > 0 ? "+" : "") + v.toFixed(1);
+/** the noisier of a case's two cells, since either can be the unresolved one */
+const caseJitter = (name: string) => {
+  const seen = COLUMNS.map((col) => jitter.get(key(col.label, name))).filter(
+    (v): v is number => v !== undefined && !Number.isNaN(v)
+  );
 
-const patched = COLUMNS.filter((c) => c.label !== STOCK);
-
-const delta = (col: string, name: string) => {
-  const base = timed.best.get(key(STOCK, name))!;
-
-  return ((timed.best.get(key(col, name))! - base) / base) * 100;
+  // NaN from the kernel means the passes did not cover two rotation cycles, so
+  // there is nothing to read a floor off. PASSES is set well above that; if it
+  // ever is not, fall through to the fixed thresholds rather than to zero.
+  return seen.length === 0 ? Infinity : Math.max(...seen);
 };
 
-const rows: (string[] | null)[] = cases.map((kase) => [
-  kase.name,
-  us(timed.best.get(key(STOCK, kase.name))!),
-  ...patched.flatMap((col) => [us(timed.best.get(key(col.label, kase.name))!), pct(delta(col.label, kase.name))]),
-]);
+const drift = cases.map((k) => caseJitter(k.name)).sort((a, b) => a - b);
+const median = drift[drift.length >> 1]!;
 
 /**
- * The suite's overall verdict on one column: the geometric mean of its per-case
- * ratios, which is the right average of ratios and weights every case equally —
- * as luxon's own suite does, having no notion of which of its cases an app runs
- * more often. A sum of the µs columns would instead let the two cases that reset
- * the caches decide the answer.
- */
-const geomean = (col: string) =>
-  (Math.exp(cases.reduce((s, k) => s + Math.log(1 + delta(col, k.name) / 100), 0) / cases.length) - 1) * 100;
-
-if (cases.length > 1) {
-  rows.push(null, ["geometric mean", "", ...patched.flatMap((col) => ["", pct(geomean(col.label))])]);
-}
-
-printTable(["case", "stock µs", ...patched.flatMap((col) => [`${col.label} µs`, "Δ%"])], rows);
-
-const controlDrift = cases.map((k) => Math.abs(delta(CONTROL, k.name))).sort((a, b) => a - b);
-const median = controlDrift[controlDrift.length >> 1]!;
-
-/**
- * What the control column drifted on all but its worst tenth of cases, used as a
- * floor for every case rather than only for the case it came from.
+ * The table's jitter on all but its worst tenth of cases, used as a floor for
+ * every case rather than only for the case it came from.
  *
- * A per-case control drift alone is one sample, so a case whose control happened
- * to come in clean gets an unrealistically tight floor and then reports the next
- * run's jitter as a finding — which it did: successive runs each listed three or
- * four cases as 3-7% slower and never the same ones. The high percentile is the
- * table's own answer to "how far apart can identical code land", and it is the
- * threshold that makes the verdict repeatable.
+ * A single case's jitter is one comparison, so a case whose two halves happened
+ * to agree closely gets an unrealistically tight floor and then reports the next
+ * run's noise as a finding — which it did, back when this was per-case control
+ * drift: successive runs each listed three or four cases as 3-7% slower and
+ * never the same ones. The high percentile is the table's own answer to "how far
+ * apart can two readings of identical code land", and it is what makes the
+ * verdict repeatable.
  */
-const spread = controlDrift[Math.min(controlDrift.length - 1, Math.floor(controlDrift.length * 0.9))]!;
+const spread = drift[Math.min(drift.length - 1, Math.floor(drift.length * 0.9))]!;
 
-// Per case, the larger of its own control drift and that table-wide spread, so a
-// case that is noisier than most is held to its own standard.
-const floor = (name: string) => Math.max(MIN_INTERESTING_PCT, spread, Math.abs(delta(CONTROL, name)));
+// Per case, the larger of its own jitter and that table-wide spread, so a case
+// that is noisier than most is held to its own standard.
+const floor = (name: string) => Math.max(MIN_INTERESTING_PCT, spread, caseJitter(name));
 
-const movedUs = (col: string, name: string) =>
-  Math.abs(timed.best.get(key(col, name))! - timed.best.get(key(STOCK, name))!);
+const movedUs = (col: string, name: string) => Math.abs(best.get(key(col, name))! - best.get(key(STOCK, name))!);
 
 const verdict = patched
-  .filter((col) => col.label !== CONTROL)
   .map((col) => {
     const moved = cases
       .map((kase) => ({ name: kase.name, d: delta(col.label, kase.name), floor: floor(kase.name) }))
@@ -488,97 +539,17 @@ const verdict = patched
   })
   .join("\n");
 
+// The floor is the only thing here a reader has to have to read the Δ% column at
+// all. What the moved cases mean is in DOCS/suite.md.
 console.log(`
-passes taken: ${timed.passes}, calls timed per pass: ${Math.min(...timed.sizes.values()).toLocaleString()}-${Math.max(
-  ...timed.sizes.values()
-).toLocaleString()}. Cells are the fastest pass, scaled to ${REPORT.toLocaleString()} calls,
-with the ${COLUMNS.length} columns of a case timed adjacently. Δ% is against stock, negative faster.
-The control column is a second module instance of the same stock source, so its Δ% is what a
-real difference has to beat: ${pct(median)}% median here, ${pct(spread)}% at the ninth decile, ${pct(
-  controlDrift.at(-1)!
-)}% worst. The
-verdict below counts a case as moved when it clears that decile (and its own control drift, and
-${MIN_INTERESTING_PCT}%) AND moves at least ${MIN_INTERESTING_US.toFixed(
-  2
-)}µs, the last being for Info's ~0.07µs cases where the control's
-own percentages are worth a few nanoseconds.
-
-Reproduced from benchmarks/datetime.js and info.js with the deviations listed at the top of this
-file. Two of their cases call Settings.resetCaches() every iteration; what that clears is luxon's
-own caches, so those two rows also report whether a patch's cache is reachable from the reset
-path — which is how the reset hooks in B, D, E and F came to be written.
+Δ% is against stock, negative faster. Two passes of the same cell landed ${pct(median)}% apart at the median,
+${pct(spread)}% at the ninth decile, ${pct(drift.at(-1)!)}% worst, which is the floor a difference has to clear. A case
+counts as moved below when it clears the decile and moves at least ${MIN_INTERESTING_US.toFixed(2)}µs.
 
 verdict against ${cases.length} of luxon's own cases:
 ${verdict}`);
 
-// Quoted from this run rather than written down, so a patch that changes one of
-// these stops the paragraph agreeing with the table above it. Only for a full
-// run: on a --only run most of what it refers to was not measured.
-if (wanted === null) {
-  const all = COLUMNS[2]!.label;
-  const d = (name: string, col = all) => `${pct(delta(col, name))}%`;
-  const cost = (name: string, col = STOCK) => `${us(timed.best.get(key(col, name))!)}µs`;
-
-  console.log(`
-findings
-
-The zone patches are what shows up outside formatting, and they show up on every case that names
-a zone: DateTime#setZone ${d("DateTime#setZone")}, DateTime.local with a zone ${d(
-    "DateTime.local with numbers and zone"
-  )}, and both token parsers into
-one, ${d("DateTime.fromFormat with zone")} and ${d(
-    "DateTime.fromFormatParser with zone"
-  )}. None of those formats anything — they need an offset to place a
-local time, and B and F are what that offset costs. The same four cases without a zone move by
-${d("DateTime.local with numbers")} to ${d(
-    "DateTime.fromFormatParser"
-  )}, which is the size of the rest of the ladder on paths it was not written for.
-
-C is visible on DateTime#toFormat (${d("DateTime#toFormat")}), which is the case benchmarks/format.ts
-measures in bulk. G is visible on Info: ${d("Info.months")} on Info.months and ${d("Info.weekdays")} on
-Info.weekdays, both of which build a Locale per call and now get an interned one.
-
-This suite is also where H's non-formatting half shows up, since it is the part of
-the set that is not about formatting and this is the only table that calls anything
-else. The relative-time table lands on DateTime#toRelativeCalendar (${d(
-    "DateTime#toRelativeCalendar"
-  )}),
-the reused Date inside SystemZone on DateTime.now (${d("DateTime.now")}) — which is the default
-zone, and so the one configuration benchmarks/upstream.ts never names — and the Duration unit
-table plus the fast path that replaced adjustTime's Duration round trip on DateTime#add
-(${d("DateTime#add")}). That last one is the largest of them by a wide margin, and
-benchmarks/coverage.ts is where its reach is visible rather than here: every plus and
-minus goes through adjustTime, which puts it under endOf, hasSame, diff, toRelative and
-Interval#splitBy as well.
-
-The case nothing here moves is DateTime#toLocaleString (${d("DateTime#toLocaleString")}), which is a finding rather
-than an oversight, since it is the formatting API luxon's own docs steer callers toward. Profiled
-under all ${patchKeys.length} it is 61-66% Intl.DateTimeFormat#format across the presets, which nothing can remove
-without changing what luxon returns, and another ~8% the Date that format has to be handed, whose
-instant varies per call. Of the ~29% left, ~9% is the JSON.stringify key getCachedDTF builds per
-call to find the formatter and ~20% is a Formatter, a Locale.clone, a PolyDateFormatter and two
-option spreads between them. No single piece of that is large enough to be worth a patch, and the two
-ways of taking the whole ~29% were both tried and both dropped.
-
-Dropping the two spreads leaves the cache keyed on the options object's CONTENTS, so a caller who
-mutates one between calls still gets a fresh formatter — but it measures at or behind a control
-that is stock loaded twice, and toLocaleParts comes out consistently slower, the guard needed to
-skip the merge apparently costing more than the merge. Keying that cache on the IDENTITY of the
-options object does take the whole ~29% where it hits, and is wrong twice over: it goes stale for
-that mutating caller, and luxon builds a fresh options object per call on its own macro-token
-path, so an identity key misses every time and constructs an ICU formatter per value. That is a
-cliff rather than a slowdown — it is why benchmarks/lib/intl-count.ts now has
-capIntlConstructions(), which trips a probe that starts building formatters per call instead of
-letting it spend minutes in ICU and GC.
-
-The two most expensive cases here are the ones that call Settings.resetCaches() every iteration
-(${cost("DateTime#toFormat with macro no cache")} and ${cost(
-    "DateTime#format in german and no-cache"
-  )}), and they sit within the control's drift of stock in every column.
-That is the intended reading rather than a null result: each patch cache is cleared where luxon
-clears the cache it stands in for, so a caller who resets pays what stock pays, and none of the
-speedups above are a cache quietly outliving its reset.`);
-}
+console.log(`\nwhat this table means: ${DOCS}/suite.md   how it is timed: ${DOCS}/methodology.md`);
 
 if (mismatched.length > 0) {
   console.log(`\nCHECKSUM MISMATCH — these cases did not return stock's value:`);
@@ -590,4 +561,4 @@ if (mismatched.length > 0) {
 // the pass sizing adapts to the host, so what varies is how many iterations got
 // summed. The cross-build parity check is `mismatched` above, which compares
 // each build's value against stock's on identical inputs.
-console.log(`\nchecksum: ${timed.checksum.toFixed(0)}`);
+console.log(`\nchecksum: ${run.checksum.toFixed(0)}`);

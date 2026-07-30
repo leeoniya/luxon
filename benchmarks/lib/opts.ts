@@ -52,3 +52,36 @@ export const allTables: boolean = asked.length === 0 || asked.length === TABLES.
  * cache patches are the same shape of claim.
  */
 export const withFootprint: boolean = process.argv.includes("--footprint");
+
+/**
+ * How long to idle between one timed row and the next, in milliseconds.
+ *
+ * Every bench here is a few minutes of sustained load on a host that throttles
+ * partway through, and the throttling is what a comparison across rows cannot
+ * cancel: a row measured late is measured on a hotter machine than a row
+ * measured early. Idling between them lets the host come back to a comparable
+ * state, so what the rows differ by is the code rather than the order they ran
+ * in.
+ *
+ * This replaces the control rows these tables used to carry, which measured the
+ * same problem by adding to it — a control is a whole extra row of load, spent
+ * establishing how much the load was distorting things.
+ *
+ * `--cooldown 0` turns it off, which is what to do when iterating on a patch and
+ * comparing a run against itself rather than reading rows against each other.
+ */
+export const cooldownMs: number = (() => {
+  const at = process.argv.indexOf("--cooldown");
+
+  if (at < 0) {
+    return 5_000;
+  }
+
+  const given = Number(process.argv[at + 1]);
+
+  if (!Number.isFinite(given) || given < 0) {
+    throw new Error(`--cooldown wants a non-negative number of ms, got ${process.argv[at + 1] ?? "nothing"}`);
+  }
+
+  return given;
+})();

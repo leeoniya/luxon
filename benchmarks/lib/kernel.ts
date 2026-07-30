@@ -3,17 +3,28 @@
 // These benches compare builds of luxon against each other rather than reporting
 // an absolute rate, so what they need from a timer is that the ERROR BETWEEN
 // COLUMNS be small — a systematic drift across the measurement window is the one
-// error a ratio does not cancel. Hence the two things this does that a general
+// error a ratio does not cancel. Hence the three things this does that a general
 // benchmarking library does not: it sizes every entry's pass to a wall-time
-// budget rather than a value count (paths here span a 20x cost range), and it
-// interleaves passes across all entries rather than running each to completion.
+// budget rather than a value count (paths here span a 20x cost range), it
+// interleaves passes across the entries of one row rather than running each to
+// completion, and it idles between rows so the host is in a comparable state for
+// each of them.
 //
 // It is deliberately not tinybench, which luxon's own suites in datetime.js and
 // info.js use. Those measure one build's cases against each other and want an
-// ops/sec with a confidence interval; these measure the same case across four
+// ops/sec with a confidence interval; these measure the same case across several
 // builds and want the difference between them to mean something.
+//
+// Drift is handled in two places for two reasons. Interleaving handles it WITHIN
+// a row, where the cells are compared directly and the window is short. Cooling
+// handles it BETWEEN rows, where interleaving would mean holding every row's
+// state open at once and where the gaps are long enough for a thermally limited
+// host to have moved. These benches used to carry control rows — the same build
+// measured twice — to say how much drift was left over; those are gone, because
+// a control is another row of the load it is measuring.
 
 import { readFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 
 export interface SampleBudget {
   min: number; // always take at least this many passes, however slow
@@ -107,8 +118,9 @@ const MIN_PASS = 500;
 
 // Floor on how long a timed pass should RUN, which is the same concern in the
 // other direction. The cheapest paths here get through `report` values in
-// 10-20ms, and at that scale scheduling jitter rivals the signal — those were
-// the rows whose control disagreed by ~11% while the expensive ones sat at 1-2%.
+// 10-20ms, and at that scale scheduling jitter rivals the signal — measured back
+// when these tables carried controls, those were the rows whose control
+// disagreed by ~11% while the expensive ones sat at 1-2%.
 // A path that cheap is given more than `report` values so its pass reaches this
 // floor, and the result is scaled back down the same way a shortened pass is
 // scaled up. Unlike shortening, this only buys precision: it costs a few hundred
@@ -185,6 +197,9 @@ function passSize(
  * a throttled stretch late is offered to every entry rather than to whichever
  * happened to be running — and since the reported number is a ratio between
  * entries, systematic drift across them is the one error that does not cancel.
+ * Callers hand this one ROW's entries (see measureRows), so the window it
+ * spreads them over is short and the entries in it are the ones compared
+ * directly.
  *
  * There is no separate warm-up pass. Both engines allocate type feedback per
  * CALL SITE, so a warm-up loop trains different slots than the timed loop, and
@@ -212,8 +227,12 @@ export function interleavedBest<K>(
   passBudget: SampleBudget,
   budgetMs = DEFAULT_BUDGET_MS,
   group = 0
-): { best: Map<K, number>; checksum: number; scaled: K[]; sizes: Map<K, number>; passes: number } {
+): Measured<K> {
   const best = new Map<K, number>();
+  // fastest pass within each half of the pass sequence, interleaved a rotation
+  // cycle at a time — see `spread`
+  const half: [Map<K, number>, Map<K, number>] = [new Map(), new Map()];
+  const cycle = Math.max(1, group);
   const scaled: K[] = [];
   let checksum = 0;
 
@@ -246,6 +265,11 @@ export function interleavedBest<K>(
       const prev = best.get(key);
 
       if (prev === undefined || ms < prev) best.set(key, ms);
+
+      const side = half[Math.floor(passes / cycle) % 2]!;
+      const sidePrev = side.get(key);
+
+      if (sidePrev === undefined || ms < sidePrev) side.set(key, ms);
     }
 
     passes++;
@@ -254,7 +278,151 @@ export function interleavedBest<K>(
     if (passes >= passBudget.min && spent >= passBudget.budgetMs) break;
   }
 
-  return { best, checksum, scaled, sizes: new Map(sized.map(({ key, n }) => [key, n])), passes };
+  const spread = new Map<K, number>();
+
+  for (const [key, fastest] of best) {
+    const a = half[0]!.get(key);
+    const b = half[1]!.get(key);
+
+    spread.set(key, a === undefined || b === undefined ? NaN : Math.abs(a - b) / fastest);
+  }
+
+  return { best, spread, checksum, scaled, sizes: new Map(sized.map(({ key, n }) => [key, n])), passes };
+}
+
+// ---- rows -------------------------------------------------------------------
+
+/**
+ * A row's worth of results, plus what the row cost to get.
+ *
+ * `spread` is this kernel's replacement for the control rows these tables used
+ * to carry: how far apart two independent readings of the SAME cell landed, so a
+ * difference smaller than it was not resolved.
+ *
+ * It is built to be the statistic the control was. A control measured the gap
+ * between two MINIMA of identical code — one column's fastest pass against its
+ * twin's — and a minimum over several passes has already thrown away most of the
+ * noise, so that gap is much tighter than the gap between two raw passes. Split
+ * the passes into two halves, take each half's minimum, and read the difference:
+ * same statistic, no second column, and it costs nothing because the passes were
+ * run anyway.
+ *
+ * The halves interleave rather than being consecutive, so each spans the whole
+ * measurement window. Consecutive halves would make this read the drift from the
+ * first half of a row to the second, which is a different quantity and one the
+ * cooldown between rows already addresses.
+ *
+ * They interleave a whole ROTATION CYCLE at a time rather than pass by pass,
+ * which matters and is not obvious. rotateGroups moves the penalized front slot
+ * along by one per pass, so with a group of two the even passes all have one
+ * column in that slot and the odd passes all have the other. Splitting on pass
+ * parity would then put every one of a column's penalized passes in one half and
+ * none in the other, and this would report the boundary penalty as noise rather
+ * than the noise. Whole cycles put the same set of slot positions in both
+ * halves, which is what makes the two comparable at all.
+ *
+ * NaN when the passes did not cover two cycles, which is the honest answer:
+ * there was nothing to compare against. Callers wanting a floor need a pass
+ * count of at least twice their group size.
+ *
+ * It reads WIDER than the control did, systematically, and the reason is worth
+ * knowing before treating a number off it as the same number. Each half has half
+ * the passes, so each half's minimum is a worse estimate of the cell's floor
+ * than the reported minimum — which is taken over all of them — and the gap
+ * between two worse estimates is larger than the gap between two better ones.
+ * So this overstates the uncertainty of the figure it guards, by more the fewer
+ * passes there are. That is the safe direction for a threshold, but it means a
+ * caller porting a control-calibrated constant across should re-derive it rather
+ * than assume it carries.
+ *
+ * What it does not see is drift BETWEEN rows: both halves are inside one row.
+ * That is the cooldown's job, and it is why this is a floor rather than a total
+ * error bar.
+ */
+export interface Measured<K> {
+  best: Map<K, number>;
+  spread: Map<K, number>;
+  checksum: number;
+  scaled: K[];
+  sizes: Map<K, number>;
+  passes: number;
+}
+
+/**
+ * Idles for `ms`, letting a thermally limited host come back toward the state
+ * the previous row was measured in.
+ *
+ * Deliberately a plain sleep and not a busy loop: the point is for the machine
+ * to be doing nothing. Whether it has actually cooled by the end is not
+ * something a benchmark can check from inside the process, so this is a
+ * best-effort control on the input rather than a guarantee about the output —
+ * which is the honest description of every thermal mitigation short of pinning
+ * the clock.
+ */
+export async function cooldown(ms: number): Promise<void> {
+  if (ms > 0) await sleep(ms);
+}
+
+/**
+ * Measures a list of rows one at a time, handing each result to `emit` as soon
+ * as it exists and idling `cooldownMs` between them.
+ *
+ * Streaming rather than collecting is the point of the shape: these benches run
+ * for minutes, and a table that appears all at once at the end is a table nobody
+ * watches. It also means a run killed halfway still reported everything it
+ * finished.
+ *
+ * Interleaving happens inside a row and not across the table. That is a real
+ * narrowing — a row measured late is measured on a host that has been working
+ * for longer — and the cooldown between rows is what pays for it. The comparison
+ * a row is FOR (its own cells against each other) keeps the tight interleaved
+ * window it always had.
+ */
+export async function measureRows<R, K>(
+  rows: R[],
+  entriesFor: (row: R) => { key: K; work: Work }[],
+  opts: {
+    base: number;
+    step: number;
+    report: number;
+    passBudget: SampleBudget;
+    budgetMs?: number;
+    group?: number;
+    cooldownMs: number;
+  },
+  emit: (row: R, measured: Measured<K>) => void
+): Promise<{ checksum: number; scaled: K[]; passes: Set<number>; sizes: number[] }> {
+  let checksum = 0;
+  const scaled: K[] = [];
+  const passes = new Set<number>();
+  const sizes: number[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    // Before rather than after, so the LAST row is not followed by a wait
+    // nothing is waiting for, and the first row is measured on a host that has
+    // just been loading modules and sizing passes like every other row.
+    if (i > 0) await cooldown(opts.cooldownMs);
+
+    const row = rows[i]!;
+    const measured = interleavedBest(
+      entriesFor(row),
+      opts.base,
+      opts.step,
+      opts.report,
+      opts.passBudget,
+      opts.budgetMs,
+      opts.group ?? 0
+    );
+
+    checksum += measured.checksum;
+    scaled.push(...measured.scaled);
+    passes.add(measured.passes);
+    sizes.push(...measured.sizes.values());
+
+    emit(row, measured);
+  }
+
+  return { checksum, scaled, passes, sizes };
 }
 
 // ---- sizing for a wide table ------------------------------------------------
@@ -285,9 +453,11 @@ export function interleavedBest<K>(
 // changed, which pays for collecting the previous entry's garbage. Stopping
 // after fewer passes than there are entries leaves some of them having never
 // held that slot and some having held it once, which the fastest-pass rule then
-// bakes in rather than cancels. Under JavaScriptCore that showed up as the
-// control column sitting 10-18% BELOW stock on a third of the rows, one-sided
-// and reproducible; a full rotation put it back inside a few percent.
+// bakes in rather than cancels. Under JavaScriptCore that showed up, back when
+// these tables carried a control, as the control column sitting 10-18% BELOW
+// stock on a third of the rows, one-sided and reproducible; a full rotation put
+// it back inside a few percent. The control is gone and the constraint is not:
+// keep the pass count at or above the group size.
 export const LEAN_BUDGET: SampleBudget = { min: 3, max: 3, budgetMs: 120 };
 export const LEAN_BUDGET_MS = 40;
 

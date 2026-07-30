@@ -20,27 +20,24 @@
 // that, rung by rung — and carries only the two endpoints, stock and the full
 // patched build.
 //
-// moment leads, because it is the number the work is aimed at. Nobody adopts a
-// date library to be a given multiple of its own previous self; the question a
-// row answers is whether luxon is now something you would pick over the thing
-// people already have, and stock luxon is the distance travelled rather than the
-// target. So: moment's milliseconds, then stock's, then the patched build's, then
-// the same two as ratios in the same order.
+// moment leads the columns because it is the number the work is aimed at; stock
+// luxon is the distance travelled rather than the target.
 //
-// Lower is better in every column, so the whole table reads one way. Both ratios
-// are kept because a row where the patches take a twentieth of stock's time and
-// still trail moment is a different result from one where they overtake it, and
-// neither the milliseconds nor a single ratio says which happened.
+// The reading of it — why each row is here, which rows still trail moment and
+// what is left to do about them, and the two toLocaleString cache designs that
+// were tried and dropped — is in benchmarks/docs/coverage.md. This file prints
+// the table.
 //
 //   node coverage.ts
 //   bun coverage.ts
 
 import type { DateTime } from "luxon";
 import moment from "moment-timezone";
-import { LEAN_BUDGET, LEAN_BUDGET_MS, interleavedBest, pkgVersion, runtime, timeLoop, type Work } from "./lib/kernel.ts";
+import { LEAN_BUDGET, LEAN_BUDGET_MS, measureRows, pkgVersion, runtime, timeLoop, type Work } from "./lib/kernel.ts";
 import type { LuxonModule } from "./lib/luxon-types.ts";
+import { cooldownMs } from "./lib/opts.ts";
 import { loadLuxon, patchKeys, type PatchKey } from "./lib/patches.ts";
-import { printTable } from "./lib/print-table.ts";
+import { streamTable } from "./lib/stream-table.ts";
 
 // The same window upstream.ts times over, so a row that appears in both is
 // comparable: January, one minute apart, in a zone with a DST rule.
@@ -51,6 +48,9 @@ const OTHER_ZONE = "Europe/Paris";
 const LOCALE = "en-US";
 // for the Info rows, where English takes a short-circuit that skips Intl entirely
 const OTHER_LOCALE = "fr";
+
+/** where the prose went */
+const DOCS = "benchmarks/docs";
 
 // Values reported per row. Nothing is timed over exactly this — the kernel sizes
 // each entry to a wall-time budget and scales — it is just the unit the ms
@@ -414,13 +414,6 @@ const CASES: Case[] = [
 
 const ALL: PatchKey[] = [...patchKeys];
 
-// No control column (stock loaded a second time as its own neighbour). The other
-// benches here carry one to show what a difference has to beat, and it earns its
-// place there because they report percentage deltas, where a 3% row and a 3%
-// noise floor look identical on the page. This table prints absolute
-// milliseconds and its differences are mostly an order of magnitude, so the
-// column was buying an answer to a question the numbers no longer raise — at the
-// cost of a third more time under load, on a host that throttles.
 const BUILDS: { id: string; keys: PatchKey[] }[] = [
   { id: "stock", keys: [] },
   { id: `all ${ALL.length}`, keys: ALL },
@@ -440,7 +433,8 @@ console.log(`runtime: ${runtime()}, zone ${ZONE}, locale ${LOCALE}`);
 const passes = LEAN_BUDGET.min === LEAN_BUDGET.max ? `${LEAN_BUDGET.min}` : `${LEAN_BUDGET.min}-${LEAN_BUDGET.max}`;
 
 console.log(
-  `ms per ${N.toLocaleString("en-US")} calls, fastest of ${passes} interleaved passes at ${LEAN_BUDGET_MS}ms each\n`
+  `ms per ${N.toLocaleString("en-US")} calls, fastest of ${passes} interleaved passes at ${LEAN_BUDGET_MS}ms each` +
+    `${cooldownMs > 0 ? `, ${cooldownMs / 1000}s idle between rows` : ", no cooldown"}\n`
 );
 
 // ---- do the builds still agree? ---------------------------------------------
@@ -467,30 +461,6 @@ for (const kase of CASES) {
 
 if (disagree.length > 0) {
   throw new Error(`builds disagree on ${disagree.length} case(s), so the timings below are not comparable:\n${disagree.join("\n")}`);
-}
-
-// ---- timing -----------------------------------------------------------------
-
-const results = new Map<string, Map<string, number>>();
-let sink = 0;
-
-for (const kase of CASES) {
-  // one case's builds timed adjacently, so drift between cases cannot be read as
-  // a difference between builds
-  const entries = BUILDS.map((b) => ({ key: b.id, work: kase.luxon(loaded.get(b.id)!) }));
-
-  if (kase.moment !== undefined) entries.push({ key: "moment", work: kase.moment() });
-
-  // one group, so the kernel rotates which build runs first each pass. Without
-  // it the same column is always the one measured right after the previous case
-  // and pays for collecting its garbage, which does not cancel in a ratio and
-  // which taking the fastest pass cannot remove — every pass penalizes the same
-  // column. It showed up as the control drifting 7-13% from stock on the two
-  // allocation-heaviest rows.
-  const { best, checksum } = interleavedBest(entries, BASE_TS, STEP_MS, N, LEAN_BUDGET, LEAN_BUDGET_MS, entries.length);
-
-  sink += checksum;
-  results.set(kase.key, best);
 }
 
 // ---- report -----------------------------------------------------------------
@@ -526,19 +496,68 @@ const SECTIONS: [string, number][] = [
   ["Info", 3],
 ];
 
-const rows: (string[] | null)[] = [];
+const sectionTotal = SECTIONS.reduce((s, [, count]) => s + count, 0);
+
+if (sectionTotal !== CASES.length) {
+  throw new Error(`the section list covers ${sectionTotal} cases but there are ${CASES.length}`);
+}
+
+/** case index at which each section starts, for the rules between them */
+const sectionStarts = new Set<number>();
 let at = 0;
 
 for (const [, count] of SECTIONS) {
-  if (at > 0) rows.push(null);
+  if (at > 0) sectionStarts.add(at);
+  at += count;
+}
 
-  for (const kase of CASES.slice(at, at + count)) {
-    const got = results.get(kase.key)!;
-    const mo = got.get("moment");
-    const base = got.get("stock")!;
-    const all = got.get(`all ${ALL.length}`)!;
+// ---- timing -----------------------------------------------------------------
+// One row at a time, printed as it lands and with an idle between, so the table
+// is watchable over the minutes it takes and each row starts from a comparable
+// thermal state. See measureRows and cooldownMs.
 
-    rows.push([
+const table = streamTable(["case", "moment ms", "stock ms", `all ${ALL.length} ms`, "vs moment", "vs stock"], {
+  minWidths: { 0: 18, 1: 9, 2: 9, 3: 9, 4: 9, 5: 8 },
+});
+
+let printed = 0;
+
+const run = await measureRows(
+  CASES,
+  // one case's builds timed adjacently, so drift between cases cannot be read as
+  // a difference between builds
+  (kase) => {
+    const entries = BUILDS.map((b) => ({ key: b.id, work: kase.luxon(loaded.get(b.id)!) }));
+
+    if (kase.moment !== undefined) entries.push({ key: "moment", work: kase.moment() });
+
+    return entries;
+  },
+  {
+    base: BASE_TS,
+    step: STEP_MS,
+    report: N,
+    passBudget: LEAN_BUDGET,
+    budgetMs: LEAN_BUDGET_MS,
+    // one group, so the kernel rotates which build runs first each pass. Without
+    // it the same column is always the one measured right after the previous
+    // case and pays for collecting its garbage, which does not cancel in a ratio
+    // and which taking the fastest pass cannot remove — every pass penalizes the
+    // same column. Back when this table had a control it showed up as that
+    // column drifting 7-13% from stock on the two allocation-heaviest rows.
+    group: BUILDS.length + 1,
+    cooldownMs,
+  },
+  (kase, { best }) => {
+    if (sectionStarts.has(printed)) table.rule();
+
+    printed++;
+
+    const mo = best.get("moment");
+    const base = best.get("stock")!;
+    const all = best.get(`all ${ALL.length}`)!;
+
+    table.row([
       kase.key + (kase.approx === true ? " *" : ""),
       mo === undefined ? "--" : ms(mo),
       ms(base),
@@ -547,55 +566,19 @@ for (const [, count] of SECTIONS) {
       ratio(all, base),
     ]);
   }
-
-  at += count;
-}
-
-if (at !== CASES.length) {
-  throw new Error(`the section list covers ${at} cases but there are ${CASES.length}`);
-}
-
-printTable(["case", "moment ms", "stock ms", `all ${ALL.length} ms`, "vs moment", "vs stock"], rows);
-
-// The rows still above 1.000, named from the run rather than written down, so the
-// paragraph below cannot drift from the table above it.
-const behind = CASES.filter((kase) => {
-  const got = results.get(kase.key)!;
-  const mo = got.get("moment");
-  return mo !== undefined && got.get(`all ${ALL.length}`)! > mo;
-});
-
-console.log(
-  `\n* moment reaches the same user-visible answer by different means on these rows -- it expands its own\n` +
-    `  locale tables where luxon calls into ICU -- so those are two libraries doing comparable work rather\n` +
-    `  than two implementations of one algorithm. Interval has no moment equivalent short of a plugin.\n` +
-    `\nBoth ratios are the patched build's time as a fraction of the named column's, so lower is better\n` +
-    `everywhere, 1.000 is parity, and a 4x speedup reads as 0.250. Above 1.000 the patched build is\n` +
-    `behind. Which internals a row reaches is in the source above rather than a column;\n` +
-    `it does not follow the timings, and the places it comes apart are the interesting ones. toLocaleString\n` +
-    `routes through G and barely moves, because G interns locales and this table holds the locale fixed,\n` +
-    `while toISO never reaches the Formatter at all -- it builds its string directly -- so C does nothing\n` +
-    `for it and H does.\n` +
-    `\nThe Info rows call moment.localeData(x).months(), which returns the list moment already holds, rather\n` +
-    `than the public moment.months(), which reads a process-global locale and rebuilds the list per call\n` +
-    `out of twelve freshly constructed Moments. The cheaper one is the fairer comparison to make luxon\n` +
-    `beat, and it is the one these columns are against.`
 );
 
+const sink = run.checksum;
+
+// Two things a reader cannot get from the columns themselves: which way the
+// ratios point, and that the starred rows are not comparing like with like.
+// Everything else about this table -- why each row is here, and what to make of
+// the ones still above 1.000 -- is in DOCS/coverage.md.
 console.log(
-  `\nStill behind moment: ${behind.map((k) => `${k.key}${k.approx === true ? " *" : ""} (${ratio(results.get(k.key)!.get(`all ${ALL.length}`)!, results.get(k.key)!.get("moment")!)})`).join(", ")}.\n` +
-    `\nThose are four different results. The starred ones are the ICU boundary above, and are the trade\n` +
-    `each library made rather than something to fix here. The Info rows are the same boundary at a scale\n` +
-    `where the ratio flatters itself: both sides are under half a millisecond for ${N.toLocaleString("en-US")} calls, and\n` +
-    `the stock column is where that row's argument is. Duration as is shiftTo and normalizeValues, which\n` +
-    `is work luxon does and moment's asHours does not.\n` +
-    `\nfromObject, endOf, diff and hasSame are the ones to read as unfinished: luxon doing the same job\n` +
-    `moment does and taking longer at it. Three of them are also where H's adjustTime fast path landed --\n` +
-    `diff, endOf, toRelative and hasSame were 7x, 5x, 3x and 2x behind before it, which is what sent the\n` +
-    `profiler at adjustTime to begin with. diff is the one left with an obvious next step. It walks units\n` +
-    `largest-first and calls earlier.plus(results) once or twice per unit to test each guess, so it pays\n` +
-    `adjustTime up to ten times for one answer, and then builds two more Durations to combine the high\n` +
-    `and low order halves of a result it has already computed.`
+  `\n* not like for like: moment expands its own bundled locale tables where luxon calls into ICU.\n` +
+    `  Interval has no moment equivalent short of a plugin.\n` +
+    `\nRatios are the patched build over the named column, so lower is better and 1.000 is parity.\n` +
+    `\nwhat this table means: ${DOCS}/coverage.md   how it is timed: ${DOCS}/methodology.md`
 );
 
 console.log(`\nchecksum ${sink.toFixed(0)}`);

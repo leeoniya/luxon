@@ -159,8 +159,15 @@ export function makeFormatter(variant: VariantId, zone: string, fmt: FormatKey):
 // timestamp plus easy-tz's offset.
 //
 // This is the ceiling on what can be done from OUTSIDE luxon, and the point of
-// measuring it is to size what's left inside — see benchmarks/upstream.ts.
-// Correctness is not assumed: the output is diffed against luxon's there.
+// measuring it is to size what's left inside.
+//
+// Nothing calls it at the moment. benchmarks/upstream.ts carried a row for it
+// that was timed and never printed, and that row went when the untabulated
+// builds did — each of them cost a full row of measurement and cooling to feed a
+// ranking that the ladder already gives. Kept because the ceiling is a real
+// question and this is the answer to it, so restoring the row is adding a row
+// rather than rewriting a path. Its output was diffed against luxon's when it
+// last ran; a row put back should do that again rather than assume it.
 
 const DAY_MS = 86_400_000;
 

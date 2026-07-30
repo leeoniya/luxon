@@ -1,18 +1,36 @@
 # benchmarks
 
-Luxon's own benchmark suite, plus a harness for seven candidate upstream
+Luxon's own benchmark suite, plus a harness for eight candidate upstream
 patches to `src/`.
 
 The patches came out of profiling luxon against moment-timezone on a formatting
 workload: a column of timestamps rendered in a named IANA zone, which is what a
 dashboard or a data table produces thousands of at a time. Stock luxon runs that
 at ~3x moment-timezone with a plain `yyyy-MM-dd HH:mm:ss`, and ~26x once the
-pattern includes a zone abbreviation. All seven are pure memoization or
+pattern includes a zone abbreviation. All eight are pure memoization or
 provable short-circuits: no API changes, no output changes.
 
 Nothing here modifies `src/`. Each patch is a unified diff in
 [`patches/`](patches), and a build is a copy of `src/` with some subset of them
 applied, written to `.tmp/builds/<set>/` and imported from there.
+
+## The write-ups
+
+The benches print tables. What the tables mean lives in [`docs/`](docs), so that
+running one does not bury its numbers in several pages of explanation:
+
+| doc | what is in it |
+| --- | --- |
+| [`docs/upstream.md`](docs/upstream.md) | the eight patches one by one, `F`'s tzdata precondition, and the order to file them in |
+| [`docs/coverage.md`](docs/coverage.md) | where luxon still trails moment across the public API, and what is left to do about it |
+| [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
+| [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
+| [`docs/cross-engine.md`](docs/cross-engine.md) | which patches pay off on both V8 and JavaScriptCore |
+| [`docs/methodology.md`](docs/methodology.md) | how everything is timed, and how finely to read it |
+
+They describe the *shape* of the results rather than quoting cells out of them,
+so they do not go stale against a run. Magnitudes stay in the table that
+measured them.
 
 ## Setup
 
@@ -38,16 +56,23 @@ rather than whatever a sibling checkout was last built from. That directory's
 | command | what it answers |
 | --- | --- |
 | `npm run bench` | luxon's own suite (`datetime.js`, `info.js`), one build, ops/sec |
-| `npm run suite` | those same 29 cases across stock and three patched builds |
+| `npm run suite` | those same 29 cases across stock and the full patched build |
 | `npm run format` | can a consumer close the moment-timezone gap from *outside* luxon? |
 | `npm run upstream` | what can be removed from *inside* it, patch by patch |
 | `npm run coverage` | what the patches are worth across the public API, vs moment |
-| `npm run cross-engine` | which patches pay off on both V8 and JavaScriptCore |
+| `npm run cross-engine` | whether the ladder ranks the same on V8 and JavaScriptCore |
 | `npm test` | the offset and zone-name patches against stock, exhaustively |
 | `npm run check` | `tsc`, type-check only |
 
 Every bench also runs under bun (`bun format.ts`), which is the point of
 `cross-engine`: the two engines do not agree about the smaller patches.
+
+Every timed bench idles five seconds between rows so the host is in a comparable
+state for each of them, and prints each row as it lands rather than the table at
+the end. The times quoted below are the timing alone; add roughly five seconds a
+row for a default run. `--cooldown 0` turns the idling off, which is what to do
+when iterating on a patch and comparing a run against itself rather than reading
+rows against each other; `--cooldown <ms>` sets it to anything else.
 
 `format` and `upstream` take `--verify`, which adds their output-comparison
 sections. Off by default because the answer only moves when luxon's `src`,
@@ -70,14 +95,13 @@ much less to remove.
 `coverage` (~12s) is the other axis. Where `format` and `upstream` go deep on
 writing and reading a date, it goes wide: 28 public API calls — arithmetic,
 `Duration`, `Interval`, `Info`, the ISO writers — each timed on stock, on the
-full patched build, and on its moment equivalent. Three columns of absolute
-milliseconds and nothing derived; the per-patch breakdown is `upstream`'s ladder
-and is not repeated here. It exists because the patch set outgrew the tables that
-found it. `H` hoists both `normalizeUnit` tables, which no formatting or parsing
-case touches, and `A` and `F` sit under every zoned operation rather than only
-the ones that print something. It checks that both builds return identical
-results before timing anything, so a patch that changed an answer fails the bench
-rather than winning it.
+full patched build, and on its moment equivalent. It exists because the patch set
+outgrew the tables that found it: `H` hoists both `normalizeUnit` tables and
+replaces the `Duration` round trip inside `adjustTime`, none of which any
+formatting or parsing case touches, and `A` and `F` sit under every zoned
+operation rather than only the ones that print something. It checks that both
+builds return identical results before timing anything, so a patch that changed
+an answer fails the bench rather than winning it.
 
 ## How the patches are applied
 
@@ -118,8 +142,9 @@ format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
 coverage.ts                      28 public API calls, patched and vs moment
 cross-engine.ts                  upstream.ts under node and bun, diffed
-patches/                         the seven diffs
-test/                            parity tests for the four zone patches
+patches/                         the eight diffs
+docs/                            what the tables mean
+test/                            parity tests for the patches that rewrite logic
 lib/                             harness (see each file's header)
 ```
 

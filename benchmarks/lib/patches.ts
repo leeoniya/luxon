@@ -161,12 +161,17 @@ const sized = new Map<string, Promise<number>>();
  * A luxon module instance with the given patches applied.
  *
  * `copy` asks for an additional instance of the SAME source, written to its own
- * directory so both engines really load it twice. That is what a control column
- * wants (benchmarks/suite.ts): timing one instance twice measures only ambient
- * noise, whereas two instances of identical source also carry whatever a second
- * module costs — separate inline caches, separate code objects, a different
- * place in the heap — which is the part of a build-to-build difference that no
- * patch explains.
+ * directory so both engines really load it twice. Nothing here asks for one now:
+ * it existed for the control columns, and those are gone — a control was a whole
+ * extra column of load spent measuring how much the load was distorting things,
+ * and the noise floor is read off the passes each cell already runs instead (see
+ * `spread` in kernel.ts).
+ *
+ * Kept because it is the only way to get the measurement a control was for. One
+ * instance timed twice reports ambient noise alone, whereas two instances of
+ * identical source also carry whatever a second module costs — separate inline
+ * caches, separate code objects, a different place in the heap — which is the
+ * part of a build-to-build difference that no patch explains.
  */
 export function loadLuxon(keys: readonly PatchKey[], copy = 0): Promise<LuxonModule> {
   const id = instanceId(setId(keys), copy);

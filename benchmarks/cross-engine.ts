@@ -10,11 +10,14 @@
 // still.
 //
 // The two runs are sequential, never concurrent — they would be timing each
-// other's workload otherwise. Budget ~35 seconds under each. Neither run is
-// given --verify: this compares timings across engines, and the parity scan is
+// other's workload otherwise. Budget ~35 seconds of timing under each, plus that
+// run's cooldown — which is most of the wall clock at the default five seconds a
+// row, and which --cooldown is forwarded for. Neither run is given --verify:
+// this compares timings across engines, and the parity scan is
 // engine-independent.
 //
 // Run: node cross-engine.ts
+//      node cross-engine.ts --cooldown 0   (fast, for iterating)
 
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -23,10 +26,18 @@ import { printTable } from "./lib/print-table.ts";
 interface Run {
   runtime: string;
   icu: string | null;
+  /** the format table's row order, as upstream printed it */
+  builds: string[];
   ms: Record<string, Record<string, number>>;
 }
 
 const BENCH = new URL("upstream.ts", import.meta.url).pathname;
+
+// Forwarded rather than re-read, so the two spawned runs cool the same way this
+// process was asked to. Both engines have to be measured under the same regime
+// for the diff between them to mean anything.
+const at = process.argv.indexOf("--cooldown");
+const FORWARD = at < 0 ? [] : ["--cooldown", process.argv[at + 1]!];
 
 /** returns an error message, or null if the run produced results */
 function run(exe: string): string | null {
@@ -34,7 +45,7 @@ function run(exe: string): string | null {
 
   process.stdout.write(`running ${exe}... `);
 
-  const proc = spawnSync(exe, [BENCH], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const proc = spawnSync(exe, [BENCH, ...FORWARD], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
   if (proc.error !== undefined) {
     console.log("not available");
@@ -76,89 +87,41 @@ if (v8 === null || jsc === null) {
 console.log(`\nV8:  ${v8.runtime}, ICU ${v8.icu ?? "?"}`);
 console.log(`JSC: ${jsc.runtime}, ICU ${jsc.icu ?? "?"}`);
 
-const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
+// A per-patch table used to sit here: what each patch on its own saved against
+// the unpatched easy-tz zone, per engine, with a verdict column. It is gone with
+// the builds behind it. Each of those was a row of its own in upstream's format
+// table — measured, cooled, and never printed there — to rank patches that the
+// ladder below already ranks one at a time. Half of them had also stopped being
+// read: the ids here were written before the patches were re-lettered and had
+// been silently matching nothing since.
+//
+// Taken from the run rather than named here or pattern-matched out of the
+// results. Naming them here is what went stale last time; matching them by
+// prefix would have gone stale the moment a rung was called something else. The
+// run knows what it printed, so it says so.
+//
+// moment is the denominator of every ratio, so it is the one row with no row of
+// its own.
+const ROWS = v8.builds.filter((id) => id !== "moment");
 
-/** what `path` saves against the unpatched easy-tz zone, on that engine */
-function saved(engine: Run, fmt: string, path: string): number {
-  const base = engine.ms[fmt]!["easytz zone"]!;
+const disagree = v8.builds.join("|") !== jsc.builds.join("|");
 
-  return (base - engine.ms[fmt]![path]!) / base;
+if (disagree) {
+  console.error(`\nthe two runs measured different builds, so they cannot be compared row by row:`);
+  console.error(`  node: ${v8.builds.join(", ")}`);
+  console.error(`  bun:  ${jsc.builds.join(", ")}`);
+  process.exit(1);
 }
 
-/** each engine gets its own noise floor — they are not equally steady */
-function floor(engine: Run, fmt: string): number {
-  return Math.abs(saved(engine, fmt, "easytz zone (control)"));
-}
-
-const FMT = "numeric";
-
-// Read off the results rather than re-derived from benchmarks/patches, so this
-// file compares whatever the two runs actually measured. A patch added to the
-// bench shows up here without editing anything.
-const patches = Object.keys(v8.ms[FMT]!)
-  .filter((k) => k.startsWith("easytz +"))
-  .map((path) => ({ path, label: path.slice("easytz +".length) }));
-
-const rows = patches
-  .map((p) => ({ ...p, a: saved(v8, FMT, p.path), b: saved(jsc, FMT, p.path) }))
-  .sort((x, y) => y.a - x.a);
-
-const verdict = (r: (typeof rows)[number]) => {
-  const clears = (s: number, engine: Run) => s >= Math.max(3 * floor(engine, FMT), 0.04);
-  const a = clears(r.a, v8);
-  const b = clears(r.b, jsc);
-
-  return a && b ? "both" : a ? "V8 only" : b ? "JSC only" : "neither";
-};
-
-console.log(`\n% saved vs the unpatched easy-tz zone, ${FMT} format`);
-console.log(`(noise floor: ${pct(floor(v8, FMT))} on V8, ${pct(floor(jsc, FMT))} on JSC)\n`);
+console.log("\nratios vs moment-timezone, per engine\n");
 
 printTable(
-  ["patch", "V8", "JSC", "clears noise on"],
-  rows.map((r) => [r.label, pct(r.a), pct(r.b), verdict(r)])
+  ["build", "V8 numeric", "JSC numeric", "V8 abbr", "JSC abbr"],
+  ROWS.map((path) => {
+    const ratio = (engine: Run, fmt: string) => `${(engine.ms[fmt]![path]! / engine.ms[fmt]!["moment"]!).toFixed(2)}x`;
+
+    return [path, ratio(v8, "numeric"), ratio(jsc, "numeric"), ratio(v8, "abbr"), ratio(jsc, "abbr")];
+  })
 );
 
-console.log("\nheadline ratios vs moment\n");
-
-printTable(
-  ["path", "V8 numeric", "JSC numeric", "V8 abbr", "JSC abbr"],
-  [
-    "luxon (stock)",
-    "luxon A+B",
-    "luxon A+B+C",
-    // the two rungs that reach the name lookup, which are where the abbr column
-    // stops being the outlier: worth seeing per engine, since they lean on Intl
-    // behaving the same way in both, and JSC is a different ICU
-    "luxon A+B+C+D",
-    "luxon A+B+C+D+E",
-    "luxon ACFG (formatter only)",
-    "luxon all 7 (A-G)",
-    "easytz zone",
-    "easytz ACFG (all)",
-    "easytz fast path",
-  ]
-    .filter((path) => v8.ms[FMT]![path] !== undefined && jsc.ms[FMT]![path] !== undefined)
-    .map((path) => {
-      const ratio = (engine: Run, fmt: string) => `${(engine.ms[fmt]![path]! / engine.ms[fmt]!["moment"]!).toFixed(2)}x`;
-
-      return [path, ratio(v8, "numeric"), ratio(jsc, "numeric"), ratio(v8, "abbr"), ratio(jsc, "abbr")];
-    })
-);
-
-// letter order, not the table's ranking, so the run reads as a set of patches
-const agreed = rows
-  .filter((r) => verdict(r) === "both")
-  .map((r) => r.label[0]!)
-  .sort();
-const split = rows.filter((r) => verdict(r) === "V8 only" || verdict(r) === "JSC only");
-
-console.log(`
-Patches that clear the noise floor on both engines: ${agreed.join("") || "none"}${
-  split.length === 0
-    ? ""
-    : `
-Engine-specific, and the weakest part of any upstream pitch: ${split
-        .map((r) => `${r.label[0]!} (${verdict(r)})`)
-        .join(", ")}`
-}`);
+console.log(`\nwhat this means: benchmarks/docs/cross-engine.md`);
