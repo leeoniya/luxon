@@ -20,7 +20,7 @@
 //     interleaved passes, fastest one reported — see benchmarks/lib/kernel.ts),
 //     so every build is measured under the same conditions rather than one after
 //     another. tinybench measures one build's cases against each other; this
-//     measures one case across four builds, and wants the difference between
+//     measures one case across every build, and wants the difference between
 //     them to mean something.
 //   * their `dt = DateTime.now()` becomes a fixed instant, so a rerun measures
 //     the same work and the checksums below can be compared across builds.
@@ -54,7 +54,7 @@
 import { printTable } from "./lib/print-table.ts";
 import { interleavedBest, pkgVersion, runtime, type SampleBudget, type Work } from "./lib/kernel.ts";
 import type { DateTimeWithLoc } from "./lib/luxon-types.ts";
-import { loadLuxon, patchKey, patchKeys, patchLetter, type LuxonModule, type PatchKey } from "./lib/patches.ts";
+import { loadLuxon, patchKeys, type LuxonModule, type PatchKey } from "./lib/patches.ts";
 
 // Reported per call, which is what a suite of unrelated one-shot operations
 // wants: these cases span ~0.1µs (DateTime.now) to ~100µs (a formatted value
@@ -70,7 +70,8 @@ const REPORT = 1_000;
 // Measured on the control column, which is the same library twice and so reports
 // exactly this error: 3 passes of 40ms drifted 1.3% median and 13% worst, 6 of
 // 25ms drift 2.4-3.1% median and 7-11% worst, and 8 of 20ms were no better than
-// 6. 116 cells (29 cases x 4 columns) put the middle setting at ~20s.
+// 6. The middle setting was chosen there, at 116 cells (29 cases x the 4 columns
+// this had before the per-patch column was dropped); it now runs 3 columns wide.
 const PASS_BUDGET_MS = 25;
 const PASSES: SampleBudget = { min: 6, max: 8, budgetMs: 150 };
 
@@ -94,33 +95,6 @@ interface Column {
   copy?: number;
 }
 
-/**
- * The six patches benchmarks/upstream.ts recommends filing, which is the set
- * whose side effects matter most — they are the ones that would actually land.
- * They are also the ladder, and the patch files are lettered in ladder order, so
- * this is A-F. Kept in step with that file by hand; the letters are asserted
- * below, so a patch inserted ahead of them fails loudly rather than silently
- * renaming this column.
- */
-const SHIP: PatchKey[] = [
-  "zoneInfoCache",
-  "compileFormat",
-  "offsetScan",
-  "tokenParserCache",
-  "zoneNameScan",
-  "transitionInterval",
-].map(patchKey);
-
-const shipLabel = SHIP.map((k) => patchLetter.get(k)!)
-  .sort()
-  .join("");
-
-if (shipLabel !== "ABCDEF") {
-  throw new Error(
-    `the ship list is no longer A-F but ${shipLabel} — is benchmarks/upstream.ts's ladder still the same?`
-  );
-}
-
 const COLUMNS: Column[] = [
   { label: "stock", keys: [] },
   // The control: stock a second time, as a SEPARATE module instance of identical
@@ -132,7 +106,10 @@ const COLUMNS: Column[] = [
   // operation is two map lookups, that is most of the spread: they moved 5-15%
   // between builds that do not touch them at all.
   { label: "control", keys: [], copy: 1 },
-  { label: `ship ${shipLabel}`, keys: SHIP },
+  // The whole set. There is no intermediate column: every patch in
+  // benchmarks/patches is intended to land, so the question this table answers is
+  // what a caller gets, and the per-patch attribution is benchmarks/upstream.ts's
+  // ladder rather than a second column here.
   { label: `all ${patchKeys.length}`, keys: patchKeys },
 ];
 
@@ -398,7 +375,7 @@ for (const col of COLUMNS) {
 
 const key = (col: string, name: string) => `${col}\u0000${name}`;
 
-// Case-major, so the four columns of one case are timed next to each other:
+// Case-major, so the columns of one case are timed next to each other:
 // what is compared is their ratio, and drift over the window is the one error a
 // ratio does not cancel.
 const entries = cases.flatMap((kase) =>
@@ -409,8 +386,8 @@ const entries = cases.flatMap((kase) =>
 // callbacks one fixed input, and the point here is to reproduce their case, not
 // to sweep it — so the step is 0 and the base is only there to satisfy the kernel.
 //
-// COLUMNS.length as the group size, which is what makes the four columns of a
-// case comparable at all: the cell measured right after the previous case pays
+// COLUMNS.length as the group size, which is what makes the columns of a case
+// comparable at all: the cell measured right after the previous case pays
 // for that case, by up to 2.5x on the allocating cases, and without the rotation
 // it is the same column every pass. See rotateGroups in the kernel.
 const timed = interleavedBest(entries, DT_TS, 0, REPORT, PASSES, PASS_BUDGET_MS, COLUMNS.length);
@@ -515,7 +492,7 @@ console.log(`
 passes taken: ${timed.passes}, calls timed per pass: ${Math.min(...timed.sizes.values()).toLocaleString()}-${Math.max(
   ...timed.sizes.values()
 ).toLocaleString()}. Cells are the fastest pass, scaled to ${REPORT.toLocaleString()} calls,
-with the four columns of a case timed adjacently. Δ% is against stock, negative faster.
+with the ${COLUMNS.length} columns of a case timed adjacently. Δ% is against stock, negative faster.
 The control column is a second module instance of the same stock source, so its Δ% is what a
 real difference has to beat: ${pct(median)}% median here, ${pct(spread)}% at the ninth decile, ${pct(
   controlDrift.at(-1)!
@@ -538,9 +515,8 @@ ${verdict}`);
 // these stops the paragraph agreeing with the table above it. Only for a full
 // run: on a --only run most of what it refers to was not measured.
 if (wanted === null) {
-  const ship = COLUMNS[2]!.label;
-  const all = COLUMNS[3]!.label;
-  const d = (name: string, col = ship) => `${pct(delta(col, name))}%`;
+  const all = COLUMNS[2]!.label;
+  const d = (name: string, col = all) => `${pct(delta(col, name))}%`;
   const cost = (name: string, col = STOCK) => `${us(timed.best.get(key(col, name))!)}µs`;
 
   console.log(`
@@ -558,25 +534,42 @@ ${d("DateTime.local with numbers")} to ${d(
     "DateTime.fromFormatParser"
   )}, which is the size of the rest of the ladder on paths it was not written for.
 
-C is visible on DateTime#toFormat (${d("DateTime#toFormat")}, and ${d(
-    "DateTime#toFormat",
-    all
-  )} with the other seven), which is the case
-benchmarks/format.ts measures in bulk. G is visible on Info: ${d("Info.months", all)} on Info.months and ${d(
-    "Info.weekdays",
-    all
-  )} on
-Info.weekdays under all ${patchKeys.length}, both of which build a Locale per call and now get an interned one.
+C is visible on DateTime#toFormat (${d("DateTime#toFormat")}), which is the case benchmarks/format.ts
+measures in bulk. G is visible on Info: ${d("Info.months")} on Info.months and ${d("Info.weekdays")} on
+Info.weekdays, both of which build a Locale per call and now get an interned one.
 
-This suite is also where H's four hoisted constants show up, since they are the
-part of the set that is not about formatting and this is the only table that calls
-anything else. The relative-time table lands on DateTime#toRelativeCalendar (${d(
-    "DateTime#toRelativeCalendar",
-    all
+This suite is also where H's non-formatting half shows up, since it is the part of
+the set that is not about formatting and this is the only table that calls anything
+else. The relative-time table lands on DateTime#toRelativeCalendar (${d(
+    "DateTime#toRelativeCalendar"
   )}),
-the Duration unit table on DateTime#add (${d("DateTime#add", all)}), and the reused Date inside
-SystemZone on DateTime.now (${d("DateTime.now", all)}) — which is the default zone, and so the one
-configuration benchmarks/upstream.ts never names.
+the reused Date inside SystemZone on DateTime.now (${d("DateTime.now")}) — which is the default
+zone, and so the one configuration benchmarks/upstream.ts never names — and the Duration unit
+table plus the fast path that replaced adjustTime's Duration round trip on DateTime#add
+(${d("DateTime#add")}). That last one is the largest of them by a wide margin, and
+benchmarks/coverage.ts is where its reach is visible rather than here: every plus and
+minus goes through adjustTime, which puts it under endOf, hasSame, diff, toRelative and
+Interval#splitBy as well.
+
+The case nothing here moves is DateTime#toLocaleString (${d("DateTime#toLocaleString")}), which is a finding rather
+than an oversight, since it is the formatting API luxon's own docs steer callers toward. Profiled
+under all ${patchKeys.length} it is 61-66% Intl.DateTimeFormat#format across the presets, which nothing can remove
+without changing what luxon returns, and another ~8% the Date that format has to be handed, whose
+instant varies per call. Of the ~29% left, ~9% is the JSON.stringify key getCachedDTF builds per
+call to find the formatter and ~20% is a Formatter, a Locale.clone, a PolyDateFormatter and two
+option spreads between them. No single piece of that is large enough to be worth a patch, and the two
+ways of taking the whole ~29% were both tried and both dropped.
+
+Dropping the two spreads leaves the cache keyed on the options object's CONTENTS, so a caller who
+mutates one between calls still gets a fresh formatter — but it measures at or behind a control
+that is stock loaded twice, and toLocaleParts comes out consistently slower, the guard needed to
+skip the merge apparently costing more than the merge. Keying that cache on the IDENTITY of the
+options object does take the whole ~29% where it hits, and is wrong twice over: it goes stale for
+that mutating caller, and luxon builds a fresh options object per call on its own macro-token
+path, so an identity key misses every time and constructs an ICU formatter per value. That is a
+cliff rather than a slowdown — it is why benchmarks/lib/intl-count.ts now has
+capIntlConstructions(), which trips a probe that starts building formatters per call instead of
+letting it spend minutes in ICU and GC.
 
 The two most expensive cases here are the ones that call Settings.resetCaches() every iteration
 (${cost("DateTime#toFormat with macro no cache")} and ${cost(

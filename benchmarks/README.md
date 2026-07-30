@@ -41,6 +41,7 @@ rather than whatever a sibling checkout was last built from. That directory's
 | `npm run suite` | those same 29 cases across stock and three patched builds |
 | `npm run format` | can a consumer close the moment-timezone gap from *outside* luxon? |
 | `npm run upstream` | what can be removed from *inside* it, patch by patch |
+| `npm run coverage` | what the patches are worth across the public API, vs moment |
 | `npm run cross-engine` | which patches pay off on both V8 and JavaScriptCore |
 | `npm test` | the offset and zone-name patches against stock, exhaustively |
 | `npm run check` | `tsc`, type-check only |
@@ -65,6 +66,18 @@ caller who never configures one gets: luxon falls back to `SystemZone`, whose
 offset is a `getTimezoneOffset` call rather than an Intl one, so stock is
 already an order of magnitude cheaper there and the Intl-removing patches have
 much less to remove.
+
+`coverage` (~12s) is the other axis. Where `format` and `upstream` go deep on
+writing and reading a date, it goes wide: 28 public API calls — arithmetic,
+`Duration`, `Interval`, `Info`, the ISO writers — each timed on stock, on the
+full patched build, and on its moment equivalent. Three columns of absolute
+milliseconds and nothing derived; the per-patch breakdown is `upstream`'s ladder
+and is not repeated here. It exists because the patch set outgrew the tables that
+found it. `H` hoists both `normalizeUnit` tables, which no formatting or parsing
+case touches, and `A` and `F` sit under every zoned operation rather than only
+the ones that print something. It checks that both builds return identical
+results before timing anything, so a patch that changed an answer fails the bench
+rather than winning it.
 
 ## How the patches are applied
 
@@ -103,6 +116,7 @@ datetime.js  info.js  index.js   luxon's own suite, on tinybench
 suite.ts                         those 29 cases across build columns
 format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
+coverage.ts                      28 public API calls, patched and vs moment
 cross-engine.ts                  upstream.ts under node and bun, diffed
 patches/                         the seven diffs
 test/                            parity tests for the four zone patches

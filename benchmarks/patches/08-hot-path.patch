@@ -1,16 +1,25 @@
 Patch: hotPath
 Letter: H
 Requires: none
-Files: src/impl/formatter.js, src/impl/util.js, src/datetime.js, src/duration.js, src/impl/english.js, src/zones/systemZone.js
-Summary: ten fast paths: six along the route a numeric token takes, four constants that were being rebuilt per call
+Files: src/impl/formatter.js, src/impl/util.js, src/datetime.js, src/duration.js, src/impl/english.js, src/impl/diff.js, src/zones/systemZone.js
+Summary: twelve fast paths: six along the route a numeric token takes, four constants that were being rebuilt per call, two Duration round trips on the arithmetic path
 
-H: avoidable work at ten points, in two families
+H: avoidable work at twelve points, in three families
 
-Last, and grouped, because this is the tidy-up: one idea applied ten times, each
-taking work out of a step without changing what the step means. None of them is
-worth a reviewer's time alone — the smallest is worth nothing measurable on
-either engine — while together they are most of what is left once the Intl calls
-(A, B, E, F) are dealt with.
+Last, and grouped, because it is one idea applied twelve times: each takes work
+out of a step without changing what the step means. The grouping is by kind of
+change, not by size, and the sizes are not close. Most of the twelve are worth
+little alone — the smallest is worth nothing measurable on either engine — and
+earn their place by adding up to most of what is left on a formatting path once
+the Intl calls (A, B, E, F) are dealt with. The third family is not like that.
+One of its two members is the largest single result in this whole set, and it is
+here because it is the same kind of change rather than because it is the same
+size.
+
+Nothing in this patch is confined to formatting. The unit tables, the SystemZone
+probe and both arithmetic round trips are under startOf, endOf, set, hasSame,
+plus, minus, diff, toRelative and every Duration and Interval method, none of
+which formats anything and none of which any other patch here touches.
 
 The first six are the route every numeric token walks, in order:
 
@@ -29,7 +38,13 @@ The first six are the route every numeric token walks, in order:
                              digits, so a "00".."99" table covers the common
                              case without building either string.
   datetime.js   tsToObj      integer civil math in place of a wrapper Date and
-                             seven getter calls.
+                             seven getter calls. TimeClip is written out here
+                             because the Date constructor used to run it: without
+                             the truncation a fractional timestamp rendered as
+                             "00:00:01.0.5", and without the range check a plus
+                             that overflowed answered +287168-08-24 where luxon
+                             says invalid. Both are reachable from ordinary
+                             calls; see the note at the end.
 
 Two of those six are engine-specific, and they are the weakest part of this
 patch: the token loop pays off on V8 and gives a little back on JSC, and the
@@ -40,7 +55,7 @@ C subsumes two of them by construction — parseFormat and the punctuation half 
 the token loop — so a tree that already has C gets less from that half of this
 patch than the list above suggests.
 
-The other four are constants that were being built inside the function that
+The next four are constants that were being built inside the function that
 reads them, and are simply moved to module scope:
 
   datetime.js   normalizeUnit       a 24-key table, allocated to read one key
@@ -77,14 +92,95 @@ impl/diff.js builds per call in highOrderDiffs, is deliberately not here: it
 measured as nothing on either engine, both apparently inlining it, and a change
 that cannot be measured is not worth a reviewer reading it.
 
+The last two are the same idea one level up: not a constant rebuilt per call but
+a whole Duration built, converted and dropped to reach a number that plain
+arithmetic already has.
+
+  datetime.js  adjustTime  millisToAdd was
+                           Duration.fromObject({ ...nine keys }).as("milliseconds"),
+                           which is a nine-key normalizeObject, a Locale lookup,
+                           a Duration allocation, a shiftTo walk over all nine
+                           ordered units carrying two more objects, a
+                           normalizeValues pass and a second Duration out of
+                           shiftTo's clone. Under --cpu-prof that one expression
+                           is about 53% of self time in plus, against 7% for
+                           adjustTime's own body.
+  diff.js      dayDiff     ended in Math.floor(Duration.fromMillis(ms).as("days")),
+                           where shiftTo's leftover loop makes as("days") the
+                           single division this now does.
+
+Neither is an unconditional replacement, because as() is not the plain sum it
+looks like. Two guards, both in the patch as comments:
+
+Whole values. In adjustTime the five calendar fields contribute only their
+fractional parts, so when all nine fields are integers those terms are exactly
+zero and shiftTo's accumulator reduces to the same left-to-right sum. Its
+trunc-and-remainder split then round-trips exactly, which it does not do in
+general. Anything fractional still takes the old path.
+
+Range. When the sum leaves the finite range shiftTo's remainder goes NaN, and the
+milliseconds getter's `|| 0` turns that into zero — so today
+plus({ seconds: 1e308 }) adds nothing rather than going invalid. That looks like
+a bug, but correcting it is a separate argument from this one, so the guard
+preserves it. Finding it took 1,200 parity failures.
+
+These two are why this patch is worth more than its position at the end of the
+ladder suggests, and they land where the ladder is otherwise silent: adjustTime
+is under every plus and minus, and therefore under endOf, hasSame, diff,
+toRelative and Interval#splitBy as well. Measured on the all-8 build, fastest of
+five, node then bun: plus -80% / -64%, minus -79% / -62%, endOf -69% / -50%,
+Interval#splitBy -75% / -60%, hasSame -59% / -40%, diff -55% / -28%, toRelative
+-40% / -23%, with startOf and fromISO flat as controls. The dayDiff half of that
+is small and narrow — a further -13% on diff and -6% on splitBy, nothing anywhere
+else. Replacing the inst.c spread in adjustTime with a literal is in the same
+hunk and measured at 1-2%, which is inside the run-to-run noise; it is here
+because it is free and fixes the object's shape, not because it can be shown to
+pay.
+
+Verification is in benchmarks/test/hot-path-patch.test.ts, plus 85,806
+patched-against-patched comparisons over five zones, 32 duration shapes covering
+fractional, negative, past-2^53 and non-finite values, and DST edges. Luxon's own
+suite was also run against a tree with this applied and produced an identical
+pass/fail set.
+
+One correction, not an optimization, and not to anything above: writing that
+sweep turned up two bugs in the tsToObj rewrite in the first list, both from the
+same cause. Replacing new Date(ts) with civil math also dropped the TimeClip the
+Date constructor was running on the way in, which used to truncate the timestamp
+toward zero and return NaN outside +/-MAX_DATE. Without the truncation,
+DateTime.fromSeconds(1.0005).toISO() rendered "1970-01-01T00:00:01.0.5Z", a
+malformed string rather than a merely different one, and fromMillis(-0.5) moved a
+whole day, because Date rounds toward zero and Math.floor does not. Without the
+range check, fromMillis(0).plus({ milliseconds: 9e15 }).toISO() answered
+"+287168-08-24T16:00:00.000Z" where luxon says null — calendar-unit overflow is
+caught by the Date.UTC inside objToLocalTS, but millisToAdd is added to the
+timestamp after that, so nothing was checking it.
+
+Neither was reachable from any benchmark, which is why both survived: every
+timestamp a benchmark builds is a whole number well inside the range. Both are
+reachable from ordinary calls. TimeClip is now written out at the top of tsToObj,
+and both cases are in the test sweep.
+
 diff --git a/src/datetime.js b/src/datetime.js
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -131,16 +131,29 @@ function fixOffset(localTS, o, tz) {
- function tsToObj(ts, offset) {
-   ts += offset * 60 * 1000;
+@@ -129,18 +129,39 @@ function fixOffset(localTS, o, tz) {
  
+ // convert an epoch timestamp into a calendar object with the given offset
+ function tsToObj(ts, offset) {
+-  ts += offset * 60 * 1000;
+-
 -  const d = new Date(ts);
++  // UPSTREAM-H: new Date(ts) ran TimeClip on its argument first — round
++  // toward zero, NaN outside +/-MAX_DATE — before any field was read off it. The
++  // civil math below does neither, so both are explicit. A fractional timestamp
++  // comes from fromSeconds and from a plus with a fractional millisecond; an
++  // out-of-range one from a plus whose milliseconds overflow, which happens past
++  // the objToLocalTS step that catches calendar-unit overflow. NaN here reaches
++  // the constructor as a NaN year, which is how it reads invalidity.
++  const clipped = ts + offset * 60 * 1000;
++  ts = Math.abs(clipped) > MAX_DATE ? NaN : Math.trunc(clipped);
++
 +  // UPSTREAM-H: was `new Date(ts)` plus seven getUTC* calls. Same result, no
 +  // allocation (Howard Hinnant's civil_from_days, valid for any Gregorian year).
 +  const days = Math.floor(ts / 86400000);
@@ -118,7 +214,100 @@ diff --git a/src/datetime.js b/src/datetime.js
    };
  }
  
-@@ -342,33 +355,37 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
+@@ -151,29 +172,74 @@ function objToTS(obj, offset, zone) {
+ 
+ // create a new DT instance by adding a duration, adjusting for DSTs
+ function adjustTime(inst, dur) {
+-  const oPre = inst.o,
+-    year = inst.c.year + Math.trunc(dur.years),
+-    month = inst.c.month + Math.trunc(dur.months) + Math.trunc(dur.quarters) * 3,
++  // UPSTREAM-H: each of these was a getter call repeated two or three
++  // times below.
++  const ic = inst.c,
++    oPre = inst.o,
++    durYears = dur.years,
++    durQuarters = dur.quarters,
++    durMonths = dur.months,
++    durWeeks = dur.weeks,
++    durDays = dur.days,
++    durHours = dur.hours,
++    durMinutes = dur.minutes,
++    durSeconds = dur.seconds,
++    durMilliseconds = dur.milliseconds,
++    year = ic.year + Math.trunc(durYears),
++    month = ic.month + Math.trunc(durMonths) + Math.trunc(durQuarters) * 3,
++    // UPSTREAM-H: was a spread of inst.c. inst.c is always tsToObj
++    // output, so these are its keys, in its order.
+     c = {
+-      ...inst.c,
+       year,
+       month,
+       day:
+-        Math.min(inst.c.day, daysInMonth(year, month)) +
+-        Math.trunc(dur.days) +
+-        Math.trunc(dur.weeks) * 7,
++        Math.min(ic.day, daysInMonth(year, month)) +
++        Math.trunc(durDays) +
++        Math.trunc(durWeeks) * 7,
++      hour: ic.hour,
++      minute: ic.minute,
++      second: ic.second,
++      millisecond: ic.millisecond,
+     },
+-    millisToAdd = Duration.fromObject({
+-      years: dur.years - Math.trunc(dur.years),
+-      quarters: dur.quarters - Math.trunc(dur.quarters),
+-      months: dur.months - Math.trunc(dur.months),
+-      weeks: dur.weeks - Math.trunc(dur.weeks),
+-      days: dur.days - Math.trunc(dur.days),
+-      hours: dur.hours,
+-      minutes: dur.minutes,
+-      seconds: dur.seconds,
+-      milliseconds: dur.milliseconds,
+-    }).as("milliseconds"),
++    // UPSTREAM-H: this was a nine-key Duration built and converted per
++    // call, to reach a number that is almost always this sum. Two things stop
++    // it from being an unconditional replacement.
++    //
++    // Whole values: the five calendar fields only contribute their fractional
++    // parts, so when all nine are integers those five terms are exactly zero
++    // and shiftTo's accumulator reduces to this same left-to-right sum. Its
++    // trunc-and-remainder split then round-trips exactly, which it does not do
++    // in general. Anything fractional still takes the old path.
++    //
++    // Range: when the sum leaves the finite range shiftTo's remainder goes NaN,
++    // and the milliseconds getter's `|| 0` turns that into zero — so today
++    // plus({ seconds: 1e308 }) adds nothing rather than going invalid. That is
++    // preserved rather than corrected here; changing it is a separate argument.
++    wholeSum =
++      Number.isInteger(durYears) &&
++      Number.isInteger(durQuarters) &&
++      Number.isInteger(durMonths) &&
++      Number.isInteger(durWeeks) &&
++      Number.isInteger(durDays) &&
++      Number.isInteger(durHours) &&
++      Number.isInteger(durMinutes) &&
++      Number.isInteger(durSeconds) &&
++      Number.isInteger(durMilliseconds)
++        ? durHours * 3600000 + durMinutes * 60000 + durSeconds * 1000 + durMilliseconds
++        : NaN,
++    millisToAdd = Number.isFinite(wholeSum * 1000)
++      ? wholeSum
++      : Duration.fromObject({
++          years: durYears - Math.trunc(durYears),
++          quarters: durQuarters - Math.trunc(durQuarters),
++          months: durMonths - Math.trunc(durMonths),
++          weeks: durWeeks - Math.trunc(durWeeks),
++          days: durDays - Math.trunc(durDays),
++          hours: durHours,
++          minutes: durMinutes,
++          seconds: durSeconds,
++          milliseconds: durMilliseconds,
++        }).as("milliseconds"),
+     localTS = objToLocalTS(c);
+ 
+   let [ts, o, wasHole] = fixOffset(localTS, oPre, inst.zone);
+@@ -342,33 +408,37 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
    orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
  
  // standardize case and plurality in units
@@ -243,6 +432,24 @@ diff --git a/src/duration.js b/src/duration.js
  
      if (!normalized) throw new InvalidUnitError(unit);
  
+diff --git a/src/impl/diff.js b/src/impl/diff.js
+--- a/src/impl/diff.js
++++ b/src/impl/diff.js
+@@ -3,7 +3,13 @@ import Duration from "../duration.js";
+ function dayDiff(earlier, later) {
+   const utcDayStart = (dt) => dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
+     ms = utcDayStart(later) - utcDayStart(earlier);
+-  return Math.floor(Duration.fromMillis(ms).as("days"));
++  // UPSTREAM-H: a Duration built and converted to reach one division.
++  // shiftTo puts a lone milliseconds value into days through its leftover loop,
++  // which is this expression. The finite guard keeps the old path for the input
++  // that would otherwise throw out of Duration.fromMillis rather than divide.
++  return Number.isFinite(ms)
++    ? Math.floor(ms / 86400000)
++    : Math.floor(Duration.fromMillis(ms).as("days"));
+ }
+ 
+ function highOrderDiffs(cursor, later, units) {
 diff --git a/src/impl/english.js b/src/impl/english.js
 --- a/src/impl/english.js
 +++ b/src/impl/english.js

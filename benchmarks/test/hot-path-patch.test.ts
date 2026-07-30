@@ -1,18 +1,27 @@
-// H's four hoisted constants have to be invisible, and the risk in them is not
-// the same as the risk in a cache.
+// H's non-formatter half has to be invisible, and the risk in it is not the same
+// as the risk in a cache. There are three shapes of risk here.
 //
-// Three are lookup tables moved out of the function that reads them. A table that
-// lost or gained a key while being moved would not throw: it would resolve a unit
-// to undefined, and the caller would either throw InvalidUnitError on a unit that
-// used to work or silently accept one that never did. So the sweep asks for every
-// key both tables hold, in both singular and plural, in mixed case, and checks
-// that the units luxon rejects are still rejected.
+// Three of the hoists are lookup tables moved out of the function that reads
+// them. A table that lost or gained a key while being moved would not throw: it
+// would resolve a unit to undefined, and the caller would either throw
+// InvalidUnitError on a unit that used to work or silently accept one that never
+// did. So the sweep asks for every key both tables hold, in both singular and
+// plural, in mixed case, and checks that the units luxon rejects are still
+// rejected.
 //
 // The fourth replaces the Date that SystemZone#offset allocates with one instance
 // reused across calls. That instance is shared mutable state on the default zone,
 // so the sweep interleaves zones rather than finishing one before the next, and
 // crosses DST transitions in both directions: an offset read that left the probe
 // holding a stale time would show up as one zone reading another's answer.
+//
+// Last, adjustTime and dayDiff compute directly what they used to route through a
+// Duration. Both are guarded, and the guards are the whole correctness argument:
+// the fast path in adjustTime is only exact when every field is an integer, and
+// only when the sum stays inside the finite range, where luxon's existing
+// behaviour is to add nothing at all. So that sweep is organised by input rather
+// than by method — fractions in each of the nine fields, values past 2^53, sums
+// that overflow — and would fail if either guard were dropped.
 //
 // The formatter half of H is covered by the --verify pass in benchmarks/format.ts
 // and benchmarks/upstream.ts, which compares every rendered string against stock.
@@ -64,6 +73,44 @@ const INSTANTS = [
   Date.UTC(2024, 6, 4, 12, 0, 0),
   Date.UTC(1970, 0, 1, 0, 0, 0),
   Date.UTC(2038, 0, 19, 3, 14, 8),
+];
+
+// What adjustTime's fast path has to get right, grouped by the guard each one
+// exercises. Dropping the isInteger guard breaks the fractional block; dropping
+// the finite guard breaks the last one, where luxon's existing answer is to add
+// nothing rather than to go invalid.
+const AMOUNTS: unknown[] = [
+  // plain numbers and whole amounts, which is what takes the fast path
+  0, 1, -1, 86_400_000,
+  { days: 1 }, { days: -1 }, { months: 1 }, { months: -13 }, { quarters: 3 },
+  { weeks: 2 }, { hours: 25 }, { minutes: 1440 }, { seconds: 90061 },
+  { milliseconds: 1 }, { years: 1, months: 2, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7 },
+
+  // a fraction in each of the nine fields, which must not take it
+  { years: 1.5 }, { quarters: 1.5 }, { months: 2.5 }, { weeks: 1.5 }, { days: 1.5 },
+  { days: -1.5 }, { hours: 0.25 }, { minutes: 0.5 }, { seconds: 0.001 },
+  { milliseconds: 0.5 }, { months: 1.25, days: 2.75, hours: 3.5 },
+
+  // The five calendar fields contribute only their fractional parts, so a
+  // fraction there is caught by any of their five guards. The four time fields
+  // are passed whole, and for most fractions shiftTo's trunc-and-remainder
+  // split happens to reassemble them exactly — 0.5 and 0.25 both do — so those
+  // four guards need values where it does not. About 4% of random fractions
+  // qualify; one per field, found by searching for that.
+  { hours: -204.63316678596144 },
+  { minutes: -0.003974581243864517 },
+  { seconds: -248.3538081770198 },
+  { milliseconds: 334.2807337622956 },
+
+  // integers large enough that summation order would show
+  { days: Number.MAX_SAFE_INTEGER }, { milliseconds: Number.MAX_SAFE_INTEGER },
+  { hours: 1e15, milliseconds: 1 },
+
+  // and past the end of it, where the old path's remainder goes NaN and the
+  // milliseconds getter's `|| 0` turns that into zero
+  { hours: Infinity }, { days: -Infinity }, { seconds: 1e308 },
+  { milliseconds: 1e308, seconds: 1e308 }, { hours: 1e305 },
+  { hours: 1e305, milliseconds: -1e308 }, { seconds: 1e308, milliseconds: -1e308 },
 ];
 
 const stock = await loadLuxon([]);
@@ -221,6 +268,65 @@ describe("hotPath is invisible", () => {
         }
       });
 
+      // The civil math replacing new Date(ts) also replaced the TimeClip the
+      // constructor was running on the way in. Both halves of it are checked
+      // here rather than only through plus, because fromMillis and fromSeconds
+      // reach tsToObj without doing any arithmetic at all: a regression in
+      // either half should not depend on which caller found it.
+      test("tsToObj clips its timestamp the way new Date did", async () => {
+        const patched = await loadLuxon(keys);
+
+        // truncation toward zero, which is not Math.floor for negatives
+        for (const ts of [0.5, -0.5, 1.25, -1.25, 1710053999000.5, -1710053999000.5, 999.999]) {
+          assert.equal(
+            patched.DateTime.fromMillis(ts, { zone: "UTC" }).toISO(),
+            stock.DateTime.fromMillis(ts, { zone: "UTC" }).toISO(),
+            `fromMillis(${ts})`
+          );
+
+          assert.equal(
+            patched.DateTime.fromMillis(ts, { zone: "UTC" }).millisecond,
+            stock.DateTime.fromMillis(ts, { zone: "UTC" }).millisecond,
+            `fromMillis(${ts}).millisecond`
+          );
+        }
+
+        // and the same fraction arriving from the two callers that make one
+        for (const seconds of [1.0005, -1.0005, 0.9999]) {
+          assert.equal(
+            patched.DateTime.fromSeconds(seconds, { zone: "UTC" }).toISO(),
+            stock.DateTime.fromSeconds(seconds, { zone: "UTC" }).toISO(),
+            `fromSeconds(${seconds})`
+          );
+        }
+
+        // NaN outside the range. Calendar units overflow through objToLocalTS,
+        // whose Date.UTC already returns NaN; milliseconds are added to the
+        // timestamp after that step, so only they reach tsToObj out of range.
+        const epoch = (m: any) => m.DateTime.fromMillis(0, { zone: "UTC" });
+        const edge = (m: any) => m.DateTime.fromMillis(8.64e15, { zone: "UTC" });
+
+        for (const amount of [
+          { milliseconds: 9e15 }, { milliseconds: -9e15 }, { hours: 2.5e12 },
+          { seconds: 8.64e12 }, { milliseconds: 8.64e15 }, { milliseconds: 8.64e15 + 1 },
+        ]) {
+          const what = JSON.stringify(amount);
+
+          assert.equal(epoch(patched).plus(amount).isValid, epoch(stock).plus(amount).isValid, `plus(${what})`);
+          assert.equal(epoch(patched).plus(amount).toISO(), epoch(stock).plus(amount).toISO(), `plus(${what}) ISO`);
+          assert.equal(epoch(patched).minus(amount).toISO(), epoch(stock).minus(amount).toISO(), `minus(${what}) ISO`);
+        }
+
+        // and one step either side of the boundary itself
+        for (const amount of [{ milliseconds: 0 }, { milliseconds: 1 }, { milliseconds: -1 }, { days: 1 }]) {
+          assert.equal(
+            edge(patched).plus(amount).toISO(),
+            edge(stock).plus(amount).toISO(),
+            `MAX_DATE plus(${JSON.stringify(amount)})`
+          );
+        }
+      });
+
       test("relative time reads the same in both directions and every unit", async () => {
         const patched = await loadLuxon(keys);
 
@@ -286,6 +392,90 @@ describe("hotPath is invisible", () => {
               stock.Interval.fromDateTimes(w, w.plus({ days: 8 })).splitBy({ days: 1 }).length,
               `Interval#splitBy ${zone} ${ts}`
             );
+          }
+        }
+      });
+
+      test("plus and minus agree on whole, fractional and out-of-range amounts", async () => {
+        const patched = await loadLuxon(keys);
+
+        for (const zone of ZONES) {
+          for (const ts of INSTANTS) {
+            const w = stock.DateTime.fromMillis(ts, { zone });
+            const g = patched.DateTime.fromMillis(ts, { zone });
+
+            for (const amount of AMOUNTS) {
+              assert.equal(
+                outcome(() => g.plus(amount as any).toISO()),
+                outcome(() => w.plus(amount as any).toISO()),
+                `plus(${JSON.stringify(amount)}) ${zone} ${ts}`
+              );
+
+              assert.equal(
+                outcome(() => g.minus(amount as any).toISO()),
+                outcome(() => w.minus(amount as any).toISO()),
+                `minus(${JSON.stringify(amount)}) ${zone} ${ts}`
+              );
+
+              // toISO truncates, so a sub-millisecond disagreement would not
+              // show in the strings above. The timestamp is stored unrounded.
+              assert.equal(
+                outcome(() => g.plus(amount as any).valueOf()),
+                outcome(() => w.plus(amount as any).valueOf()),
+                `plus(${JSON.stringify(amount)}).valueOf() ${zone} ${ts}`
+              );
+
+              assert.equal(
+                outcome(() => g.minus(amount as any).valueOf()),
+                outcome(() => w.minus(amount as any).valueOf()),
+                `minus(${JSON.stringify(amount)}).valueOf() ${zone} ${ts}`
+              );
+            }
+
+            // a Duration instance rather than an object: fromDurationLike hands
+            // it through without re-normalizing, so its getters are what
+            // adjustTime reads
+            assert.equal(
+              g.plus(patched.Duration.fromObject({ months: 1, days: 2.5, hours: 6 })).toISO(),
+              w.plus(stock.Duration.fromObject({ months: 1, days: 2.5, hours: 6 })).toISO(),
+              `plus(Duration) ${zone} ${ts}`
+            );
+          }
+        }
+      });
+
+      test("dayDiff-backed units agree, including across transitions", async () => {
+        const patched = await loadLuxon(keys);
+
+        // days and weeks are the two units that route through dayDiff; the
+        // fractional remainder it feeds is what a wrong division would move
+        for (const zone of ZONES) {
+          for (const ts of INSTANTS) {
+            for (const span of [0, 1, 7, 45, 400, -1, -180]) {
+              const at = ts + span * 86_400_000 + 5_400_000;
+              const w = stock.DateTime.fromMillis(ts, { zone });
+              const g = patched.DateTime.fromMillis(ts, { zone });
+              const w2 = stock.DateTime.fromMillis(at, { zone });
+              const g2 = patched.DateTime.fromMillis(at, { zone });
+
+              for (const units of [["days"], ["weeks"], ["days", "hours"], ["weeks", "days"]]) {
+                assert.equal(
+                  g.diff(g2, units as DurationUnit[]).toISO(),
+                  w.diff(w2, units as DurationUnit[]).toISO(),
+                  `diff ${units.join(",")} ${zone} ${ts} +${span}d`
+                );
+              }
+
+              assert.equal(
+                patched.Interval.fromDateTimes(g, g2).isValid
+                  ? patched.Interval.fromDateTimes(g, g2).count("days")
+                  : null,
+                stock.Interval.fromDateTimes(w, w2).isValid
+                  ? stock.Interval.fromDateTimes(w, w2).count("days")
+                  : null,
+                `Interval#count ${zone} ${ts} +${span}d`
+              );
+            }
           }
         }
       });

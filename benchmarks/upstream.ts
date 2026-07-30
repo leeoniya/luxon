@@ -952,7 +952,7 @@ const DEFAULT_CASES: DefaultCase[] = [
   },
   {
     key: "plus",
-    what: "plus({ days: 1 }), the other half of H's unit tables",
+    what: "plus({ days: 1 }), H's unit tables and its adjustTime fast path",
     system: (m) => (ts) => m.DateTime.fromMillis(ts).plus({ days: 1 }).valueOf(),
     named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).plus({ days: 1 }).valueOf(),
   },
@@ -988,7 +988,6 @@ function tokenPool(m: LuxonModule, zone: string | undefined): string[] {
 const DEFAULT_BUILDS: { id: string; keys: PatchKey[]; copy?: number }[] = [
   { id: "stock", keys: [] },
   { id: "control", keys: [], copy: 1 },
-  { id: `ship A-${LETTER(patchKey("transitionInterval"))}`, keys: LADDER.at(-2)!.keys },
   { id: FULL.replace("luxon ", ""), keys: [...UPSTREAM] },
 ];
 
@@ -1044,7 +1043,7 @@ if (tables.has("default")) {
     ];
   });
 
-  console.log(`the default zone: the same ladder with no zone named at all\n`);
+  console.log(`the default zone: the same cases with no zone named at all\n`);
   printTable(
     [
       "case",
@@ -1064,15 +1063,16 @@ if (tables.has("default")) {
       `Same units and kernel as the format table — ms per ${N} values, fastest of ${defaultPasses} interleaved\n` +
       `passes, the builds of one case timed adjacently. The parse cases read from a pool of ` +
       `${PARSE_POOL.toLocaleString("en-US")},\nrendered by the build that reads it.\n\n` +
-      `Read the two d columns against the control's, which is stock measured as its own neighbour and\n` +
-      `so is what a difference here has to beat. Several of these cases have no patch on them at all,\n` +
-      `and a run where those read as zero and the control reads as a percent or two is the table\n` +
-      `working rather than a null result.\n\n` +
+      `Read the d column against the control's, which is stock measured as its own neighbour and so is\n` +
+      `what a difference here has to beat. Several of these cases have no patch on them at all, and a\n` +
+      `run where those read as zero and the control reads as a percent or two is the table working\n` +
+      `rather than a null result.\n\n` +
       `The last column is why this table is short. Stock luxon in the default zone is already ` +
       `${ratio(worst.key).toFixed(1)}x\ncheaper than the same call against ${ZONE} on ${worst.key}, because ` +
       `SystemZone answers offset()\nwith getTimezoneOffset and never calls Intl at all. A, B, E and F exist to ` +
       `remove Intl calls,\nso against the default zone there is much less for them to remove, and what is left ` +
-      `is D on\nthe reading cases, G, and H's four constants — which is what the middle columns are measuring.\n`
+      `is D on\nthe reading cases, G, and H's non-Intl half — its hoisted constants and the arithmetic fast\n` +
+      `path in adjustTime, which is what most of the movement on plus and startOf here is.\n`
   );
 }
 
@@ -1325,14 +1325,22 @@ not agree on which engine they helped — two cleared the floor on V8 only, one 
 JavaScriptCore only, one on neither. Together they clear it on both by a wide
 margin, which is the case for filing them as one patch rather than six.
 
-H carries four more that this table cannot see, because they are not on the
-formatting path: three lookup tables and one Date that luxon was rebuilding per
+H carries six more that this table cannot see, because they are not on the
+formatting path. Four are lookup tables and one Date that luxon was rebuilding per
 call, in DateTime.normalizeUnit, Duration.normalizeUnit, formatRelativeTime and
 SystemZone#offset. They land on arithmetic, on relative time, and on the default
 zone, none of which the columns here exercise — every row names a zone. What they
 are worth is in benchmarks/suite.ts, which does call those, and the same engine
 split runs through them: V8 escape-analyzes some of the allocations away and
 JavaScriptCore does not, so node sees a few percent where bun sees twenty.
+
+The other two are worth much more than that and are the reason to read
+benchmarks/coverage.ts rather than stopping here. adjustTime was building a
+nine-key Duration and converting it to milliseconds on every plus and minus, where
+an integer sum would do, and impl/diff.js's dayDiff was building another to reach
+one division. Every plus and minus goes through adjustTime, so endOf, hasSame,
+diff, toRelative and Interval#splitBy go through it too, and this file has a row
+for none of them.
 
 What the merge cost is the other half of that. C subsumes two of H's six by
 construction, since it parses each pattern once and folds punctuation into literal
@@ -1342,13 +1350,16 @@ dropping H whole: ${saved(num, "easytz ACG (no H)")} (positive meaning faster wi
 That is a statement about H's weight, not about C's redundancy — the redundancy
 check is simply gone, and it is the one thing merging these six gave up.
 
-A, B, C and E are the shippable core on any engine — all four remove an Intl call
-or most of one, which no engine can be fast at, and D joins them on the reading
-side for removing a RegExp compile. B and the tsToObj fast path inside H are the
-only places anything rewrites logic rather than adding a cache or a
-short-circuit; tsToObj is verified against Date's own getters over 200k random
-instants across the full range, and B against stock offset() over every transition
-its zones have.
+A, B, C and E are the ones that hold on any engine — all four remove an Intl call
+or most of one, which no engine can be fast at, and D does the same on the reading
+side by removing a RegExp compile. B and the two rewrites inside H — tsToObj and
+the adjustTime fast path — are the only places anything restates logic rather than
+adding a cache or a short-circuit, and they are correspondingly the places to look
+first. B is verified against stock offset() over every transition its zones have.
+The other two are verified against stock over 85,806 comparisons in
+benchmarks/test/hot-path-patch.test.ts and against Date's own getters over 200k
+random instants; writing that sweep is also what turned up two bugs in the tsToObj
+rewrite, which had lost the TimeClip the Date constructor was doing on its behalf.
 
 Reading the ladder: each rung is bounded by one of the two Intl calls a zoned
 format makes, and which format it helps says which call it removed. A and B both
@@ -1376,12 +1387,19 @@ below it remove from both formats put together (${(
 less than either rung above it despite being the largest formatter win in
 isolation.
 ${reading}
-The last rung answers whether G and H still matter once the other six land.
-They are worth nearly the same on both formats — ${step(num, FULL)}ms on numeric and ${step(abbr, FULL)}ms on
+The last rung is what G and H add on top of the other six. They are worth nearly
+the same on both formats — ${step(num, FULL)}ms on numeric and ${step(abbr, FULL)}ms on
 abbr — which is what you would expect from per-value formatter costs that do not
-care which zone path ran, and it is ${pct((num.get("luxon A-F")! - num.get(FULL)!) / num.get("luxon (stock)")!)} and ${pct((abbr.get("luxon A-F")! - abbr.get(FULL)!) / abbr.get("luxon (stock)")!)} of stock. So the six
-rungs carry the result, and G and H are a tidy-up worth taking only if A-F are
-already in.
+care which zone path ran, and it is ${pct((num.get("luxon A-F")! - num.get(FULL)!) / num.get("luxon (stock)")!)} and ${pct((abbr.get("luxon A-F")! - abbr.get(FULL)!) / abbr.get("luxon (stock)")!)} of stock. So on a formatting
+path the six rungs below them carry the result. That is this table's view of them
+rather than the whole one: G and H are the two patches aimed at calls that never
+format anything, and benchmarks/coverage.ts is where they land — G takes
+Info.months in a non-English locale from ~328ms to ~0.4ms, and H is most of what
+moves startOf, set, plus, minus, endOf, hasSame, diff and the Duration and Interval
+methods. The adjustTime fast path in particular was found by taking that table's
+four worst rows against moment and profiling them: diff, endOf('month'), toRelative
+and hasSame('day') were 7x, 5x, 3x and 2x behind, all four for the same reason, and
+they are now 4.2x, 1.9x, 2.3x and 1.2x.
 
 F is the one with a precondition rather than a proof from first principles: it
 assumes nothing changes and changes back inside one 2-day probe window. It needs
@@ -1393,7 +1411,7 @@ which is what Cambridge_Bay did in 2000. Measured against the runtime's own ICU
 rather than a bundled copy that bound is 6.96 days, so both margins are 3.5x, and
 sharing the cache costs nothing because the two bounds coincide. The failure mode
 if tzdata ever tightened past either is a stale offset or a stale name rather than
-a crash. B and E have no such precondition and are worth filing regardless.
+a crash. B and E rest on the same reading of tzdata but carry no such precondition.
 
 F also has the one divergence from stock in the whole set, and it is stock that
 is strange. Asked for a GENERIC name, ICU answers America/Cambridge_Bay with "MT"
@@ -1432,8 +1450,10 @@ only reuses an object luxon already hands callers for the purpose. Then F, which
 needs the tzdata-gap argument accepted once and pays off on both calls for it. C
 sits third in the ladder because the rungs are cumulative, but it is the last of
 the six to file: the largest single win in isolation, and the one that changes how
-the Formatter is built rather than what it calls. G and H are the tidy-up, and are
-worth filing only after the rest.`);
+the Formatter is built rather than what it calls. G and H go last, not because
+they are smaller but because they are the two that this table understates: both
+are independent of the zone work above and of each other, and each is argued on
+benchmarks/coverage.ts, where they reach calls that never format anything.`);
 } else if (reading !== "") {
   // A `--parse` run still gets the part of the findings it measured. The rest
   // ranks patches by what they save on a formatting path, and there is nothing

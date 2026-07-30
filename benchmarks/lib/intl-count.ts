@@ -23,6 +23,49 @@
 let constructions = 0;
 let installed = false;
 
+let cap = Infinity;
+let capWhat = "";
+
+/**
+ * Aborts the process once construction passes `max`.
+ *
+ * A formatter cache keyed on something that varies per call does not read as
+ * slow, it reads as a hung machine: every iteration builds an ICU formatter,
+ * which costs tens of microseconds and allocates heavily, so a loop sized for
+ * cache hits becomes minutes of GC instead of seconds of work. A probe timing
+ * such a cache knows roughly how many distinct formatters should ever exist —
+ * usually a handful — so it can say so here and fail in a second rather than
+ * taking the machine down with it.
+ *
+ * Implies installIntlCounter(). `what` names the expectation, since the useful
+ * half of the message is which assumption turned out to be wrong.
+ *
+ * Written after a probe for a toLocaleString formatter cache keyed the cache on
+ * the identity of the options object, which luxon rebuilds per call on its
+ * macro-token path; see the toLocaleString paragraph in benchmarks/suite.ts.
+ */
+export function capIntlConstructions(max: number, what: string): void {
+  installIntlCounter();
+  cap = max;
+  capWhat = what;
+}
+
+function counted(): void {
+  constructions++;
+
+  if (constructions > cap) {
+    const msg =
+      `Intl.DateTimeFormat constructed ${constructions} times, over the cap of ${cap} (${capWhat}). ` +
+      `Something is building a formatter per call rather than reusing one; letting this run would ` +
+      `spend minutes in ICU and GC.`;
+
+    // the cap exists to stop a runaway loop, and a throw inside a benchmark's
+    // inner function can be swallowed by the code under test, so leave directly
+    console.error(msg);
+    process.exit(1);
+  }
+}
+
 /**
  * Counts `new Intl.DateTimeFormat(...)` and the no-new call form, by swapping
  * the global for a counting Proxy. Statics (supportedLocalesOf) and instanceof
@@ -37,11 +80,11 @@ export function installIntlCounter(): void {
 
   Intl.DateTimeFormat = new Proxy(Intl.DateTimeFormat, {
     construct(target, args, newTarget): object {
-      constructions++;
+      counted();
       return Reflect.construct(target, args as unknown[], newTarget) as object;
     },
     apply(target, thisArg, args): unknown {
-      constructions++;
+      counted();
       return Reflect.apply(target, thisArg, args as unknown[]);
     },
   });

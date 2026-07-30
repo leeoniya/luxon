@@ -257,6 +257,68 @@ export function interleavedBest<K>(
   return { best, checksum, scaled, sizes: new Map(sized.map(({ key, n }) => [key, n])), passes };
 }
 
+// ---- sizing for a wide table ------------------------------------------------
+
+// What benchmarks/coverage.ts runs `interleavedBest` at. That table is 28 rows
+// across two luxon builds plus a moment column, where the default
+// DEFAULT_BUDGET_MS and a 3-7 pass range put the bench into minutes of sustained
+// load — long enough on a thermally limited host that it starts measuring its
+// own cooling.
+//
+// Swept against a deliberately expensive reference (150ms x 5-9 passes) over
+// entries spanning this table's cost range, worst per-entry deviation:
+//
+//   10ms x 3-3    46.7%     737ms      calibration falls apart
+//   15ms x 3-4    41.4%     859ms      same
+//   25ms x 3-4     8.8%    1171ms
+//   40ms x 3-5     5.6%    1453ms
+//   75ms x 3-7     8.1%    2433ms      the default
+//
+// Two readings of the reference itself disagreed by up to 4.5%, so everything
+// from 25ms up is at the noise floor and the default buys nothing over 40ms for
+// 1.7x the time. Below 25ms it is not a matter of precision: `passSize` cannot
+// calibrate in that little time, picks a tiny n, and `fromISO` reads 40% high.
+//
+// The pass count is then pinned rather than ranged, and pinned to the caller's
+// GROUP SIZE. Rotation moves the front slot along by one per pass, and that slot
+// is the penalized one: it holds the entry measured right after the workload
+// changed, which pays for collecting the previous entry's garbage. Stopping
+// after fewer passes than there are entries leaves some of them having never
+// held that slot and some having held it once, which the fastest-pass rule then
+// bakes in rather than cancels. Under JavaScriptCore that showed up as the
+// control column sitting 10-18% BELOW stock on a third of the rows, one-sided
+// and reproducible; a full rotation put it back inside a few percent.
+export const LEAN_BUDGET: SampleBudget = { min: 3, max: 3, budgetMs: 120 };
+export const LEAN_BUDGET_MS = 40;
+
+// A note on warming, since the obvious next economy is to stop paying for it on
+// every pass: size each entry's warm-up separately, run it until its per-call
+// rate stops improving, and then time passes only long enough to read a clock.
+// That was built and measured, and it is worse on every axis.
+//
+// It does not buy anything, because there is nothing to buy. Measured cold in a
+// FRESH PROCESS per cell, an entry given no warm-up at all reads within 20% of
+// one given 32,000 warm calls, and most of that gap closes by the first few
+// hundred. Taking the FASTEST of several passes is already the warm-up: by the
+// last pass the entry has run tens of thousands of times, and the minimum is
+// what that pass reports. An explicit ramp re-derives a number the pass loop
+// gets for free.
+//
+// It costs roughly twice the calls it certifies, since a doubling ramp spends as
+// much reaching a size as it spent getting there, and that is exactly the load
+// the exercise set out to remove.
+//
+// And it does not survive contact with the entries. Detecting "stopped
+// improving" needs a per-batch rate to be stable, and it is not: a single batch
+// varies ±40% here even at 65,536 values, so the rule fired on noise and the
+// same entry ramped to 39k calls on one run and 157k on the next. The ramp's own
+// allocation churn then perturbed the short passes it was supposed to make
+// trustworthy, and moment#add — timed at 1,300 values per pass after a ramp —
+// read 2.16x its settled cost.
+//
+// `interleavedBest` above therefore has no warm-up phase, by measurement rather
+// than by oversight. Cheaper passes come from a smaller budget, not from a ramp.
+
 /**
  * Rotates each consecutive run of `size` entries left by `by`, leaving the runs
  * themselves in place. A no-op for size 0 or 1.
