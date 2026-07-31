@@ -18,6 +18,14 @@
 // being a column. That is easy to miss in a long table and easy to fix once
 // seen, which is exactly the case for a warning rather than a throw — these run
 // for minutes and should not die on a cosmetic problem at row 20.
+//
+// Cells arrive already shaded (see lib/color.ts), so widths are counted with the
+// escapes discounted and the padding is done by hand. padStart and padEnd count
+// the escapes, which would pull every coloured column several characters out of
+// true — and only when the output is a terminal, i.e. never in a redirected run
+// anyone might diff.
+
+import { visibleWidth } from "./color.ts";
 
 export interface StreamTableOpts {
   /** columns to left-align, beyond column 0 which always is */
@@ -46,8 +54,9 @@ export function streamTable(headers: string[], opts: StreamTableOpts = {}): Stre
     cells
       .map((v, i) => {
         const width = widths[i]!;
+        const shown = visibleWidth(v);
 
-        if (v.length > width && !warned) {
+        if (shown > width && !warned) {
           warned = true;
           console.error(
             `note: "${v}" is wider than the ${width}-wide "${headers[i]}" column, so that column is no longer aligned` +
@@ -55,7 +64,9 @@ export function streamTable(headers: string[], opts: StreamTableOpts = {}): Stre
           );
         }
 
-        return i === 0 || leftCols.has(i) ? v.padEnd(width) : v.padStart(width);
+        const gap = " ".repeat(Math.max(0, width - shown));
+
+        return i === 0 || leftCols.has(i) ? v + gap : gap + v;
       })
       .join("  ")
       .trimEnd();

@@ -39,6 +39,40 @@ offset table, and only its `z` token renders an abbreviation. moment core is
 underneath it doing the formatting, so both versions are reported — reproducing
 these numbers means installing the pair.
 
+### The moment row gets several moments
+
+Merging the two tables made moment's formatting columns 13-19% slower without
+touching a line of formatting code, and the reason is worth writing down because
+it is a real property of moment rather than a harness artifact.
+
+A Moment parsed from a string carries `_a` and `_f`; one built from a timestamp
+does not; one parsed from a string with an offset in it adds `_tzm`. Three
+shapes. `format()` reads five properties off whichever it is handed — `_d`,
+`_isUTC`, `_offset`, `_locale`, and `_pf` by way of `isValid()` — so once more
+than one shape has flowed through, those reads go from monomorphic to
+polymorphic and stay there for the life of the process.
+
+A *single* parse anywhere beforehand is enough to do it. With no benchmark
+harness involved, one `moment.tz(str, fmt, zone)` call ahead of a formatting loop
+costs that loop about 15%; zero parses costs it nothing. So **moment formats
+dates measurably slower in any process that has also parsed one**, which an
+application doing both directions really does pay.
+
+It is not what a column headed "format" is asking, though, and before the merge
+which cells paid it was decided by nothing more principled than the order the
+tables happened to print in. So the moment row now draws its instance from
+[`../lib/build.ts`](../lib/build.ts)'s `momentFor`, keyed by the shape of the
+Moment the cell builds: cells that build the same shape share an instance and its
+warmth, cells that build different shapes cannot see each other. The key is read
+off a real Moment rather than declared per case, so a case added later sorts
+itself.
+
+Luxon needs none of this — a `DateTime` has the same shape however it was built,
+which is why every luxon row was unmoved by the merge — and every luxon build
+already gets its own module instance and every timed entry its own zone. moment
+was the one participant with no isolation at all, because it arrives as a package
+rather than as a tree this harness writes.
+
 ## Where the ladder comes from
 
 Each rung adds one patch to the one above it, so a rung's contribution is what it

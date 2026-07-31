@@ -74,6 +74,15 @@ row for a default run. `--cooldown 0` turns the idling off, which is what to do
 when iterating on a patch and comparing a run against itself rather than reading
 rows against each other; `--cooldown <ms>` sets it to anything else.
 
+Timings in the tables that have a moment baseline — `upstream`'s ladder,
+`coverage`, and `format` — are shaded against it on a terminal: moment keeps the
+default colour, cells faster than it go green, cells slower go red, and further
+either way is more saturated. It is a log scale, since these ratios run from
+about a fifth of moment's time to fifty times it, and anything within ~10% is
+left plain. Redirected output is never shaded, so piping to a file gets the same
+plain text it always did; `--no-color` or `NO_COLOR=1` turns it off on a terminal
+too, and `FORCE_COLOR=1` turns it on anywhere.
+
 `format` and `upstream` take `--verify`, which adds their output-comparison
 sections. Off by default because the answer only moves when luxon's `src`,
 moment's bundled tzdata, or the host ICU does — but the timings are only a

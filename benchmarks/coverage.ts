@@ -33,6 +33,7 @@
 
 import type { DateTime } from "luxon";
 import moment from "moment-timezone";
+import { colorEnabled, colorLegend, shade } from "./lib/color.ts";
 import { LEAN_BUDGET, LEAN_BUDGET_MS, measureRows, pkgVersion, runtime, timeLoop, type Work } from "./lib/kernel.ts";
 import type { LuxonModule } from "./lib/luxon-types.ts";
 import { cooldownMs } from "./lib/opts.ts";
@@ -557,11 +558,15 @@ const run = await measureRows(
     const base = best.get("stock")!;
     const all = best.get(`all ${ALL.length}`)!;
 
+    // Shaded against this row's moment rather than the table's, since here the
+    // baseline is a column and every case has its own. The rows whose moment is
+    // `--` are the ones with no equivalent to compare against, and they come out
+    // plain, which is the right amount of nothing to say about them.
     table.row([
       kase.key + (kase.approx === true ? " *" : ""),
       mo === undefined ? "--" : ms(mo),
-      ms(base),
-      ms(all),
+      shade(ms(base), base, mo),
+      shade(ms(all), all, mo),
       mo === undefined ? "--" : ratio(all, mo),
       ratio(all, base),
     ]);
@@ -578,6 +583,7 @@ console.log(
   `\n* not like for like: moment expands its own bundled locale tables where luxon calls into ICU.\n` +
     `  Interval has no moment equivalent short of a plugin.\n` +
     `\nRatios are the patched build over the named column, so lower is better and 1.000 is parity.\n` +
+    (colorEnabled ? `\n${colorLegend("this row's moment")}\n` : ``) +
     `\nwhat this table means: ${DOCS}/coverage.md   how it is timed: ${DOCS}/methodology.md`
 );
 

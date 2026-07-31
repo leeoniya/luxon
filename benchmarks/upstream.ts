@@ -77,6 +77,7 @@ import {
   writeEntry,
   type PatchKey,
 } from "./lib/patches.ts";
+import { colorEnabled, colorLegend, shade } from "./lib/color.ts";
 import { printTable } from "./lib/print-table.ts";
 import { streamTable } from "./lib/stream-table.ts";
 import { DateTime } from "./lib/stock.ts";
@@ -619,9 +620,9 @@ if (tables.has("ladder")) {
     }
 
     for (const kase of parseCases) {
-      // the spec carries the formatting pattern too, which parsing has no use for
-      const parse = await parserFor(await path.spec!(formatKeys[0]!), kase);
       const pool = pools.get(kase.key)!;
+      // the spec carries the formatting pattern too, which parsing has no use for
+      const parse = await parserFor(await path.spec!(formatKeys[0]!), kase, pool?.[0]);
 
       for (const i of PARSE_CHECKS) {
         const ts = BASE_TS + i * STEP_MS;
@@ -693,6 +694,11 @@ if (tables.has("ladder")) {
   const floors = new Map<LadderKey, number[]>(columns.map((key) => [key, []]));
   /** builds whose writing cells were shortened, which the legend has to admit to */
   const shortened = new Set<string>();
+  // What every other row is shaded against, filled by the row that supplies it.
+  // moment is rowPaths[0], so it is in hand before anything needs it — but read
+  // off the row rather than assumed, since a table whose colours silently
+  // inverted if the rows were reordered would be worse than one with no colours.
+  const anchor = new Map<LadderKey, number>();
   let index = 0;
 
   // A row is one build across all seven columns, and a row is what this table
@@ -746,6 +752,10 @@ if (tables.has("ladder")) {
       passCounts.add(writing!);
       parsePasses.add(reading!);
 
+      if (path.id === "moment") {
+        for (const key of columns) anchor.set(key, measured.best.get(key)!);
+      }
+
       const fp = profiled.get(path.id) ?? null;
       // a row whose subprocess failed says so, rather than taking the timings
       // and everything below them down with it
@@ -753,7 +763,11 @@ if (tables.has("ladder")) {
 
       table.row([
         label.get(path.id)!,
-        ...columns.map((key) => measured.best.get(key)!.toFixed(1)),
+        ...columns.map((key) => {
+          const v = measured.best.get(key)!;
+
+          return shade(v.toFixed(1), v, anchor.get(key));
+        }),
         ...held,
         bytesFor.get(path.id)!,
       ]);
@@ -783,6 +797,10 @@ if (tables.has("ladder")) {
       `Read each column no finer than its own floor — how far apart two readings of the same cell fell:\n\n` +
       `  ${columns.map((key) => `${key} ${columnFloor(key).toFixed(1)}%`).join("   ")}\n`
   );
+
+  // Only when something was actually shaded, so a redirected run does not
+  // explain an encoding it did not use.
+  if (colorEnabled) console.log(`${colorLegend("moment-timezone")}\n`);
 
   // The two halves ran on different pass settings, so one sentence covering both
   // would have to round something away.

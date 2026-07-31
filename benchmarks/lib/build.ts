@@ -11,9 +11,81 @@
 // on the same formatter its milliseconds came from rather than on a second
 // description of it.
 
+import { createRequire } from "node:module";
+import { dirname, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DateTimeOptions, Zone } from "luxon";
 import type { LuxonModule } from "./luxon-types.ts";
+
+type MomentTz = typeof import("moment-timezone");
+
+const require = createRequire(import.meta.url);
+
+/**
+ * moment's own files, so evicting them cannot reach anything else. Matched by
+ * directory rather than by name: a path with "moment" somewhere in it is not a
+ * moment module, and this repo could easily live under one.
+ */
+const momentDirs = ["moment", "moment-timezone"].map((p) => dirname(require.resolve(p)) + sep);
+
+const momentByRole = new Map<string, MomentTz>();
+
+/**
+ * A moment-timezone instance nobody outside `role` has called.
+ *
+ * Every luxon build already gets its own module instance, and every timed entry
+ * its own zone, so that nothing one cell warms is inherited by the cell it is
+ * being compared against. moment was the one participant exempt from that,
+ * because it arrives as a package rather than as a tree this harness writes —
+ * and it turned out to be the one that needed it.
+ *
+ * A Moment parsed from a string carries `_a` and `_f`; one built from a
+ * timestamp does not; one parsed from a string with an offset in it adds `_tzm`.
+ * Three shapes, and `format()` reads five properties off whichever it is given.
+ * A single parse anywhere in the process is enough to turn those reads
+ * polymorphic for the life of it, which cost the formatting cells 13-19% as soon
+ * as this file built a parser before a formatter had been timed. That is a real
+ * property of moment, and an app doing both directions really does pay it — but
+ * it is not what a column headed "format" is asking, and which cell paid it
+ * depended on nothing more principled than the order the tables printed in.
+ *
+ * Roles rather than one instance per caller: benchmarks/format.ts builds a
+ * formatter per zone across hundreds of them, and they all want the same one.
+ * ~10ms and ~3MB each.
+ */
+function momentFor(role: string): MomentTz {
+  let m = momentByRole.get(role);
+
+  if (m === undefined) {
+    for (const id of Object.keys(require.cache)) {
+      if (momentDirs.some((d) => id.startsWith(d))) delete require.cache[id];
+    }
+
+    // the instances already handed out are held by this map, so evicting the
+    // cache only decides what the NEXT require builds
+    momentByRole.set(role, (m = require("moment-timezone") as MomentTz));
+  }
+
+  return m;
+}
+
+/**
+ * The role a cell belongs in: the shape of the Moment it builds, read off one.
+ *
+ * Keying on the shape rather than on the cell means cells that cannot pollute
+ * each other still share an instance, and so still share its warmth — the four
+ * string-parsing cells collapse to two roles, and `millis` shares the
+ * formatter's, all three being what they were before the tables merged. Reading
+ * it off a real Moment rather than declaring it per case is what keeps it true:
+ * a case added later lands in the right role, or in a new one, without anyone
+ * having to notice that it should.
+ *
+ * Probed on an instance that is never timed, since probing is itself a call of
+ * the kind this is here to keep out of the timed instances.
+ */
+function momentRole(build: (m: MomentTz) => object): string {
+  return Object.keys(build(momentFor("probe"))).sort().join(",");
+}
 
 export interface BuildSpec {
   /** entry point of a patched src tree, or null for the moment-timezone baseline */
@@ -30,7 +102,7 @@ export async function formatterFor(spec: BuildSpec): Promise<(ts: number) => str
 
   if (luxonEntry === null) {
     // a named zone needs moment-timezone's offset table; moment core has none
-    const { default: moment } = await import("moment-timezone");
+    const moment = momentFor(momentRole((m) => m.tz(0, zone)));
 
     return (ts) => moment.tz(ts, zone).format(pattern);
   }
@@ -129,13 +201,27 @@ export const parseCases: readonly ParseCase[] = [
  *
  * Takes both the instant and its rendered string so every case has one shape,
  * and the harness passes whichever the case reads.
+ *
+ * `sample` is one input of the kind this parser will be given, used only to work
+ * out which moment instance the case belongs on — see momentRole. Omitting it
+ * falls back to isolating the case on its own, which is never wrong, only colder.
  */
-export async function parserFor(spec: BuildSpec, kase: ParseCase): Promise<(ts: number, input: string) => number> {
+export async function parserFor(
+  spec: BuildSpec,
+  kase: ParseCase,
+  sample?: string
+): Promise<(ts: number, input: string) => number> {
   const { input } = kase;
 
   if (spec.luxonEntry === null) {
-    const { default: moment } = await import("moment-timezone");
     const { zone } = spec;
+    const role =
+      input === "millis"
+        ? momentRole((m) => m.tz(0, zone))
+        : sample === undefined
+          ? `parse:${kase.key}`
+          : momentRole((m) => m.tz(sample, kase.moment ?? m.ISO_8601, zone));
+    const moment = momentFor(role);
 
     if (input === "millis") {
       return (ts) => moment.tz(ts, zone).valueOf();

@@ -39,6 +39,14 @@ Rows are printed as they finish rather than at the end, which is what makes a
 bench that runs for minutes watchable — and means a run stopped halfway has
 still reported everything it completed.
 
+On a terminal, tables with a moment baseline shade each timing by how it compares
+to moment's: moment itself keeps the default colour, faster goes green, slower
+goes red, on a log scale because these ratios span two orders of magnitude.
+Anything within ~10% is left plain, which is loose on purpose — it is a rough
+stand-in for the noise floor, not a substitute for the measured per-column floors
+printed under each table, and a margin can clear the shading while still sitting
+inside its column's floor. Redirected output is never shaded.
+
 A row is usually one interleaved group, but it can be several: `upstream`'s
 ladder times its writing and its reading columns as two, because they need
 different pass sizing. Interleaving is per group, which costs nothing when the
@@ -103,6 +111,15 @@ diffs in [`patches/`](../patches) applied textually, written to
 directory and therefore its own module instance, so one variant's internal caches
 can never warm another's — which matters, because most of these patches *are*
 caches.
+
+The same rule reaches the baselines. moment is loaded more than once too, and the
+reason is not caches but object shapes: it hands back differently shaped objects
+depending on whether you parsed a date or built one from a timestamp, and a
+single call of the one kind permanently slows a loop doing the other. Cells that
+build the same shape share an instance; cells that do not, do not. See the
+[upstream](upstream.md#the-moment-row-gets-several-moments) note for the
+measurement — it is a real property of moment, not of this harness, and it cost
+the formatting columns 13-19% the once it went unnoticed.
 
 ## Correctness before speed
 
