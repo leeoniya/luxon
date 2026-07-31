@@ -87,6 +87,12 @@ which of the two formats a rung helps tells you which call it removed. A pattern
 with no zone name in it only ever pays for the offset; a pattern with one pays
 for both.
 
+Seven of the eight patches have a rung, so the last row adds only H. A rung being
+small here is not a verdict on the patch, only on what this table asks of it: G's
+rung is the clearest case, since interning `Locale` objects barely shows against a
+pattern that holds its locale fixed, and the calls it was written for are on
+[coverage.md](coverage.md) instead.
+
 ## The patches
 
 ### A — `zoneInfoCache`
@@ -122,6 +128,14 @@ separators cost a concat.
 It is not a substitute for the caches — those are worth a great deal between
 them, and C adds to the total on top of all of them. It is the largest single
 formatter win in isolation.
+
+This ladder is the wrong place to judge how much of it survives the merge with H,
+and specifically it is the place most likely to understate C. Both of the writing
+columns are all-numeric patterns in en-US on the gregorian calendar, which is the
+one input for which H's `num`, `padStart` and `roundTo` fast paths cover most of
+what C's compiled program covers. The pattern shapes where that stops being true
+— a month or weekday name, a long pattern, a non-English locale — are rows on
+[coverage.md](coverage.md), and C is the patch they turn on.
 
 ### D — `tokenParserCache`
 
@@ -248,9 +262,11 @@ before H arrives, so it is credited with savings H would also have found.
 build a run makes — the ladder, the byte table, the parity scan, `coverage`,
 `suite`, and both engines under `cross-engine`. Run the bench with and without,
 and the difference between the two full-set rows is what that patch is worth once
-everything else is in. Rungs that collapse into their predecessor are folded
-away, and labels stop using ranges when a range would no longer be true: a set
-missing C prints as `A+B+D`, not `A-D`.
+everything else is in. Rows that collapse into the one above them are folded away
+— including the last row under `--drop H`, since H is the only patch without a
+rung and the ladder therefore already ends at the full set without it — and
+labels stop using ranges when a range would no longer be true: a set missing C
+prints as `A+B+D`, not `A-D`.
 
 A patch whose diff is written against another's output cannot be dropped alone.
 `--drop A` refuses and names the closure to use instead (`AEF`), rather than
@@ -359,9 +375,10 @@ In the order they are lettered, which is what the letters are for.
    the last of the six to file: the largest single win in isolation, and the one
    that changes how the `Formatter` is built rather than what it calls.
 4. **G and H.** Last, not because they are smaller but because they are the two
-   this table understates. Both are independent of the zone work above and of
-   each other, and each is argued on [coverage.md](coverage.md), where they reach
-   calls that never format anything.
+   this table understates — G on its own rung and H on the row that closes the
+   ladder. Both are independent of the zone work above and of each other, and
+   each is argued on [coverage.md](coverage.md), where they reach calls that
+   never format anything.
 
 A, B, C and E are the ones that hold on any engine — all four remove an Intl call
 or most of one, which no engine can be fast at — and D does the same on the

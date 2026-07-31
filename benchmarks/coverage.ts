@@ -92,14 +92,19 @@ interface Case {
  * render words (toLocaleString, toRelative, toHuman) measure the same work on
  * any host.
  */
-function pool(m: LuxonModule): DateTime[] {
+function pool(m: LuxonModule, locale = LOCALE): DateTime[] {
   return Array.from({ length: POOL }, (_, i) =>
-    m.DateTime.fromMillis(BASE_TS + i * STEP_MS, { zone: ZONE, locale: LOCALE })
+    m.DateTime.fromMillis(BASE_TS + i * STEP_MS, { zone: ZONE, locale })
   );
 }
 
-function momentPool(): moment.Moment[] {
-  return Array.from({ length: POOL }, (_, i) => moment.tz(BASE_TS + i * STEP_MS, ZONE));
+// the locale is set when the pool is built rather than per call, because
+// moment's setter mutates the instance rather than returning a new one
+function momentPool(locale?: string): moment.Moment[] {
+  return Array.from({ length: POOL }, (_, i) => {
+    const mo = moment.tz(BASE_TS + i * STEP_MS, ZONE);
+    return locale === undefined ? mo : mo.locale(locale);
+  });
 }
 
 function isoPool(m: LuxonModule): string[] {
@@ -112,6 +117,24 @@ function tokenPool(m: LuxonModule): string[] {
 
 const LUX_NUMERIC = "yyyy-MM-dd HH:mm:ss";
 const MO_NUMERIC = "YYYY-MM-DD HH:mm:ss";
+
+// Patterns that are not all-numeric, because an all-numeric one in en-US on the
+// gregorian calendar is the input H's num()/padStart/roundTo fast paths were
+// written for, and for a while it was the only input any bench here had. The
+// three shapes below are the ones that fall outside it, and they are C's case
+// rather than H's:
+//
+//   text     a month or weekday name never reaches a numeric fast path at all
+//   wide     the per-token switch C removes runs once per token, so its cost
+//            scales with the pattern and the other patches' savings do not
+//   fr       words in a non-English locale go through Locale#extract, where the
+//            interpreter rebuilds an Intl options literal per token per value
+//
+// moment's offset tokens are one Z behind luxon's: moment ZZ is luxon ZZZ.
+const LUX_TEXT = "cccc, LLLL d, yyyy 'at' h:mm a";
+const MO_TEXT = "dddd, MMMM D, YYYY [at] h:mm A";
+const LUX_WIDE = "yyyy-MM-dd HH:mm:ss.SSS ZZZ WW ooo q kkkk";
+const MO_WIDE = "YYYY-MM-DD HH:mm:ss.SSS ZZ WW DDDD Q GGGG";
 
 // The instant every relative case is measured against, so `toRelative` and
 // `fromNow` are deterministic rather than drifting with the clock.
@@ -285,6 +308,68 @@ const CASES: Case[] = [
     moment: () => {
       const p = momentPool();
       return (ts) => p[idx(ts)]!.format("z").length;
+    },
+  },
+  {
+    key: "toFormat text",
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.toFormat(LUX_TEXT).length;
+    },
+    moment: () => {
+      const p = momentPool();
+      return (ts) => p[idx(ts)]!.format(MO_TEXT).length;
+    },
+  },
+  {
+    key: "toFormat text fr",
+    approx: true,
+    luxon: (m) => {
+      const p = pool(m, OTHER_LOCALE);
+      return (ts) => p[idx(ts)]!.toFormat(LUX_TEXT).length;
+    },
+    moment: () => {
+      const p = momentPool(OTHER_LOCALE);
+      return (ts) => p[idx(ts)]!.format(MO_TEXT).length;
+    },
+  },
+  {
+    key: "toFormat wide",
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.toFormat(LUX_WIDE).length;
+    },
+    moment: () => {
+      const p = momentPool();
+      return (ts) => p[idx(ts)]!.format(MO_WIDE).length;
+    },
+  },
+  {
+    // a fixed eight-token pattern with two of them words, so it is the text case
+    // with none of the caller's choices in it — and it is what an HTTP header or
+    // a mail date costs, which is the shape of formatting most likely to be on a
+    // request path rather than in a rendered table
+    key: "toRFC2822",
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.toRFC2822()!.length;
+    },
+    moment: () => {
+      const p = momentPool();
+      return (ts) => p[idx(ts)]!.format("ddd, DD MMM YYYY HH:mm:ss ZZ").length;
+    },
+  },
+  {
+    // the same pattern again, but through toUTC() first, so this is toRFC2822
+    // plus a zone change rather than a second reading of it
+    key: "toHTTP",
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.toHTTP()!.length;
+    },
+    moment: () => {
+      const p = momentPool();
+      return (ts) => p[idx(ts)]!.clone().utc().format("ddd, DD MMM YYYY HH:mm:ss [GMT]").length;
     },
   },
   {
@@ -491,7 +576,7 @@ const ratio = (patched: number, baseline: number) => {
 const SECTIONS: [string, number][] = [
   ["read", 5],
   ["arithmetic", 8],
-  ["write", 6],
+  ["write", 11],
   ["Duration", 3],
   ["Interval", 3],
   ["Info", 3],

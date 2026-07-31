@@ -179,23 +179,31 @@ if (UPSTREAM.length !== patchKeys.length) {
 // attributable, and then everything piled on to show what the rest is worth once
 // these land.
 //
-// Ordered by how easy each is to argue for upstream rather than by size: A is a
-// one-line cache, B and E are self-contained rewrites of one method each, D is a
+// Ordered by how easy each is to argue for upstream rather than by size: A and G
+// are caches, B and E are self-contained rewrites of one method each, D is a
 // memoization of an object luxon already hands out through buildFormatParser, F
 // needs the tzdata-gap argument accepted, and C is a structural change to the
 // Formatter. E lands after C and D only because A and B were written first and
 // the rungs are cumulative — the two Intl calls are independent of each other.
 //
 // The patch files are lettered in this order, so the rungs come out alphabetical
-// and the two that are not rungs are the last two letters.
-const RUNGS: string[][] = [
-  ["zoneInfoCache"],
-  ["zoneInfoCache", "offsetScan"],
-  ["zoneInfoCache", "offsetScan", "compileFormat"],
-  ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache"],
-  ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache", "zoneNameScan"],
-  ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache", "zoneNameScan", "transitionInterval"],
+// and the one patch that is not a rung is the last letter.
+//
+// G's rung is the one to read against coverage.md rather than against the
+// columns beside it: it interns Locales, which every direction here builds one
+// of, but what it was written for is Info, and this table has no Info in it.
+const RUNG_ORDER = [
+  "zoneInfoCache", // A
+  "offsetScan", // B
+  "compileFormat", // C
+  "tokenParserCache", // D
+  "zoneNameScan", // E
+  "transitionInterval", // F
+  "localeIntern", // G
 ];
+
+/** each rung is the one above it plus one patch, so the list above is the table */
+const RUNGS: string[][] = RUNG_ORDER.map((_, i) => RUNG_ORDER.slice(0, i + 1));
 
 /**
  * The rungs, plus the everything-applied build. Written cumulatively and then
@@ -203,12 +211,12 @@ const RUNGS: string[][] = [
  * named it — and any rung that thereby becomes its predecessor is folded away,
  * since two rows differing by nothing are two rows measuring the same build.
  */
-const LADDER: { id: string; keys: PatchKey[] }[] = [
-  ...RUNGS.map(inPlay).filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length)),
-  UPSTREAM,
-]
-  // the last letter, not the last rung's — the patches that are not rungs of
-  // their own are the ones this adds
+const LADDER: { id: string; keys: PatchKey[] }[] = [...RUNGS.map(inPlay), UPSTREAM]
+  // each row has to hold something the row above it did not. the everything row
+  // is in the same filter as the rungs because it is the one that collapses when
+  // H is dropped: H is the only patch with no rung of its own, so without it the
+  // last rung already is the everything build
+  .filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length))
   .map((keys, i, all) => ({
     id: `luxon ${i === all.length - 1 ? `all ${keys.length} (${fullLabel(keys)})` : rungLabel(keys)}`,
     keys,

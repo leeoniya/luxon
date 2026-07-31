@@ -4,7 +4,7 @@
 > [methodology.md](methodology.md).
 
 The other axis. Where [`format`](format.md) and [`upstream`](upstream.md) go deep
-on writing a date and reading one, this goes wide: 28 public API calls — reading,
+on writing a date and reading one, this goes wide: 33 public API calls — reading,
 arithmetic, writing, `Duration`, `Interval`, `Info` — each timed on stock luxon,
 on the fully patched build, and on its moment equivalent.
 
@@ -49,6 +49,29 @@ interesting ones. `toLocaleString` routes through G and barely moves, because G
 interns locales and this table holds the locale fixed. `toISO` never reaches the
 `Formatter` at all — it builds its string directly — so C does nothing for it and
 H does.
+
+### The format-pattern rows
+
+`toFormat` appears several times because the pattern decides which internals run,
+and for a long time every formatting bench in this repo used one shape: all
+numeric, en-US, gregorian calendar. That is exactly the input H's numeric fast
+paths were written for, so a table containing only it credits H with most of what
+C does and makes C look redundant.
+
+The other shapes are not that. A month or weekday **name** never reaches a
+numeric fast path at all, so in the text rows H has nothing to contribute and the
+interpreter C replaces is the whole cost. A **wide** pattern multiplies that,
+because the per-token switch runs once per token per value while the other
+patches' savings are per value. And words in a **non-English** locale leave the
+English short-circuit for `Locale#extract` and ICU, where the interpreter rebuilds
+an Intl options literal per token per value — the branch C hoists at compile time
+and no other patch touches.
+
+`toRFC2822` and `toHTTP` are the text shape with the pattern fixed by a standard
+rather than by the caller, which makes them the formatting most likely to sit on
+a request path rather than in a rendered table. `toHTTP` is the dearer of the two
+because it changes zone first: it is `toRFC2822` plus a `toUTC()`, and pricing
+that is half of why it is here.
 
 ### The starred rows
 
