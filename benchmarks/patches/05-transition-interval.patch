@@ -1,15 +1,15 @@
 Patch: transitionInterval
-Letter: F
-Requires: B (offsetScan), E (zoneNameScan)
+Letter: E
+Requires: B (offsetScan), D (zoneNameScan)
 Files: src/impl/util.js, src/zones/IANAZone.js
 Summary: one transition-free interval cache, shared by the offset and the zone-name lookup
 
-F: both Intl lookups re-derive the same answer for every value
+E: both Intl lookups re-derive the same answer for every value
 
-Requires B and E, whose scanners it anchors on. An offset or a name only changes
+Requires B and D, whose scanners it anchors on. An offset or a name only changes
 at a transition, so a value inside a span already known to be transition-free
 needs no Intl call at all. That is one idea and it applies to both of the calls
-B and E just made cheap, so this is one cache used twice rather than the same
+B and D just made cheap, so this is one cache used twice rather than the same
 cache written twice: impl/util.js grows a small interval memo, and
 IANAZone#offset and parseZoneInfo each hand it their own lookup.
 
@@ -81,7 +81,7 @@ move semantics. Someone upstream could take it.
 The two callers differ only in where the state lives, and that difference is
 what decides how each is reset. IANAZone keeps a map keyed by zone, cleared by
 its resetCache() alongside the others. The name side hangs the interval off the
-scanner that E already caches per locale and style, so Locale.resetCache() drops
+scanner that D already caches per locale and style, so Locale.resetCache() drops
 it with the scanner and no new hook is needed.
 
 One divergence from stock, and it is stock that is strange. Asked for a GENERIC
@@ -101,7 +101,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
    nameScanCache.clear();
  }
  
-+// UPSTREAM-F: one transition-free interval cache, shared by the two Intl
++// UPSTREAM-E: one transition-free interval cache, shared by the two Intl
 +// lookups that want one -- IANAZone#offset over in zones/IANAZone.js, and
 +// parseZoneInfo below.
 +//
@@ -229,7 +229,7 @@ diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
  const dtfCache = new Map();
  const scanCache = new Map();
  
-+// UPSTREAM-F: the interval state for each zone's scanner. The name side keeps
++// UPSTREAM-E: the interval state for each zone's scanner. The name side keeps
 +// its own on the scanner object; this side needs a map because the scanner is a
 +// bare function.
 +const intervalCache = new Map();

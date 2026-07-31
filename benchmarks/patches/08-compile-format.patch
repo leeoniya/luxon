@@ -1,10 +1,10 @@
 Patch: compileFormat
-Letter: C
+Letter: H
 Requires: none
 Files: src/impl/formatter.js
 Summary: Formatter: compile a format string to handlers once, instead of a switch per token per value
 
-C: compile the format instead of interpreting it
+H: compile the format instead of interpreting it
 
 The structural one, and the only patch here that is not a cache or a
 short-circuit. Everything else leaves the shape of formatDateTimeFromString
@@ -17,7 +17,7 @@ handler once per pattern turns formatting into a walk over a prebuilt array.
 The representation is alternating literal/handler runs —
   lits[0] + fns[0]() + lits[1] + fns[1]() + ... + lits[n]
 so literal text is concatenated rather than dispatched, and adjacent literals
-collapse at compile time. That subsumes two of H's six: parseFormat now runs
+collapse at compile time. That subsumes two of G's six: parseFormat now runs
 once per pattern rather than once per value, and punctuation and unknown tokens
 fold into the literal runs, which is what the interpreter's default branch
 effectively did anyway.
@@ -36,7 +36,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
    return s;
  }
  
-+// ---- UPSTREAM-C: compiled format programs ----------------------------------
++// ---- UPSTREAM-H: compiled format programs ----------------------------------
 +// A format string compiles to alternating literal/handler runs. Handlers take
 +// (formatter, dateTime, knownEnglish, useDateTimeFormatter) so that a program
 +// depends on the pattern alone and can be shared across locales and formatters.
@@ -247,7 +247,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
    }
  
    formatDateTimeFromString(dt, fmt) {
-+    // UPSTREAM-C: see benchmarks/patches/
++    // UPSTREAM-H: see benchmarks/patches/
 +    return cfRun(this, dt, fmt);
 +  }
 +

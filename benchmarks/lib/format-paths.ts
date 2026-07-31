@@ -18,7 +18,7 @@
 //
 // Both of those are the OUTSIDE view. What the patches in benchmarks/patches do
 // to the same two lookups from the inside is benchmarks/upstream.ts's subject —
-// B and E for the offset, A, D and E for the name.
+// B and D for the offset, A, C and D for the name.
 
 import moment from "moment-timezone";
 import { canResolve, getTimeZoneAt } from "./easy-tz.ts";
@@ -83,18 +83,40 @@ function easySystemZone(): EasySystemZone {
 }
 
 // ---- formats ----------------------------------------------------------------
-// Two shapes, because they exercise different halves of the zone cost:
-// `numeric` needs only offset(), while `abbr` also needs offsetName() — the
-// uncached-formatter path. `numeric` is the shape a data-table column uses.
+// What each shape is for:
+//
+//   numeric  needs only offset(). The shape a data-table column uses.
+//   abbr     also needs offsetName(), the uncached-formatter path.
+//   text     names a weekday and a month, so it reaches neither of those any
+//            differently from `numeric` and reaches the Formatter itself very
+//            differently: a name never touches a numeric fast path. Its offset
+//            token is the techie one, which is offset() and not offsetName(),
+//            so it varies the pattern against `numeric` and nothing else.
+//
+// The RFC 2822 shape rather than an invented one, so the row is something a
+// caller actually emits — it is what DateTime#toRFC2822 formats, and moment's
+// spelling of it produces a byte-identical string.
 
-export type FormatKey = "numeric" | "abbr";
+export type FormatKey = "numeric" | "abbr" | "text";
 
 const FORMATS: Record<FormatKey, { moment: string; luxon: string }> = {
   numeric: { moment: "YYYY-MM-DD HH:mm:ss", luxon: "yyyy-MM-dd HH:mm:ss" },
   abbr: { moment: "YYYY-MM-DD HH:mm:ss z", luxon: "yyyy-MM-dd HH:mm:ss ZZZZ" },
+  text: { moment: "ddd, DD MMM YYYY HH:mm:ss ZZ", luxon: "EEE, dd LLL yyyy HH:mm:ss ZZZ" },
 };
 
-export const formatKeys = Object.keys(FORMATS) as FormatKey[];
+/**
+ * The formats the ZONE benches compare, which is deliberately not "every format
+ * defined above".
+ *
+ * These two vary the zone work and hold the pattern shape roughly fixed, which
+ * is the question format.ts asks: it runs a table per format across four zones
+ * and three variants, plus a correctness sweep and an Intl-counting subprocess
+ * per format, so a format added here costs several minutes and a table nobody
+ * asked for. A bench that wants a different set names it, and `FORMATS` can grow
+ * without deciding anything on that bench's behalf.
+ */
+export const zoneFormatKeys: FormatKey[] = ["numeric", "abbr"];
 
 export function patternFor(variant: VariantId, fmt: FormatKey): string {
   return variant === "moment" ? FORMATS[fmt].moment : FORMATS[fmt].luxon;
@@ -176,7 +198,7 @@ const D2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
 
 /**
  * Civil fields from an offset-shifted epoch time, using the same Hinnant
- * algorithm as the tsToObj fast path in patch H — no Date allocation.
+ * algorithm as the tsToObj fast path in patch G — no Date allocation.
  */
 function formatCivil(localMs: number, abbr: string | null): string {
   const days = Math.floor(localMs / DAY_MS);
@@ -225,9 +247,17 @@ export function makeFastFormatter(zone: string, fmt: FormatKey): ((ts: number) =
     return (ts) => formatCivil(ts + getTimeZoneAt(name, ts).offset * 60_000, null);
   }
 
-  return (ts) => {
-    const info = getTimeZoneAt(name, ts);
+  if (fmt === "abbr") {
+    return (ts) => {
+      const info = getTimeZoneAt(name, ts);
 
-    return formatCivil(ts + info.offset * 60_000, info.abbr);
-  };
+      return formatCivil(ts + info.offset * 60_000, info.abbr);
+    };
+  }
+
+  // Every pattern here is hand-rolled, so one this has not been written for has
+  // no ceiling to report and says so. Tested for explicitly rather than left as
+  // the fallthrough: the fallthrough used to be `abbr`, which would have answered
+  // a third format with confidently formatted wrong output.
+  return null;
 }

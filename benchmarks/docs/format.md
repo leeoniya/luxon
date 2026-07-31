@@ -20,6 +20,15 @@ for both an offset and a name, and the name lookup is by far the more expensive 
 the two in stock luxon. A change that helps one and not the other is telling you
 which of the two Intl calls it removed.
 
+Two and not three, though `upstream`'s ladder now has a third. That one varies the
+pattern shape, which is the axis this bench holds fixed: here the pattern is the
+instrument and the zone is the subject, so a shape that reaches the same two zone
+calls in the same way would cost a table, a correctness sweep and an
+Intl-counting subprocess per cell to re-answer a question already on the page.
+`zoneFormatKeys` in [`lib/format-paths.ts`](../lib/format-paths.ts) is where that
+choice is written down, and each bench names the set it wants rather than
+inheriting every pattern anyone has defined.
+
 ## Intl traffic
 
 The counts behind every timing, and the one part of this report that does not move

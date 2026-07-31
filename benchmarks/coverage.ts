@@ -4,11 +4,11 @@
 // The other benches here are narrow on purpose: format.ts and upstream.ts time
 // writing a date and reading one, because that is where the patches were found
 // and where their case has to be made. That narrowness became misleading once
-// the patch set grew past the formatter. H hoists both normalizeUnit tables and
+// the patch set grew past the formatter. G hoists both normalizeUnit tables and
 // the SystemZone probe and replaces the Duration round trip inside adjustTime,
 // none of which any formatting or parsing case reaches — they were found by
 // profiling, not by any table, and a reader of upstream.ts would not know those
-// paths exist. A and F sit under every zoned operation, not just the ones that
+// paths exist. A and E sit under every zoned operation, not just the ones that
 // print something.
 //
 // The adjustTime change is the reason this table exists in its current form. It
@@ -119,13 +119,13 @@ const LUX_NUMERIC = "yyyy-MM-dd HH:mm:ss";
 const MO_NUMERIC = "YYYY-MM-DD HH:mm:ss";
 
 // Patterns that are not all-numeric, because an all-numeric one in en-US on the
-// gregorian calendar is the input H's num()/padStart/roundTo fast paths were
+// gregorian calendar is the input G's num()/padStart/roundTo fast paths were
 // written for, and for a while it was the only input any bench here had. The
-// three shapes below are the ones that fall outside it, and they are C's case
-// rather than H's:
+// three shapes below are the ones that fall outside it, and they are H's case
+// rather than G's:
 //
 //   text     a month or weekday name never reaches a numeric fast path at all
-//   wide     the per-token switch C removes runs once per token, so its cost
+//   wide     the per-token switch H removes runs once per token, so its cost
 //            scales with the pattern and the other patches' savings do not
 //   fr       words in a non-English locale go through Locale#extract, where the
 //            interpreter rebuilds an Intl options literal per token per value
@@ -144,8 +144,8 @@ const CASES: Case[] = [
   // ---- constructing and parsing ----
   //
   // All five need an offset to place a local time, so all five are under A, B and
-  // F. fromFormat is the only one that reaches D, and fromObject the only one
-  // that normalizes unit names (H).
+  // E. fromFormat is the only one that reaches C, and fromObject the only one
+  // that normalizes unit names (G).
   {
     key: "fromMillis",
     luxon: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).valueOf(),
@@ -195,9 +195,9 @@ const CASES: Case[] = [
   // ---- arithmetic ----
   //
   // Every one of these names a unit, so every one goes through a normalizeUnit
-  // (H), and every one needs an offset for the result, so every one is also under
-  // A, B and F. None of them formats anything, which is why no other table here
-  // reaches them. setZone is the exception that proves it: no unit, so no H.
+  // (G), and every one needs an offset for the result, so every one is also under
+  // A, B and E. None of them formats anything, which is why no other table here
+  // reaches them. setZone is the exception that proves it: no unit, so no G.
   {
     key: "plus",
     luxon: (m) => {
@@ -374,7 +374,7 @@ const CASES: Case[] = [
   },
   {
     // not the Formatter: toISO builds its string directly and normalizes only
-    // its `precision` argument, which is why C does nothing for it and H does
+    // its `precision` argument, which is why H does nothing for it and G does
     key: "toISO",
     luxon: (m) => {
       const p = pool(m);
@@ -410,7 +410,7 @@ const CASES: Case[] = [
   },
   {
     // most of what the patches win here is the diff it does internally, not the
-    // relative-time formatting: the zone rungs move it before H is on at all
+    // relative-time formatting: the zone rungs move it before G is on at all
     key: "toRelative",
     approx: true,
     luxon: (m) => {

@@ -1,17 +1,17 @@
 Patch: hotPath
-Letter: H
+Letter: G
 Requires: none
 Files: src/impl/formatter.js, src/impl/util.js, src/datetime.js, src/duration.js, src/impl/english.js, src/impl/diff.js, src/zones/systemZone.js
 Summary: twelve fast paths: six along the route a numeric token takes, four constants that were being rebuilt per call, two Duration round trips on the arithmetic path
 
-H: avoidable work at twelve points, in three families
+G: avoidable work at twelve points, in three families
 
-Last, and grouped, because it is one idea applied twelve times: each takes work
+Grouped, because it is one idea applied twelve times: each takes work
 out of a step without changing what the step means. The grouping is by kind of
 change, not by size, and the sizes are not close. Most of the twelve are worth
 little alone — the smallest is worth nothing measurable on either engine — and
 earn their place by adding up to most of what is left on a formatting path once
-the Intl calls (A, B, E, F) are dealt with. The third family is not like that.
+the Intl calls (A, B, D, E) are dealt with. The third family is not like that.
 One of its two members is the largest single result in this whole set, and it is
 here because it is the same kind of change rather than because it is the same
 size.
@@ -51,8 +51,8 @@ patch: the token loop pays off on V8 and gives a little back on JSC, and the
 padStart table is the reverse. They are in because the other four carry the
 change, and splitting by engine would mean filing six patches to land four.
 
-C subsumes two of them by construction — parseFormat and the punctuation half of
-the token loop — so a tree that already has C gets less from that half of this
+H subsumes two of them by construction — parseFormat and the punctuation half of
+the token loop — so a tree that already has H gets less from that half of this
 patch than the list above suggests.
 
 The next four are constants that were being built inside the function that
@@ -78,8 +78,8 @@ no output changes: 82,016 comparisons across five zones, nine units, the unit
 aliases and the throwing path are identical on both engines.
 
 They are worth listing separately from the six because they reach somewhere the
-rest of the ladder does not. A, B, E and F pay for themselves only when a zone is
-named; C, D and the six above only when something is formatted or parsed. These
+rest of the ladder does not. A, B, D and E pay for themselves only when a zone is
+named; H, C and the six above only when something is formatted or parsed. These
 four land on arithmetic (startOf -3% node / -27% bun, plus -7% / -19%, hasSame
 -8% / -22%), on relative time (toRelativeCalendar -9% / -22%), and on
 SystemZone, which is the default zone and therefore the configuration none of
@@ -124,8 +124,8 @@ plus({ seconds: 1e308 }) adds nothing rather than going invalid. That looks like
 a bug, but correcting it is a separate argument from this one, so the guard
 preserves it. Finding it took 1,200 parity failures.
 
-These two are why this patch is worth more than its position at the end of the
-ladder suggests, and they land where the ladder is otherwise silent: adjustTime
+These two are why this patch is worth more than its position as the ladder's
+last rung suggests, and they land where the ladder is otherwise silent: adjustTime
 is under every plus and minus, and therefore under endOf, hasSame, diff,
 toRelative and Interval#splitBy as well. Measured on the all-8 build, fastest of
 five, node then bun: plus -80% / -64%, minus -79% / -62%, endOf -69% / -50%,
@@ -171,7 +171,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 -  ts += offset * 60 * 1000;
 -
 -  const d = new Date(ts);
-+  // UPSTREAM-H: new Date(ts) ran TimeClip on its argument first — round
++  // UPSTREAM-G: new Date(ts) ran TimeClip on its argument first — round
 +  // toward zero, NaN outside +/-MAX_DATE — before any field was read off it. The
 +  // civil math below does neither, so both are explicit. A fractional timestamp
 +  // comes from fromSeconds and from a plus with a fractional millisecond; an
@@ -181,7 +181,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 +  const clipped = ts + offset * 60 * 1000;
 +  ts = Math.abs(clipped) > MAX_DATE ? NaN : Math.trunc(clipped);
 +
-+  // UPSTREAM-H: was `new Date(ts)` plus seven getUTC* calls. Same result, no
++  // UPSTREAM-G: was `new Date(ts)` plus seven getUTC* calls. Same result, no
 +  // allocation (Howard Hinnant's civil_from_days, valid for any Gregorian year).
 +  const days = Math.floor(ts / 86400000);
 +  const msOfDay = ts - days * 86400000;
@@ -221,7 +221,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 -  const oPre = inst.o,
 -    year = inst.c.year + Math.trunc(dur.years),
 -    month = inst.c.month + Math.trunc(dur.months) + Math.trunc(dur.quarters) * 3,
-+  // UPSTREAM-H: each of these was a getter call repeated two or three
++  // UPSTREAM-G: each of these was a getter call repeated two or three
 +  // times below.
 +  const ic = inst.c,
 +    oPre = inst.o,
@@ -236,7 +236,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 +    durMilliseconds = dur.milliseconds,
 +    year = ic.year + Math.trunc(durYears),
 +    month = ic.month + Math.trunc(durMonths) + Math.trunc(durQuarters) * 3,
-+    // UPSTREAM-H: was a spread of inst.c. inst.c is always tsToObj
++    // UPSTREAM-G: was a spread of inst.c. inst.c is always tsToObj
 +    // output, so these are its keys, in its order.
      c = {
 -      ...inst.c,
@@ -265,7 +265,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 -      seconds: dur.seconds,
 -      milliseconds: dur.milliseconds,
 -    }).as("milliseconds"),
-+    // UPSTREAM-H: this was a nine-key Duration built and converted per
++    // UPSTREAM-G: this was a nine-key Duration built and converted per
 +    // call, to reach a number that is almost always this sum. Two things stop
 +    // it from being an unconditional replacement.
 +    //
@@ -311,7 +311,7 @@ diff --git a/src/datetime.js b/src/datetime.js
    orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
  
  // standardize case and plurality in units
-+// UPSTREAM-H: hoisted. This table is a constant, and was being built
++// UPSTREAM-G: hoisted. This table is a constant, and was being built
 +// per call to read one key off it.
 +const normalizedUnits = {
 +  year: "year",
@@ -378,7 +378,7 @@ diff --git a/src/duration.js b/src/duration.js
  // for toHuman due to missing support from Intl.
  // if value is set, then key is what to convert to and value is what to convert
  // if value is null, then key is a unit to be ignored
-+// UPSTREAM-H: hoisted out of Duration.normalizeUnit, which was building
++// UPSTREAM-G: hoisted out of Duration.normalizeUnit, which was building
 +// it per call.
 +const normalizedUnits = {
 +  year: "years",
@@ -440,7 +440,7 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
    const utcDayStart = (dt) => dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
      ms = utcDayStart(later) - utcDayStart(earlier);
 -  return Math.floor(Duration.fromMillis(ms).as("days"));
-+  // UPSTREAM-H: a Duration built and converted to reach one division.
++  // UPSTREAM-G: a Duration built and converted to reach one division.
 +  // shiftTo puts a lone milliseconds value into days through its leftover loop,
 +  // which is this expression. The finite guard keeps the old path for the input
 +  // that would otherwise throw out of Duration.fromMillis rather than divide.
@@ -457,7 +457,7 @@ diff --git a/src/impl/english.js b/src/impl/english.js
    return eras(length)[dt.year < 0 ? 0 : 1];
  }
  
-+// UPSTREAM-H: hoisted. Both were per call, the first of them along with
++// UPSTREAM-G: hoisted. Both were per call, the first of them along with
 +// the nine arrays inside it.
 +const relativeUnits = {
 +  years: ["year", "yr."],
@@ -501,7 +501,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +import { padStart, roundTo } from "./util.js";
  
  function stringifyTokens(splits, tokenToString) {
-+  // UPSTREAM-H: indexed loop (no iterator allocation per format) and a verbatim
++  // UPSTREAM-G: indexed loop (no iterator allocation per format) and a verbatim
 +  // check so punctuation skips tokenToString entirely.
    let s = "";
 -  for (const token of splits) {
@@ -516,7 +516,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
   * @private
   */
  
-+// UPSTREAM-H: format strings are overwhelmingly reused (one pattern, a whole
++// UPSTREAM-G: format strings are overwhelmingly reused (one pattern, a whole
 +// column of values), but parseFormat re-tokenized on every call. Bounded so a
 +// caller generating unique format strings can't grow it without limit.
 +const parseFormatCache = new Map();
@@ -549,7 +549,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
        splits.push({ literal: bracketed || /^\s+$/.test(currentFull), val: currentFull });
      }
  
-+    // UPSTREAM-H: a token with no ASCII letters matches no switch case and no
++    // UPSTREAM-G: a token with no ASCII letters matches no switch case and no
 +    // macro name, so formatting it is the identity. Flag it once here instead of
 +    // rediscovering that per value.
 +    for (const token of splits) {
@@ -565,7 +565,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
        return padStart(n, p);
      }
  
-+    // UPSTREAM-H: when the locale renders latn digits and this formatter carries
++    // UPSTREAM-G: when the locale renders latn digits and this formatter carries
 +    // no number-affecting options, PolyNumberFormatter provably falls through to
 +    // padStart. Do that directly rather than allocating an options object, a
 +    // formatter, a rest object and a key array for every numeric token.
@@ -591,7 +591,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
    return x - n * Math.floor(x / n);
  }
  
-+// UPSTREAM-H: "00".."99", for the pad-to-two case that dominates date formatting
++// UPSTREAM-G: "00".."99", for the pad-to-two case that dominates date formatting
 +const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
 +
  export function padStart(input, n = 2) {
@@ -606,7 +606,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
  }
  
  export function roundTo(number, digits, rounding = "round") {
-+  // UPSTREAM-H: every rounding mode is the identity on an integer once digits is
++  // UPSTREAM-G: every rounding mode is the identity on an integer once digits is
 +  // non-negative, and that is what every DateTime numeric token arrives as.
 +  if (digits >= 0 && Number.isInteger(number)) {
 +    return number;
@@ -622,7 +622,7 @@ diff --git a/src/zones/systemZone.js b/src/zones/systemZone.js
  
  let singleton = null;
  
-+// UPSTREAM-H: one Date, reused by offset() below, in place of one per
++// UPSTREAM-G: one Date, reused by offset() below, in place of one per
 +// call. setTime and getTimezoneOffset are adjacent and nothing else holds it.
 +const probe = new Date(0);
 +

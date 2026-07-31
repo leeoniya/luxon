@@ -1,8 +1,8 @@
-// The parse-side cache (D in benchmarks/patches) must be invisible: fromFormat
+// The parse-side cache (C in benchmarks/patches) must be invisible: fromFormat
 // has to return what stock luxon returns, and fromFormatExplain has to explain it
 // the same way.
 //
-// D is stateful, and the one way it can go wrong is the cache key. A parser holds
+// C is stateful, and the one way it can go wrong is the cache key. A parser holds
 // the locale's month, weekday, era and meridiem names baked into a compiled
 // RegExp, so two locales that the key fails to separate would share one, and the
 // second would be read in the first's language. That failure is silent for a

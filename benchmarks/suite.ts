@@ -3,7 +3,7 @@
 // benchmarks/upstream.ts measures the two paths they were written for: writing a
 // column of zoned values, and reading dates back. Neither says what happens to
 // the rest of the library, and several patches are not confined to formatting —
-// F interns Locales, and G memoizes the tokenizer both directions use as well as
+// E interns Locales, and F memoizes the tokenizer both directions use as well as
 // rewriting arithmetic in shared helpers. A patch that buys 40% on one path and
 // costs 10% on twenty others is not filable, and no table there would have shown
 // it.
@@ -36,11 +36,11 @@
 //
 // It has already earned that: on its first run it caught two things the format
 // and parse tables could not have, and both are now fixed in the patches.
-//   * F interned only Locales built with no outputCalendar, and Info.months and
-//     Info.monthsFormat pass "gregory" explicitly — so those two paid F's check
+//   * E interned only Locales built with no outputCalendar, and Info.months and
+//     Info.monthsFormat pass "gregory" explicitly — so those two paid E's check
 //     and got nothing, coming out 12-17% slower than stock while Info.weekdays
-//     (which passes null) came out 45% faster. F now interns both shapes.
-//   * B, D and E each added a module-level cache that Settings.resetCaches()
+//     (which passes null) came out 45% faster. E now interns both shapes.
+//   * B, C and D each added a module-level cache that Settings.resetCaches()
 //     did not reach, which is what their two resetCaches() cases are for. A cache
 //     that survives a documented reset is a behavior change rather than a
 //     memoization, and these patches only claim the latter.
@@ -322,7 +322,7 @@ const dateTimeCases: Case[] = [
 
 // Their four Info suites, each a pair: once with a Locale handed in, once
 // leaving Info to build one. The pair is the point — the second is the path a
-// caller actually takes, and F (localeIntern) is a patch to exactly that.
+// caller actually takes, and E (localeIntern) is a patch to exactly that.
 const infoCases: Case[] = (["months", "monthsFormat", "weekdays", "weekdaysFormat"] as const).flatMap(
   (method): Case[] => [
     {

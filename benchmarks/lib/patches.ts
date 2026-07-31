@@ -72,7 +72,7 @@ function parseHeader(text: string, file: string) {
     key: field("Patch"),
     letter: field("Letter"),
     what: field("Summary"),
-    // "B (offsetScan), E (zoneNameScan)" -> the keys in the parens
+    // "B (offsetScan), D (zoneNameScan)" -> the keys in the parens
     needs: requires === "none" ? [] : [...requires.matchAll(/\((\w+)\)/g)].map((m) => m[1]!),
     prose: head.slice(head.indexOf("Summary:")).split("\n").slice(2).join("\n").trim(),
   };

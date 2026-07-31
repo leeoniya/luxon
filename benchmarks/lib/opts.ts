@@ -26,15 +26,16 @@ export const withVerify: boolean = process.argv.includes("--verify");
  * one — adding a patch and re-ranking it, say — should not pay for the others.
  */
 /**
- * Patch letters to leave out of every build this run makes, as in `--drop C`
+ * Patch letters to leave out of every build this run makes, as in `--drop G`
  * or `--drop CG`. Nothing is dropped by default.
  *
  * For asking what a patch is still worth once the rest of the set is in: the
  * ladder attributes each rung given everything above it, which answers what a
  * patch adds but not what would be lost by removing it, and those are different
- * questions whenever two patches overlap. C and H overlap by construction — C
- * subsumes two of H's formatter fast paths — so C's rung understates it if C
- * lands first and overstates it if H does.
+ * questions whenever two patches overlap. G and H overlap by construction — H
+ * subsumes two of G's formatter fast paths. The ladder can only ask the second
+ * question of whichever patch it applies last, which is H, so this is how to ask
+ * it of any of the others.
  *
  * A flag rather than deleting the patch file because the comparison worth having
  * is two runs on one host minutes apart, not a run today against a printout from

@@ -1,19 +1,19 @@
 Patch: tokenParserCache
-Letter: D
+Letter: C
 Requires: none
 Files: src/impl/tokenParser.js, src/settings.js
 Summary: fromFormat: reuse the parser it builds per call, the way buildFormatParser already lets callers do
 
-D: fromFormat compiles a regex for every string it reads
+C: fromFormat compiles a regex for every string it reads
 
-C's counterpart on the reading side, and the same observation: the work depends
+H's counterpart on the reading side, and the same observation: the work depends
 on the format, not on the value. fromFormat calls explainFromTokens, which
 constructs a TokenParser and drops it. That constructor tokenizes the format,
 expands macro tokens, builds a unit per token, concatenates the units' sources
 into one pattern and compiles it with RegExp. Then it matches one string against
 it and the whole thing is garbage.
 
-Unlike C this needs no restructuring, because the object to cache already
+Unlike H this needs no restructuring, because the object to cache already
 exists. It is even already public: DateTime.buildFormatParser hands a
 TokenParser out and DateTime.fromFormatParser takes one back, an API whose only
 purpose is to let a caller hoist this out of a loop. So reuse is not a property
@@ -32,7 +32,7 @@ a joined string would not be, since a format string may contain any character.
 
 The measurable point is that a compiled RegExp costs out of all proportion to
 what removing it costs: about 190 bytes minified takes roughly half off one token
-column and nearly two thirds off the other, which is more than F and H remove
+column and nearly two thirds off the other, which is more than E and G remove
 between them on either, on both engines.
 
 The reset hangs off Settings.resetCaches(), beside the resetDigitRegexCache()
@@ -40,7 +40,7 @@ call already there, which is the same shape: a module-level cache in impl/
 cleared from the one documented entry point. Locale.resetCache() would read
 better, since what a stale parser holds is locale-derived text and that is the
 clear which invalidates it, but Settings.resetCaches() calls it anyway, and its
-six-line body is already spoken for by A, E and G.
+six-line body is already spoken for by A, D and F.
 
 diff --git a/src/impl/tokenParser.js b/src/impl/tokenParser.js
 --- a/src/impl/tokenParser.js
@@ -49,7 +49,7 @@ diff --git a/src/impl/tokenParser.js b/src/impl/tokenParser.js
    }
  }
  
-+// UPSTREAM-D: fromFormat built a TokenParser per call and then threw it
++// UPSTREAM-C: fromFormat built a TokenParser per call and then threw it
 +// away -- tokenizing the format, building a unit per token, concatenating a
 +// pattern and compiling it to a RegExp, all to read one string. None of that
 +// depends on the input, only on the format and the locale.

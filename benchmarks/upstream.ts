@@ -52,7 +52,7 @@
 // SystemZone rather than IANAZone answers the offset.
 //
 // What the numbers mean is in benchmarks/docs/upstream.md rather than in this
-// file's output — patch by patch, plus F's tzdata precondition and the order to
+// file's output — patch by patch, plus E's tzdata precondition and the order to
 // file them in. This file prints tables.
 
 import { execFile } from "node:child_process";
@@ -60,7 +60,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { bakedRules, tablesHost, yearStart } from "./lib/easy-tz.ts";
 import { parseCases, parserFor, formatterFor, type BuildSpec, type ParseCase, type ParseCaseKey } from "./lib/build.ts";
-import { formatKeys, LOCALE, patternFor, type FormatKey } from "./lib/format-paths.ts";
+import { LOCALE, patternFor, zoneFormatKeys, type FormatKey } from "./lib/format-paths.ts";
 import { measureRows, pkgVersion, runtime, type SampleBudget, type Work } from "./lib/kernel.ts";
 import type { LuxonModule } from "./lib/luxon-types.ts";
 import { allTables, cooldownMs, tables, withFootprint, withVerify } from "./lib/opts.ts";
@@ -122,9 +122,9 @@ const DOCS = "benchmarks/docs";
 // actually in benchmarks/patches, so renaming a patch file breaks this loudly
 // rather than silently measuring a smaller set.
 //
-// A and the first of H's six were found by profiling stock luxon, the rest of
-// H's by re-profiling that build. A, G and H are caches or short-circuits; C is
-// the structural one, and it makes two of H's six redundant by construction (it
+// A and the first of G's six were found by profiling stock luxon, the rest of
+// G's by re-profiling that build. A, F and G are caches or short-circuits; H is
+// the structural one, and it makes two of G's six redundant by construction (it
 // parses each pattern once and folds punctuation into literal runs).
 //
 // Named through `inPlay` rather than `patchKey` directly because `--drop` can
@@ -137,11 +137,11 @@ const CACHES = inPlay(["zoneInfoCache", "localeIntern", "hotPath"]);
 const ALL_PATCHES = [...CACHES, ...inPlay(["compileFormat"])];
 // B is the zone lookup rather than the formatter.
 const OFFSET = inPlay(["offsetScan"]);
-// E is the zone NAME lookup, and stands to B exactly as A stands to it: the same
+// D is the zone NAME lookup, and stands to B exactly as A stands to it: the same
 // trick (read the cheap Intl call) applied to the other call a zoned format
-// makes. F then caches both across a transition-free span.
+// makes. E then caches both across a transition-free span.
 const NAME = inPlay(["zoneNameScan"]);
-// D is the only patch here on the reading side: it touches fromFormat and no
+// C is the only patch here on the reading side: it touches fromFormat and no
 // format path reaches it. The ladder's reading columns are where it shows, and
 // it has a rung of its own.
 const PARSE = inPlay(["tokenParserCache"]);
@@ -150,23 +150,22 @@ const UPSTREAM = [...ALL_PATCHES, ...OFFSET, ...NAME, ...PARSE, ...inPlay(["tran
 // The letters are the patch files' own, not this file's numbering, so a report
 // row and the diff it refers to cannot drift apart.
 const LETTER = (k: PatchKey) => patchLetter.get(k)!;
-const LETTERS = (keys: readonly PatchKey[]) => keys.map(LETTER).sort().join("");
 
 /** Whether a sorted letter list has no gaps, i.e. whether a range would be true of it. */
 const contiguous = (letters: readonly string[]) =>
   letters.every((l, i) => i === 0 || l.charCodeAt(0) === letters[i - 1]!.charCodeAt(0) + 1);
 
 /**
- * A rung's label: the letters it holds, as a range once there are enough of them
- * to be worth shortening — but only when the range is true. `--drop` can leave a
- * hole, and "A-E" over a set with no C in it would be a lie of exactly the kind
- * this table cannot afford.
+ * A rung's label: every letter it holds, spelled out.
+ *
+ * Ranges and an "all but X" for the rung one short of the set both read shorter,
+ * and both were here. Together they put three notations in one column, so a
+ * reader working out what "A-D" held had to first notice it was not "A+B+C" or
+ * "all but H" — and the only thing this column exists to say is which patches a
+ * row carries. Spelling them out is longer and cannot be misread, and the widest
+ * label is the second-to-last row, which is not wide.
  */
-const rungLabel = (keys: readonly PatchKey[]) => {
-  const letters = keys.map(LETTER).sort();
-
-  return letters.length > 3 && contiguous(letters) ? `${letters[0]}-${letters.at(-1)}` : letters.join("+");
-};
+const rungLabel = (keys: readonly PatchKey[]) => keys.map(LETTER).sort().join("+");
 
 if (UPSTREAM.length !== patchKeys.length) {
   throw new Error(
@@ -179,27 +178,43 @@ if (UPSTREAM.length !== patchKeys.length) {
 // attributable, and then everything piled on to show what the rest is worth once
 // these land.
 //
-// Ordered by how easy each is to argue for upstream rather than by size: A and G
-// are caches, B and E are self-contained rewrites of one method each, D is a
-// memoization of an object luxon already hands out through buildFormatParser, F
-// needs the tzdata-gap argument accepted, and C is a structural change to the
-// Formatter. E lands after C and D only because A and B were written first and
-// the rungs are cumulative — the two Intl calls are independent of each other.
+// Ordered by how easy each is to argue for upstream rather than by size: A and F
+// are caches, B and D are self-contained rewrites of one method each, C is a
+// memoization of an object luxon already hands out through buildFormatParser, E
+// needs the tzdata-gap argument accepted, and G is a set of leaf short-circuits.
+// D lands after C only because A and B were written first and the rungs are
+// cumulative — the two Intl calls are independent of each other. The patch files
+// are lettered in this order, so a rung's label reads in the order it built.
 //
-// The patch files are lettered in this order, so the rungs come out alphabetical
-// and the one patch that is not a rung is the last letter.
+// H is deliberately absent, and is what the final row adds.
 //
-// G's rung is the one to read against coverage.md rather than against the
+// Exactly one patch can be in that position, because the rungs are cumulative:
+// every other patch is priced by what it ADDS to a partial tree, and whichever
+// one goes last is priced by what the COMPLETE tree LOSES without it. Those are
+// different questions, and for most patches the first is the one worth asking —
+// it is the "should this land" question. H is the exception. It overlaps G,
+// which is the last rung, so an H measured before G would be credited with
+// savings G would also have found, and a reader comparing an H-shaped rung
+// against a G-shaped one further down would be comparing two prices for some of
+// the same work. Putting H last removes the double count: the last two rows
+// differ by H alone, so the step between them is what H is worth with everything
+// else already in, which is the only form of the question a shipping decision
+// turns on.
+//
+// The cost of that choice is G's rung, which is now measured in H's absence and
+// so reads larger than the G in the shipped tree. See "What the merge cost".
+//
+// F's rung is the one to read against coverage.md rather than against the
 // columns beside it: it interns Locales, which every direction here builds one
 // of, but what it was written for is Info, and this table has no Info in it.
 const RUNG_ORDER = [
   "zoneInfoCache", // A
   "offsetScan", // B
-  "compileFormat", // C
-  "tokenParserCache", // D
-  "zoneNameScan", // E
-  "transitionInterval", // F
-  "localeIntern", // G
+  "tokenParserCache", // C
+  "zoneNameScan", // D
+  "transitionInterval", // E
+  "localeIntern", // F
+  "hotPath", // G
 ];
 
 /** each rung is the one above it plus one patch, so the list above is the table */
@@ -218,11 +233,16 @@ const LADDER: { id: string; keys: PatchKey[] }[] = [...RUNGS.map(inPlay), UPSTRE
   // last rung already is the everything build
   .filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length))
   .map((keys, i, all) => ({
-    id: `luxon ${i === all.length - 1 ? `all ${keys.length} (${fullLabel(keys)})` : rungLabel(keys)}`,
+    id: `luxon ${i === all.length - 1 ? `all (${fullLabel(keys)})` : rungLabel(keys)}`,
     keys,
   }));
 
-/** The full set's label, which says what is missing when something is. */
+/**
+ * The last row's label. The one place a range is still worth having: this row is
+ * every patch by definition, so the range is a restatement of "all" rather than
+ * something the reader has to expand — and when `--drop` means it is not every
+ * patch, it says which are missing instead.
+ */
 function fullLabel(keys: readonly PatchKey[]): string {
   const letters = keys.map(LETTER).sort();
 
@@ -350,7 +370,7 @@ const paths: Path[] = [
   ...LADDER.map((rung) => luxonPath(rung.id, rung.keys, false)),
   luxonPath("easytz zone", [], true),
   // The question the report ends on: if all of them land upstream, is the easy-tz
-  // zone still worth binding? It carries B and E even though its zone overrides
+  // zone still worth binding? It carries B and D even though its zone overrides
   // the offset() they patch, so this row landing on top of everything + easy-tz
   // is the measurement of that, rather than a claim that they cannot matter here.
   luxonPath(FULL_EASY, UPSTREAM, true),
@@ -437,8 +457,8 @@ if (tables.has("patches")) {
   // The one thing a reader cannot get from the column itself: two rows are not
   // sized the way the rest are.
   console.log(
-    `\nminified, no gzip. E and F cannot be applied alone, so their rows are the bundle including what\n` +
-      `they need and d bytes is over that: E on A, F on B and E.`
+    `\nminified, no gzip. D and E cannot be applied alone, so their rows are the bundle including what\n` +
+      `they need and d bytes is over that: D on A, E on B and D.`
   );
 }
 
@@ -458,7 +478,22 @@ if (tables.has("patches")) {
 // benchmarks/cross-engine.ts reads, and printing every one of them buried the
 // handful that answer the question.
 
-const results = new Map<FormatKey, Map<string, number>>(formatKeys.map((fmt) => [fmt, new Map()]));
+/**
+ * The writing columns of the ladder: the two the zone benches share, plus a
+ * pattern with words in it.
+ *
+ * `text` is here and not in `zoneFormatKeys` because it varies the thing this
+ * table varies and not the thing that one does. The ladder walks patch sets over
+ * a fixed zone, and its other two writing columns are both all-numeric en-US
+ * gregorian patterns — the one input for which G's numeric fast paths cover most
+ * of what H's compiled program covers, so a ladder made only of those is the
+ * place most likely to understate H. format.ts walks zones over a fixed patch
+ * set, and a third pattern there would cost it a table, a correctness sweep and
+ * an Intl-counting subprocess to answer a question it is not asking.
+ */
+const ladderFormats: FormatKey[] = [...zoneFormatKeys, "text"];
+
+const results = new Map<FormatKey, Map<string, number>>(ladderFormats.map((fmt) => [fmt, new Map()]));
 
 // enough to expose per-value formatter construction and to fill the caches the
 // patches add, without spending 2s of stock luxon's abbr path per row
@@ -480,7 +515,7 @@ const FOOTPRINT_PROBE = new URL("lib/footprint-probe.ts", import.meta.url).pathn
  * land in the middle of a timed pass.
  */
 async function footprint(path: Path): Promise<Footprint | null> {
-  const specs = await Promise.all(formatKeys.map((fmt) => path.spec!(fmt)));
+  const specs = await Promise.all(ladderFormats.map((fmt) => path.spec!(fmt)));
   const args = [FOOTPRINT_PROBE, JSON.stringify(specs), String(FOOTPRINT_N), String(BASE_TS), String(STEP_MS)];
 
   // node hands over gc() only when asked; bun has Bun.gc unconditionally
@@ -536,12 +571,12 @@ if (rowPaths.length !== paths.length) {
 //
 // Worth its own columns because the patches split unevenly across the two
 // directions, and the split is not guessable from the patch descriptions. Some
-// are formatter-only by construction (C compiles a format string to handlers; A
-// and E cache and then cheaply read the zone-NAME lookup, which no parse
-// performs). One is parse-only for the mirror-image reason: D compiles a format
+// are formatter-only by construction (H compiles a format string to handlers; A
+// and D cache and then cheaply read the zone-NAME lookup, which no parse
+// performs). One is parse-only for the mirror-image reason: C compiles a format
 // string for reading, which no format path walks. Some are shared machinery that
-// parsing happens to route through (G interns Locales that both build, and H
-// memoizes the tokenizer both directions use). And B and F are the zone's
+// parsing happens to route through (F interns Locales that both build, and G
+// memoizes the tokenizer both directions use). And B and E are the zone's
 // offset(), which every zoned parse needs before it can place a local time.
 //
 // The columns are the shapes a caller actually has, not a sweep: an ISO string
@@ -654,7 +689,7 @@ if (tables.has("ladder")) {
   for (const path of rowPaths) {
     const perKey = new Map<LadderKey, Work>();
 
-    for (const fmt of formatKeys) {
+    for (const fmt of ladderFormats) {
       const format = await path.make(fmt);
 
       perKey.set(fmt, (ts: number) => format(ts).length);
@@ -663,7 +698,7 @@ if (tables.has("ladder")) {
     for (const kase of parseCases) {
       const pool = pools.get(kase.key)!;
       // the spec carries the formatting pattern too, which parsing has no use for
-      const parse = await parserFor(await path.spec!(formatKeys[0]!), kase, pool?.[0]);
+      const parse = await parserFor(await path.spec!(ladderFormats[0]!), kase, pool?.[0]);
 
       for (const i of PARSE_CHECKS) {
         const ts = BASE_TS + i * STEP_MS;
@@ -698,7 +733,7 @@ if (tables.has("ladder")) {
   console.log(`the ladder in the middle adds one patch per rung to the one above it\n`);
 
   const heldHeaders = withFootprint ? ["rss MB", "intl instances"] : [];
-  const columns: LadderKey[] = [...formatKeys, ...parseCases.map((kase) => kase.key)];
+  const columns: LadderKey[] = [...ladderFormats, ...parseCases.map((kase) => kase.key)];
   const headers = ["build", ...columns.map((key) => `${key} ms`), ...heldHeaders, "bytes"];
   // The bytes column is the one whose values are reliably wider than its header
   // — six-digit figures with separators under a five-letter word — and a column
@@ -756,7 +791,7 @@ if (tables.has("ladder")) {
     rowPaths,
     (path) => [
       {
-        entries: formatKeys.map((fmt) => ({ key: fmt as LadderKey, work: built.get(path.id)!.get(fmt)! })),
+        entries: ladderFormats.map((fmt) => ({ key: fmt as LadderKey, work: built.get(path.id)!.get(fmt)! })),
         passBudget: PASSES,
         budgetMs: PASS_BUDGET_MS,
       },
@@ -777,7 +812,7 @@ if (tables.has("ladder")) {
         if (Number.isFinite(s)) floors.get(key)!.push(s * 100);
       }
 
-      for (const fmt of formatKeys) {
+      for (const fmt of ladderFormats) {
         results.get(fmt)!.set(path.id, measured.best.get(fmt)!);
 
         if (measured.sizes.get(fmt)! < N) shortened.add(path.id);
@@ -833,7 +868,7 @@ if (tables.has("ladder")) {
   // The columns are keys, so they need a legend; and each carries its OWN
   // resolution rather than the table carrying one, which is not guessable.
   console.log(
-    `\n${formatKeys.map((fmt) => `${fmt}: ${patternFor("moment", fmt)}`).join("   ")}\n` +
+    `\n${ladderFormats.map((fmt) => `${fmt}: ${patternFor("moment", fmt)}`).join("   ")}\n` +
       `${parseCases.map((kase) => `${kase.key}: ${kase.what}`).join("\n")}\n\n` +
       `Read each column no finer than its own floor — how far apart two readings of the same cell fell:\n\n` +
       `  ${columns.map((key) => `${key} ${columnFloor(key).toFixed(1)}%`).join("   ")}\n`
@@ -895,7 +930,7 @@ if (parseBroken.length > 0) {
 // one — so stock is already several times cheaper there, and the Intl-removing
 // patches have correspondingly less to remove. This table is here so that gap is
 // a measured number rather than an assumption, and so the rungs that do reach
-// the default path (D, G, H) are visible somewhere.
+// the default path (C, F, G) are visible somewhere.
 //
 // It shares the ladder's kernel and reads its own cases: these are whole
 // operations rather than formatter closures, since the point is the API a caller
@@ -955,7 +990,7 @@ const DEFAULT_CASES: DefaultCase[] = [
   },
   {
     key: "plus",
-    what: "plus({ days: 1 }), H's unit tables and its adjustTime fast path",
+    what: "plus({ days: 1 }), G's unit tables and its adjustTime fast path",
     system: (m) => (ts) => m.DateTime.fromMillis(ts).plus({ days: 1 }).valueOf(),
     named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).plus({ days: 1 }).valueOf(),
   },
@@ -1100,7 +1135,7 @@ if (tables.has("ladder") && withVerify) {
   const rows: (string[] | null)[] = [];
   let patchedMismatches = 0;
 
-  for (const fmt of formatKeys) {
+  for (const fmt of ladderFormats) {
     const reference = await luxonPath("ref", [], false).make(fmt);
 
     // Materialized once rather than called inside each path's loop. It is stock
@@ -1134,7 +1169,7 @@ if (tables.has("ladder") && withVerify) {
       rows.push([`${fmt} / ${path.id}`, String(diff), expected]);
     }
 
-    if (fmt !== formatKeys.at(-1)) {
+    if (fmt !== ladderFormats.at(-1)) {
       rows.push(null);
     }
   }
@@ -1157,7 +1192,7 @@ if (tables.has("ladder") && withVerify) {
 // ---- findings ---------------------------------------------------------------
 // In benchmarks/docs/upstream.md, not here: what each patch is, which of the two
 // Intl calls it removes, why the ladder's order flatters some rungs over others,
-// F's tzdata precondition, and the order to file them in.
+// E's tzdata precondition, and the order to file them in.
 //
 // That document is about the shape of these results rather than their
 // magnitudes, so it quotes no cell from any table above and cannot go stale

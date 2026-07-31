@@ -41,7 +41,7 @@ import moment from "moment-timezone";
 import { colorEnabled, colorLegend, shade } from "./lib/color.ts";
 import { canResolve, irregularZones, tablesHost, yearStart, zones } from "./lib/easy-tz.ts";
 import {
-  formatKeys,
+  zoneFormatKeys,
   makeFormatter,
   patternFor,
   SYSTEM,
@@ -157,7 +157,7 @@ function timingRow(label: string, ms: Map<VariantId, number>): string[] {
 // that takes minutes is watchable and each zone starts from a comparable thermal
 // state. The variants of a zone — which is what these rows compare — keep the
 // tight interleaved window they always had.
-for (const fmt of formatKeys) {
+for (const fmt of zoneFormatKeys) {
   console.log(
     `${fmt} format (${patternFor("moment", fmt)}) -- ms per ${N} values, ratio vs moment` +
       (colorEnabled ? `\n${colorLegend("this zone's moment")}` : ``) +
@@ -221,7 +221,7 @@ if (scaledVariants.size > 0) {
   const rows: (string[] | null)[] = [];
 
   const cells = intlZones.flatMap((zone) =>
-    formatKeys.flatMap((fmt) =>
+    zoneFormatKeys.flatMap((fmt) =>
       variantIds.filter((variant) => variantAvailable(variant, zone)).map((variant) => ({ zone, fmt, variant }))
     )
   );
@@ -321,7 +321,7 @@ if (withVerify) {
 
     const cells: string[] = [zone];
 
-    for (const fmt of formatKeys) {
+    for (const fmt of zoneFormatKeys) {
       const printers = (["moment", "luxon", "luxon-easytz"] as const).map((v) => makeFormatter(v, zone, fmt));
       const counts = [0, 0, 0]; // easy!=lux, lux!=mo, easy!=mo
 
@@ -444,7 +444,7 @@ if (withVerify) {
       continue;
     }
 
-    const fmts = formatKeys.map((fmt) => ({
+    const fmts = zoneFormatKeys.map((fmt) => ({
       fmt,
       mo: makeFormatter("moment", zone, fmt),
       lux: makeFormatter("luxon", zone, fmt),

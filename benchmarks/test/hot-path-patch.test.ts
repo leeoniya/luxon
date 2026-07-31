@@ -1,4 +1,4 @@
-// H's non-formatter half has to be invisible, and the risk in it is not the same
+// G's non-formatter half has to be invisible, and the risk in it is not the same
 // as the risk in a cache. There are three shapes of risk here.
 //
 // Three of the hoists are lookup tables moved out of the function that reads
@@ -23,7 +23,7 @@
 // than by method — fractions in each of the nine fields, values past 2^53, sums
 // that overflow — and would fail if either guard were dropped.
 //
-// The formatter half of H is covered by the --verify pass in benchmarks/format.ts
+// The formatter half of G is covered by the --verify pass in benchmarks/format.ts
 // and benchmarks/upstream.ts, which compares every rendered string against stock.
 //
 // Run: node --test benchmarks/test/

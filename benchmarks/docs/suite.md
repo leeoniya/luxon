@@ -42,23 +42,23 @@ two cases that reset the caches decide the answer.
 
 **The zone patches**, on every case that names a zone: `DateTime#setZone`,
 `DateTime.local` with a zone, and both token parsers with one. None of those
-formats anything — they need an offset to place a local time, and B and F are what
+formats anything — they need an offset to place a local time, and B and E are what
 that offset costs. The same four cases *without* a zone move by much less, which
 is the size of the rest of the ladder on paths it was not written for.
 
-**C**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
-bulk.
-
-**G**, on `Info.months` and `Info.weekdays`, both of which build a `Locale` per
+**F**, on `Info.months` and `Info.weekdays`, both of which build a `Locale` per
 call and now get an interned one.
 
-**H's non-formatting half**, which this is the only table that reaches at all. The
+**G's non-formatting half**, which this is the only table that reaches at all. The
 relative-time table lands on `DateTime#toRelativeCalendar`; the reused `Date`
 inside `SystemZone` on `DateTime.now` — the default zone, and so the one
 configuration [`upstream`](upstream.md) never names; and the `Duration` unit table
 plus the `adjustTime` fast path on `DateTime#add`. That last one is the largest by
 a wide margin, and [`coverage`](coverage.md) is where its reach is visible rather
 than here.
+
+**H**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
+bulk.
 
 ## The two cases that reset the caches
 
@@ -69,8 +69,8 @@ stock in every column.
 That is the intended reading rather than a null result. Each patch's cache is
 cleared where luxon clears the cache it stands in for, so a caller who resets pays
 what stock pays, and none of the speedups elsewhere in the table is a cache
-quietly outliving its reset. Those two rows are how the reset hooks in B, D, E and
-F came to be written.
+quietly outliving its reset. Those two rows are how the reset hooks in B, C, D and
+E came to be written.
 
 ## The case nothing moves
 

@@ -20,9 +20,15 @@ an upstream pitch, so this file makes the disagreement a table instead.
 
 ## Reading the table
 
-Every ladder rung as a ratio against moment-timezone, both formats, both engines.
-A rung whose two engine columns differ is a rung whose value depends on which
-engine you believe; one where they agree is one that does not.
+Every ladder rung as a ratio against moment-timezone, on the numeric and
+abbreviated formats, both engines. A rung whose two engine columns differ is a
+rung whose value depends on which engine you believe; one where they agree is one
+that does not.
+
+Those two of the ladder's three writing formats, because these are the two that
+differ by which `Intl` call they make, and that is the thing an engine change is
+most likely to move. The `text` column varies the pattern instead, so it is read
+in `upstream` rather than here.
 
 The rungs that reach the zone-name lookup are worth watching per engine in
 particular, since they lean on `Intl` behaving the same way in both — and
@@ -48,7 +54,7 @@ Two things it taught are worth keeping even without the table:
   percentage on both engines and still read as engine-specific**. That was
   JavaScriptCore's noisier run failing to resolve a real saving, not the engines
   disagreeing. Any future verdict column here needs the same warning.
-- `G` was the patch that kept tripping it. It is aimed at `Info`, which a
+- `F` was the patch that kept tripping it. It is aimed at `Info`, which a
   formatting table barely touches, so a formatting-side ranking was the wrong
   place to judge it from. Its case is in [coverage.md](coverage.md).
 
@@ -58,7 +64,7 @@ The large rungs — the structural formatter change and the merged fast paths �
 hold on both engines by a wide margin, and neither depends on which engine you
 believe.
 
-The reason `H` is one patch and not six is visible here in the negative. While
+The reason `G` is one patch and not six is visible here in the negative. While
 those six were separate patches with rows of their own, they disagreed across the
 engines: some resolved on V8 only, one on JavaScriptCore only, one on neither.
 Merged, the result holds on both. Filing them separately would have meant six

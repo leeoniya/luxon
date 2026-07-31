@@ -21,7 +21,7 @@ running one does not bury its numbers in several pages of explanation:
 
 | doc | what is in it |
 | --- | --- |
-| [`docs/upstream.md`](docs/upstream.md) | the eight patches one by one, `F`'s tzdata precondition, and the order to file them in |
+| [`docs/upstream.md`](docs/upstream.md) | the eight patches one by one, `E`'s tzdata precondition, and the order to file them in |
 | [`docs/coverage.md`](docs/coverage.md) | where luxon still trails moment across the public API, and what is left to do about it |
 | [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
 | [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
@@ -83,7 +83,7 @@ left plain. Redirected output is never shaded, so piping to a file gets the same
 plain text it always did; `--no-color` or `NO_COLOR=1` turns it off on a terminal
 too, and `FORCE_COLOR=1` turns it on anywhere.
 
-`--drop <letters>` leaves patches out of every build a run makes — `--drop C`,
+`--drop <letters>` leaves patches out of every build a run makes — `--drop G`,
 `--drop CG`. It answers a question the ladder cannot: a rung measures what a
 patch *adds* given everything above it, which is not what removing it would
 cost whenever two patches overlap. Run the bench twice, with and without, and
@@ -119,9 +119,9 @@ remove.
 writing and reading a date, it goes wide: 28 public API calls — arithmetic,
 `Duration`, `Interval`, `Info`, the ISO writers — each timed on stock, on the
 full patched build, and on its moment equivalent. It exists because the patch set
-outgrew the tables that found it: `H` hoists both `normalizeUnit` tables and
+outgrew the tables that found it: `G` hoists both `normalizeUnit` tables and
 replaces the `Duration` round trip inside `adjustTime`, none of which any
-formatting or parsing case touches, and `A` and `F` sit under every zoned
+formatting or parsing case touches, and `A` and `E` sit under every zoned
 operation rather than only the ones that print something. It checks that both
 builds return identical results before timing anything, so a patch that changed
 an answer fails the bench rather than winning it.

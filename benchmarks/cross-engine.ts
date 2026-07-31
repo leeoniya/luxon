@@ -3,7 +3,7 @@
 // Worth doing because the two engines do not agree about the small patches. Most
 // of them trade an allocation or a dispatch for slightly more code, and whether
 // that pays depends on the engine's escape analysis and inline caches rather
-// than on anything in luxon. The large wins (A, C) hold everywhere; the rest need
+// than on anything in luxon. The large wins (A, H) hold everywhere; the rest need
 // checking on both before being argued for upstream. V8 is the engine that
 // matters most for luxon's users, but a patch that only helps V8 is a weaker
 // pitch than one that helps both, and one that hurts JavaScriptCore is weaker
@@ -18,7 +18,7 @@
 //
 // Run: node cross-engine.ts
 //      node cross-engine.ts --cooldown 0   (fast, for iterating)
-//      node cross-engine.ts --drop C       (both engines without one patch)
+//      node cross-engine.ts --drop G       (both engines without one patch)
 
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
