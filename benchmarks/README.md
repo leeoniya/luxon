@@ -83,6 +83,13 @@ left plain. Redirected output is never shaded, so piping to a file gets the same
 plain text it always did; `--no-color` or `NO_COLOR=1` turns it off on a terminal
 too, and `FORCE_COLOR=1` turns it on anywhere.
 
+`--drop <letters>` leaves patches out of every build a run makes — `--drop C`,
+`--drop CG`. It answers a question the ladder cannot: a rung measures what a
+patch *adds* given everything above it, which is not what removing it would
+cost whenever two patches overlap. Run the bench twice, with and without, and
+the pair of numbers is the answer. A patch whose diff is written against
+another's cannot be dropped alone, and the error says which set to name instead.
+
 `format` and `upstream` take `--verify`, which adds their output-comparison
 sections. Off by default because the answer only moves when luxon's `src`,
 moment's bundled tzdata, or the host ICU does — but the timings are only a

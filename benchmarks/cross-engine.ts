@@ -18,6 +18,7 @@
 //
 // Run: node cross-engine.ts
 //      node cross-engine.ts --cooldown 0   (fast, for iterating)
+//      node cross-engine.ts --drop C       (both engines without one patch)
 
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -34,10 +35,15 @@ interface Run {
 const BENCH = new URL("upstream.ts", import.meta.url).pathname;
 
 // Forwarded rather than re-read, so the two spawned runs cool the same way this
-// process was asked to. Both engines have to be measured under the same regime
-// for the diff between them to mean anything.
-const at = process.argv.indexOf("--cooldown");
-const FORWARD = at < 0 ? [] : ["--cooldown", process.argv[at + 1]!];
+// process was asked to and measure the same set of patches. Both engines have to
+// be under the same regime for the diff between them to mean anything — a --drop
+// honoured by one and not the other would compare different ladders and say
+// nothing about the engines at all.
+const FORWARD = ["--cooldown", "--drop"].flatMap((flag) => {
+  const at = process.argv.indexOf(flag);
+
+  return at < 0 ? [] : [flag, process.argv[at + 1]!];
+});
 
 /** returns an error message, or null if the run produced results */
 function run(exe: string): string | null {

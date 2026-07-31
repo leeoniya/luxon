@@ -25,6 +25,28 @@ export const withVerify: boolean = process.argv.includes("--verify");
  * They cost several seconds each and answer different questions, so iterating on
  * one — adding a patch and re-ranking it, say — should not pay for the others.
  */
+/**
+ * Patch letters to leave out of every build this run makes, as in `--drop C`
+ * or `--drop CG`. Nothing is dropped by default.
+ *
+ * For asking what a patch is still worth once the rest of the set is in: the
+ * ladder attributes each rung given everything above it, which answers what a
+ * patch adds but not what would be lost by removing it, and those are different
+ * questions whenever two patches overlap. C and H overlap by construction — C
+ * subsumes two of H's formatter fast paths — so C's rung understates it if C
+ * lands first and overstates it if H does.
+ *
+ * A flag rather than deleting the patch file because the comparison worth having
+ * is two runs on one host minutes apart, not a run today against a printout from
+ * last week. Patches that others are written against cannot be dropped alone;
+ * see droppedKeys in lib/patches.ts.
+ */
+export const droppedLetters: string = (() => {
+  const at = process.argv.indexOf("--drop");
+
+  return at === -1 ? "" : (process.argv[at + 1] ?? "").toUpperCase();
+})();
+
 const TABLES = ["patches", "ladder", "default"] as const;
 
 export type Table = (typeof TABLES)[number];

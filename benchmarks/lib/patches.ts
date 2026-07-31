@@ -24,6 +24,7 @@ import { dirname } from "node:path";
 import { promisify } from "node:util";
 import { applyFileDiff, parseDiff, type FileDiff } from "./diff.ts";
 import type { LuxonModule } from "./luxon-types.ts";
+import { droppedLetters } from "./opts.ts";
 
 export type { LuxonModule };
 
@@ -94,9 +95,71 @@ async function readPatches(): Promise<Patch[]> {
   );
 }
 
-const PATCHES = await readPatches();
+const ON_DISK = await readPatches();
+
+for (const letter of droppedLetters) {
+  if (!ON_DISK.some((p) => p.letter === letter)) {
+    throw new Error(
+      `--drop names patch ${letter}, which is not in benchmarks/patches ` +
+        `(have: ${ON_DISK.map((p) => p.letter).join("")})`
+    );
+  }
+}
+
+/**
+ * What `--drop` took out, resolved from letters to keys.
+ *
+ * A patch whose diff is written against another's output cannot outlive it, so
+ * dropping one drags its dependents along. This works out that closure and then
+ * refuses unless the caller named all of it, rather than quietly dropping more
+ * than was asked for — a run measuring a smaller set than the flag describes is
+ * the kind of thing nobody notices until the numbers are already in a table.
+ * Refusing once, naming the whole set, is one retry rather than several.
+ */
+const dropped = (() => {
+  const asked = new Set(ON_DISK.filter((p) => droppedLetters.includes(p.letter)).map((p) => p.key));
+  const closure = new Set(asked);
+
+  for (let grew = true; grew; ) {
+    grew = false;
+
+    for (const p of ON_DISK) {
+      if (!closure.has(p.key) && p.needs.some((n) => closure.has(n))) {
+        closure.add(p.key);
+        grew = true;
+      }
+    }
+  }
+
+  const forced = ON_DISK.filter((p) => closure.has(p.key) && !asked.has(p.key));
+
+  if (forced.length > 0) {
+    const all = ON_DISK.filter((p) => closure.has(p.key)).map((p) => p.letter);
+
+    throw new Error(
+      `--drop ${droppedLetters} would leave ${forced.map((p) => p.letter).join(" and ")} with nothing to apply ` +
+        `against, ${forced.length > 1 ? "their diffs are" : "its diff is"} written against what it removes. ` +
+        `Use --drop ${all.join("")}.`
+    );
+  }
+
+  return closure;
+})();
+
+/**
+ * The patches in play this run. Everything downstream reads the set from here,
+ * so a dropped patch is absent from the ladder, the byte table, the parity scan
+ * and every build, rather than absent from some of them.
+ */
+const PATCHES = ON_DISK.filter((p) => !dropped.has(p.key));
 
 const byKey = new Map(PATCHES.map((p) => [p.key, p]));
+
+/** Letters left out this run, for a report that has to say so. */
+export const droppedPatches: readonly string[] = ON_DISK.filter((p) => dropped.has(p.key)).map((p) => p.letter);
+
+/** Whether a patch is in play, for callers naming one that `--drop` may have removed. */
+export const hasPatch = (name: string): boolean => byKey.has(name);
 
 /** Every patch, in apply order — which is also the order the reports letter them in. */
 export const patchKeys: readonly PatchKey[] = PATCHES.map((p) => p.key);

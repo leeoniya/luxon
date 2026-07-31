@@ -236,6 +236,26 @@ could: dropping H whole measures H's weight rather than C's redundancy, which is
 a different question badly asked. Losing that check is the one thing merging
 these six gave up, and it is not recoverable without unmerging them.
 
+### Asking what a patch is worth, rather than what it adds
+
+A rung measures what a patch adds *given everything above it*. That is the right
+question for "should this land", and the wrong one for "should this stay",
+because the two differ by exactly the overlap between the patch and everything
+below it. C and H are the pair where that gap is real: C's rung is measured
+before H arrives, so it is credited with savings H would also have found.
+
+`--drop <letters>` answers the other question, by leaving a patch out of every
+build a run makes — the ladder, the byte table, the parity scan, `coverage`,
+`suite`, and both engines under `cross-engine`. Run the bench with and without,
+and the difference between the two full-set rows is what that patch is worth once
+everything else is in. Rungs that collapse into their predecessor are folded
+away, and labels stop using ranges when a range would no longer be true: a set
+missing C prints as `A+B+D`, not `A-D`.
+
+A patch whose diff is written against another's output cannot be dropped alone.
+`--drop A` refuses and names the closure to use instead (`AEF`), rather than
+quietly measuring a smaller set than the flag describes.
+
 ## Reading dates
 
 Reading was not what most of this was aimed at, and the ladder's five reading

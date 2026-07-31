@@ -65,6 +65,8 @@ import { measureRows, pkgVersion, runtime, type SampleBudget, type Work } from "
 import type { LuxonModule } from "./lib/luxon-types.ts";
 import { allTables, cooldownMs, tables, withFootprint, withVerify } from "./lib/opts.ts";
 import {
+  droppedPatches,
+  hasPatch,
   loadLuxon,
   minifiedSize,
   patchedEntry,
@@ -124,24 +126,47 @@ const DOCS = "benchmarks/docs";
 // H's by re-profiling that build. A, G and H are caches or short-circuits; C is
 // the structural one, and it makes two of H's six redundant by construction (it
 // parses each pattern once and folds punctuation into literal runs).
-const CACHES = ["zoneInfoCache", "localeIntern", "hotPath"].map(patchKey);
-const ALL_PATCHES = [...CACHES, patchKey("compileFormat")];
+//
+// Named through `inPlay` rather than `patchKey` directly because `--drop` can
+// take any of them out from under this file, and a group that threw on a patch
+// this run is not measuring would make the flag unusable for the patch it is
+// most useful on.
+const inPlay = (names: string[]) => names.filter(hasPatch).map(patchKey);
+
+const CACHES = inPlay(["zoneInfoCache", "localeIntern", "hotPath"]);
+const ALL_PATCHES = [...CACHES, ...inPlay(["compileFormat"])];
 // B is the zone lookup rather than the formatter.
-const OFFSET = [patchKey("offsetScan")];
+const OFFSET = inPlay(["offsetScan"]);
 // E is the zone NAME lookup, and stands to B exactly as A stands to it: the same
 // trick (read the cheap Intl call) applied to the other call a zoned format
 // makes. F then caches both across a transition-free span.
-const NAME = [patchKey("zoneNameScan")];
+const NAME = inPlay(["zoneNameScan"]);
 // D is the only patch here on the reading side: it touches fromFormat and no
 // format path reaches it. The ladder's reading columns are where it shows, and
 // it has a rung of its own.
-const PARSE = [patchKey("tokenParserCache")];
-const UPSTREAM = [...ALL_PATCHES, ...OFFSET, ...NAME, ...PARSE, patchKey("transitionInterval")];
+const PARSE = inPlay(["tokenParserCache"]);
+const UPSTREAM = [...ALL_PATCHES, ...OFFSET, ...NAME, ...PARSE, ...inPlay(["transitionInterval"])];
 
 // The letters are the patch files' own, not this file's numbering, so a report
 // row and the diff it refers to cannot drift apart.
 const LETTER = (k: PatchKey) => patchLetter.get(k)!;
 const LETTERS = (keys: readonly PatchKey[]) => keys.map(LETTER).sort().join("");
+
+/** Whether a sorted letter list has no gaps, i.e. whether a range would be true of it. */
+const contiguous = (letters: readonly string[]) =>
+  letters.every((l, i) => i === 0 || l.charCodeAt(0) === letters[i - 1]!.charCodeAt(0) + 1);
+
+/**
+ * A rung's label: the letters it holds, as a range once there are enough of them
+ * to be worth shortening — but only when the range is true. `--drop` can leave a
+ * hole, and "A-E" over a set with no C in it would be a lie of exactly the kind
+ * this table cannot afford.
+ */
+const rungLabel = (keys: readonly PatchKey[]) => {
+  const letters = keys.map(LETTER).sort();
+
+  return letters.length > 3 && contiguous(letters) ? `${letters[0]}-${letters.at(-1)}` : letters.join("+");
+};
 
 if (UPSTREAM.length !== patchKeys.length) {
   throw new Error(
@@ -163,30 +188,38 @@ if (UPSTREAM.length !== patchKeys.length) {
 //
 // The patch files are lettered in this order, so the rungs come out alphabetical
 // and the two that are not rungs are the last two letters.
+const RUNGS: string[][] = [
+  ["zoneInfoCache"],
+  ["zoneInfoCache", "offsetScan"],
+  ["zoneInfoCache", "offsetScan", "compileFormat"],
+  ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache"],
+  ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache", "zoneNameScan"],
+  ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache", "zoneNameScan", "transitionInterval"],
+];
+
+/**
+ * The rungs, plus the everything-applied build. Written cumulatively and then
+ * narrowed to what is in play, so `--drop` removes a patch from every rung that
+ * named it — and any rung that thereby becomes its predecessor is folded away,
+ * since two rows differing by nothing are two rows measuring the same build.
+ */
 const LADDER: { id: string; keys: PatchKey[] }[] = [
-  { id: "A", keys: ["zoneInfoCache"] },
-  { id: "A+B", keys: ["zoneInfoCache", "offsetScan"] },
-  { id: "A+B+C", keys: ["zoneInfoCache", "offsetScan", "compileFormat"] },
-  { id: "A-D", keys: ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache"] },
-  {
-    id: "A-E",
-    keys: ["zoneInfoCache", "offsetScan", "compileFormat", "tokenParserCache", "zoneNameScan"],
-  },
-  {
-    id: "A-F",
-    keys: [
-      "zoneInfoCache",
-      "offsetScan",
-      "compileFormat",
-      "tokenParserCache",
-      "zoneNameScan",
-      "transitionInterval",
-    ],
-  },
-  // the last letter, not the last rung's — the two patches that are not rungs
-  // are the ones this adds
-  { id: `all ${UPSTREAM.length} (A-${LETTERS(UPSTREAM).at(-1)})`, keys: UPSTREAM },
-].map((r) => ({ id: `luxon ${r.id}`, keys: r.keys.map(patchKey) }));
+  ...RUNGS.map(inPlay).filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length)),
+  UPSTREAM,
+]
+  // the last letter, not the last rung's — the patches that are not rungs of
+  // their own are the ones this adds
+  .map((keys, i, all) => ({
+    id: `luxon ${i === all.length - 1 ? `all ${keys.length} (${fullLabel(keys)})` : rungLabel(keys)}`,
+    keys,
+  }));
+
+/** The full set's label, which says what is missing when something is. */
+function fullLabel(keys: readonly PatchKey[]): string {
+  const letters = keys.map(LETTER).sort();
+
+  return contiguous(letters) ? `${letters[0]}-${letters.at(-1)}` : `no ${droppedPatches.join("")}`;
+}
 
 /** the everything-applied build, which most of the report quotes something of */
 const FULL = LADDER.at(-1)!.id;
