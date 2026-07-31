@@ -26,7 +26,7 @@ import { printTable } from "./lib/print-table.ts";
 interface Run {
   runtime: string;
   icu: string | null;
-  /** the format table's row order, as upstream printed it */
+  /** the ladder's row order, as upstream printed it */
   builds: string[];
   ms: Record<string, Record<string, number>>;
 }

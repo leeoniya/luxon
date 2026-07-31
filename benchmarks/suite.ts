@@ -411,20 +411,20 @@ const table = streamTable(["case", "stock µs", ...patched.flatMap((col) => [`${
 // to sweep it — so the step is 0 and the base is only there to satisfy the kernel.
 const run = await measureRows(
   cases,
-  (kase) => COLUMNS.map((col) => ({ key: key(col.label, kase.name), work: kase.make(modules.get(col.label)!) })),
-  {
-    base: DT_TS,
-    step: 0,
-    report: REPORT,
-    passBudget: PASSES,
-    budgetMs: PASS_BUDGET_MS,
-    // COLUMNS.length as the group size, which is what makes the columns of a
-    // case comparable at all: the cell measured right after the previous case
-    // pays for that case, by up to 2.5x on the allocating cases, and without the
-    // rotation it is the same column every pass. See rotateGroups in the kernel.
-    group: COLUMNS.length,
-    cooldownMs,
-  },
+  (kase) => [
+    {
+      entries: COLUMNS.map((col) => ({ key: key(col.label, kase.name), work: kase.make(modules.get(col.label)!) })),
+      passBudget: PASSES,
+      budgetMs: PASS_BUDGET_MS,
+      // COLUMNS.length as the group size, which is what makes the columns of a
+      // case comparable at all: the cell measured right after the previous case
+      // pays for that case, by up to 2.5x on the allocating cases, and without
+      // the rotation it is the same column every pass. See rotateGroups in the
+      // kernel.
+      group: COLUMNS.length,
+    },
+  ],
+  { base: DT_TS, step: 0, report: REPORT, cooldownMs },
   (kase, measured) => {
     for (const [k, v] of measured.best) best.set(k, v);
     for (const [k, v] of measured.spread) jitter.set(k, v * 100);

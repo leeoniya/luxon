@@ -531,23 +531,23 @@ const run = await measureRows(
 
     if (kase.moment !== undefined) entries.push({ key: "moment", work: kase.moment() });
 
-    return entries;
+    return [
+      {
+        entries,
+        passBudget: LEAN_BUDGET,
+        budgetMs: LEAN_BUDGET_MS,
+        // one group, so the kernel rotates which build runs first each pass.
+        // Without it the same column is always the one measured right after the
+        // previous case and pays for collecting its garbage, which does not
+        // cancel in a ratio and which taking the fastest pass cannot remove —
+        // every pass penalizes the same column. Back when this table had a
+        // control it showed up as that column drifting 7-13% from stock on the
+        // two allocation-heaviest rows.
+        group: BUILDS.length + 1,
+      },
+    ];
   },
-  {
-    base: BASE_TS,
-    step: STEP_MS,
-    report: N,
-    passBudget: LEAN_BUDGET,
-    budgetMs: LEAN_BUDGET_MS,
-    // one group, so the kernel rotates which build runs first each pass. Without
-    // it the same column is always the one measured right after the previous
-    // case and pays for collecting its garbage, which does not cancel in a ratio
-    // and which taking the fastest pass cannot remove — every pass penalizes the
-    // same column. Back when this table had a control it showed up as that
-    // column drifting 7-13% from stock on the two allocation-heaviest rows.
-    group: BUILDS.length + 1,
-    cooldownMs,
-  },
+  { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
   (kase, { best }) => {
     if (sectionStarts.has(printed)) table.rule();
 

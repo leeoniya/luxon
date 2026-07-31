@@ -16,19 +16,16 @@
 export const withVerify: boolean = process.argv.includes("--verify");
 
 /**
- * Which of benchmarks/upstream.ts's four tables to run, named after what each
- * answers: `patches` is the candidate list and what each costs in bytes, `format`
- * is writing a date (and the findings that rank the patches), `parse` is reading
- * one, and `default` is what the ladder is worth with no zone named at all.
- * Naming any runs only those; naming none runs all four.
+ * Which of benchmarks/upstream.ts's three tables to run, named after what each
+ * answers: `patches` is the candidate list and what each costs in bytes,
+ * `ladder` is what each rung is worth at writing and reading a date, and
+ * `default` is what the ladder is worth with no zone named at all. Naming any
+ * runs only those; naming none runs all three.
  *
  * They cost several seconds each and answer different questions, so iterating on
  * one — adding a patch and re-ranking it, say — should not pay for the others.
- * The findings belong to `format`, since they rank patches by what they save on a
- * formatting path; the paragraph about reading dates appears only when `parse`
- * ran too, rather than quoting numbers this run did not measure.
  */
-const TABLES = ["patches", "format", "parse", "default"] as const;
+const TABLES = ["patches", "ladder", "default"] as const;
 
 export type Table = (typeof TABLES)[number];
 

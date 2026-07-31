@@ -39,7 +39,7 @@ silently dropped line.
 It reported what each patch on its own saved against the unpatched easy-tz zone,
 with a verdict column reading `both`, `V8 only`, `JSC only` or `neither` against
 each engine's noise floor. It is gone, along with the builds behind it — one per
-patch, each a full row of measurement in `upstream`'s format table that was never
+patch, each a full row of measurement in `upstream`'s ladder that was never
 printed there, to rank patches the ladder already ranks one at a time.
 
 Two things it taught are worth keeping even without the table:

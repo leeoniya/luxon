@@ -162,8 +162,8 @@ for (const fmt of formatKeys) {
 
   const run = await measureRows(
     TIMING_ZONES,
-    (zone) => rowEntries(zone, fmt),
-    { base: BASE_TS, step: STEP_MS, report: N, passBudget: PASSES, cooldownMs },
+    (zone) => [{ entries: rowEntries(zone, fmt), passBudget: PASSES }],
+    { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
     (zone, { best }) => table.row(timingRow(zone, best))
   );
 

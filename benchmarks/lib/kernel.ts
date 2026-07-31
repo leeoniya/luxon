@@ -349,6 +349,36 @@ export interface Measured<K> {
 }
 
 /**
+ * One independently budgeted group of cells within a row.
+ *
+ * A row is usually one segment. It is more than one when the cells in it want
+ * different pass settings and still belong on the same line — benchmarks/
+ * upstream.ts's ladder is the case: its writing columns cost ~5-100µs a value
+ * and its reading columns 3-40µs, and the two were separate tables with
+ * separately measured budgets before they were merged. Sizing them to a single
+ * budget would spend most of the bench in whichever direction is dearer.
+ *
+ * Segments are interleaved within themselves and not across each other, which
+ * costs nothing: what a segment exists for is that its cells are NOT comparable
+ * with the other segment's. Nothing reads a writing column against a reading one.
+ */
+export interface RowSegment<K> {
+  entries: { key: K; work: Work }[];
+  passBudget: SampleBudget;
+  budgetMs?: number;
+  group?: number;
+}
+
+/** One row's cells, merged across its segments. */
+export interface RowResult<K> {
+  best: Map<K, number>;
+  spread: Map<K, number>;
+  sizes: Map<K, number>;
+  /** passes taken, per segment in the order they were given */
+  passes: number[];
+}
+
+/**
  * Idles for `ms`, letting a thermally limited host come back toward the state
  * the previous row was measured in.
  *
@@ -377,20 +407,16 @@ export async function cooldown(ms: number): Promise<void> {
  * for longer — and the cooldown between rows is what pays for it. The comparison
  * a row is FOR (its own cells against each other) keeps the tight interleaved
  * window it always had.
+ *
+ * A row is measured as one or more RowSegments, each with its own pass settings,
+ * and printed as one line. One segment is the usual case; see RowSegment for
+ * when it is not.
  */
 export async function measureRows<R, K>(
   rows: R[],
-  entriesFor: (row: R) => { key: K; work: Work }[],
-  opts: {
-    base: number;
-    step: number;
-    report: number;
-    passBudget: SampleBudget;
-    budgetMs?: number;
-    group?: number;
-    cooldownMs: number;
-  },
-  emit: (row: R, measured: Measured<K>) => void
+  segmentsFor: (row: R) => RowSegment<K>[],
+  opts: { base: number; step: number; report: number; cooldownMs: number },
+  emit: (row: R, result: RowResult<K>) => void
 ): Promise<{ checksum: number; scaled: K[]; passes: Set<number>; sizes: number[] }> {
   let checksum = 0;
   const scaled: K[] = [];
@@ -404,22 +430,32 @@ export async function measureRows<R, K>(
     if (i > 0) await cooldown(opts.cooldownMs);
 
     const row = rows[i]!;
-    const measured = interleavedBest(
-      entriesFor(row),
-      opts.base,
-      opts.step,
-      opts.report,
-      opts.passBudget,
-      opts.budgetMs,
-      opts.group ?? 0
-    );
+    const result: RowResult<K> = { best: new Map(), spread: new Map(), sizes: new Map(), passes: [] };
 
-    checksum += measured.checksum;
-    scaled.push(...measured.scaled);
-    passes.add(measured.passes);
-    sizes.push(...measured.sizes.values());
+    for (const segment of segmentsFor(row)) {
+      const measured = interleavedBest(
+        segment.entries,
+        opts.base,
+        opts.step,
+        opts.report,
+        segment.passBudget,
+        segment.budgetMs,
+        segment.group ?? 0
+      );
 
-    emit(row, measured);
+      checksum += measured.checksum;
+      scaled.push(...measured.scaled);
+      passes.add(measured.passes);
+      sizes.push(...measured.sizes.values());
+
+      result.passes.push(measured.passes);
+
+      for (const [k, v] of measured.best) result.best.set(k, v);
+      for (const [k, v] of measured.spread) result.spread.set(k, v);
+      for (const [k, v] of measured.sizes) result.sizes.set(k, v);
+    }
+
+    emit(row, result);
   }
 
   return { checksum, scaled, passes, sizes };

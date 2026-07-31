@@ -39,6 +39,12 @@ Rows are printed as they finish rather than at the end, which is what makes a
 bench that runs for minutes watchable — and means a run stopped halfway has
 still reported everything it completed.
 
+A row is usually one interleaved group, but it can be several: `upstream`'s
+ladder times its writing and its reading columns as two, because they need
+different pass sizing. Interleaving is per group, which costs nothing when the
+groups are the ones whose cells are not compared with each other in the first
+place.
+
 Each cell is the *fastest* pass rather than the mean or the median. The fastest
 pass is the one with the least interference in it, and interference is
 one-sided: nothing makes a run spuriously fast. Warmups are skipped for the same
@@ -108,7 +114,7 @@ same in each:
 - `coverage` requires stock and the patched build to return identical results for
   every case before it times anything.
 - `suite` checksums every cell and reports any that did not return stock's value.
-- The parse tables read each value back to the instant it was rendered from,
+- The reading columns read each value back to the instant it was rendered from,
   since a build that cannot read a shape would otherwise post the best number in
   its column.
 

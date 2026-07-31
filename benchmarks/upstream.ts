@@ -23,11 +23,11 @@
 //   upstream  patches to luxon itself, all pure memoization or provable
 //             short-circuits (benchmarks/patches, one .patch file each)
 //
-// A second table runs the same ladder against reading dates rather than writing
-// them — parsing ISO and Grafana's token formats, with and without an offset in
-// the input, plus building a date from a timestamp. The split between the two
-// directions is not guessable from the patches: the two biggest formatting wins
-// do nothing for parsing, and the zone patches do nearly all of it.
+// The ladder carries reading columns alongside the writing ones — parsing ISO
+// and Grafana's token formats, with and without an offset in the input, plus
+// building a date from a timestamp. Worth carrying because the split between the
+// two directions is not guessable from the patches: the two biggest formatting
+// wins do nothing for parsing, and the zone patches do nearly all of it.
 //
 // Each build is also reported by what it costs to ship: the minified bytes of
 // everything that build bundles. What it costs to hold — rss and Intl formatter
@@ -37,18 +37,19 @@
 // Run: node upstream.ts             (no parity scan, ~28s)
 //      node upstream.ts --verify    (+ the parity scan, ~35s)
 //      bun upstream.ts              (the same under JavaScriptCore, ~35s —
-//                                    the reading table costs JSC more, see
+//                                    the ladder's reading half costs JSC more, see
 //                                    PARSE_PASSES)
 //      ... --footprint              (+ rss and Intl counts, ~2.5s)
 //
-// The four tables can be run alone, which is the loop for iterating on a patch:
-// --patches (~1s), --format (~18s), --parse (~9s under node, ~14s under bun),
-// --default (~13s). Any combination works, and naming none runs all four. Only a
-// full run writes the JSON that cross-engine.ts reads.
+// The three tables can be run alone, which is the loop for iterating on a patch:
+// --patches (~1s), --ladder (~27s under node, ~32s under bun — the reading half
+// costs JSC more, see PARSE_PASSES), --default (~13s). Any combination works,
+// and naming none runs all three. Only a full run writes the JSON that
+// cross-engine.ts reads.
 //
-// The first three name a zone. --default is the same ladder with none named,
-// which is the configuration a caller who never sets one gets and the only one
-// where SystemZone rather than IANAZone answers the offset.
+// The first two name a zone. --default is the same ladder with none named, which
+// is the configuration a caller who never sets one gets and the only one where
+// SystemZone rather than IANAZone answers the offset.
 //
 // What the numbers mean is in benchmarks/docs/upstream.md rather than in this
 // file's output — patch by patch, plus F's tzdata precondition and the order to
@@ -131,8 +132,8 @@ const OFFSET = [patchKey("offsetScan")];
 // makes. F then caches both across a transition-free span.
 const NAME = [patchKey("zoneNameScan")];
 // D is the only patch here on the reading side: it touches fromFormat and no
-// format path reaches it. The reading table is where it shows, and it has a
-// ladder rung of its own there.
+// format path reaches it. The ladder's reading columns are where it shows, and
+// it has a rung of its own.
 const PARSE = [patchKey("tokenParserCache")];
 const UPSTREAM = [...ALL_PATCHES, ...OFFSET, ...NAME, ...PARSE, patchKey("transitionInterval")];
 
@@ -292,7 +293,7 @@ const momentSpec = (fmt: FormatKey): Promise<BuildSpec> =>
 // when the patches were re-lettered and that file's ids went stale.
 const paths: Path[] = [
   {
-    // `moment` as an id only, to match the format table's variant naming; the
+    // `moment` as an id only, to match the ladder's variant naming; the
     // library is moment-timezone, which is what it reports as and is sized as —
     // this calls moment.tz() and formats `z`, neither of which moment core can
     // answer
@@ -327,8 +328,6 @@ const pathById = (id: string): Path => {
 
 let sink = 0;
 
-// paths the kernel timed over fewer than N values and scaled up
-const scaledPaths = new Set<string>();
 const passCounts = new Set<number>();
 
 // The baseline is moment-timezone, not moment: a named zone needs its packed
@@ -340,15 +339,11 @@ console.log(
     `(on moment ${await pkgVersion("moment")})`
 );
 console.log(`runtime: ${runtime()}, easy-tz tables: ${tablesHost}, host ICU ${process.versions["icu"] ?? "?"}`);
-// The scaling belongs to the format table — the reading table states its own
-// under itself, and the patch table times nothing — so a run without the format
-// table says only which zone the builds were pointed at.
-console.log(
-  tables.has("format")
-    ? `${ZONE}, ms per ${N} values, fastest of ${PASSES.min}-${PASSES.max} interleaved passes` +
-        `${tables.has("parse") ? " (the reading table states its own)" : ""}\n`
-    : `${ZONE}\n`
-);
+// Each timed table states its own value count and pass count underneath itself,
+// because they differ: the ladder's two halves are calibrated separately, and
+// the default table is a third setting again. All the header can say for all of
+// them is which zone the builds were pointed at.
+console.log(`${ZONE}\n`);
 
 // ---- the patches ------------------------------------------------------------
 // Minified size per patch, because "worth filing upstream" is a trade against
@@ -463,10 +458,10 @@ async function footprint(path: Path): Promise<Footprint | null> {
 
 const named = (id: string, label = id) => ({ id, label });
 
-// The rows both result tables carry, shared so the formatting table and the
-// parsing one below it are the same builds in the same order — the point of the
-// second table is what the ladder does to a different code path, which only
-// reads if the ladder is identical.
+// The rows of the ladder. The reading columns are worth carrying only because
+// they sit against the same builds in the same order as the writing ones — what
+// they say is what the ladder does to a different code path, which is not a
+// comparison at all unless the ladder is identical.
 //
 // The ladder keeps only its letters, since the group it sits in is all luxon
 // builds; the group below it mixes luxon and easy-tz, so those keep the prefix.
@@ -491,138 +486,13 @@ if (rowPaths.length !== paths.length) {
   throw new Error(`${extra.length} build(s) measured with no row to print them in: ${extra.join(", ")}`);
 }
 
-if (tables.has("format")) {
-  // Bytes and heap alongside the ms, so a rung can be read as a trade rather
-  // than as a speedup alone — the ladder is ordered by how easy each patch is to
-  // argue upstream, and what it costs to ship and to hold is part of that
-  // argument. Profiled in parallel: rss is what a process allocates, which
-  // contention does not change, and the Intl counts are exact.
-  //
-  // Both columns are gathered BEFORE any timing starts. They spawn subprocesses
-  // and run esbuild, and a row is now measured with the rows around it cooled
-  // rather than crowded — doing that work between two timed rows would put the
-  // load back where it was just taken out of.
-  const profiled = withFootprint
-    ? new Map(await Promise.all(rowPaths.map(async (p) => [p.id, await footprint(p)] as const)))
-    : new Map<string, Footprint | null>();
-
-  const bytesFor = new Map(
-    await Promise.all(
-      rowPaths.map(async (p) => [p.id, (await minifiedSize(await shippedEntry(p))).toLocaleString("en-US")] as const)
-    )
-  );
-
-  console.log(`the ladder in the middle adds one patch per rung to the one above it\n`);
-
-  const heldHeaders = withFootprint ? ["rss MB", "intl instances"] : [];
-  const headers = ["build", ...formatKeys.map((fmt) => `${fmt} ms`), ...heldHeaders, "bytes"];
-  // The bytes column is the one whose values are reliably wider than its header
-  // — six-digit figures with separators under a five-letter word — and a column
-  // narrower than its contents does not right-align, it just runs over. Sized
-  // from the values, which are all in hand before the first row is timed.
-  const bytesWidth = Math.max(...[...bytesFor.values()].map((v) => v.length));
-  const table = streamTable(headers, {
-    minWidths: { 0: 22, 1: 10, 2: 10, [headers.length - 1]: bytesWidth },
-  });
-
-  /** where the rules between groups go, by index into rowPaths */
-  const ruleAt = new Set<number>();
-  let at = 0;
-
-  for (const group of groups.slice(0, -1)) {
-    at += group.length;
-    ruleAt.add(at);
-  }
-
-  const label = new Map(groups.flat().map(({ id, label }) => [id, label]));
-  let index = 0;
-
-  // A row is one build across both formats. Both are timed inside the same
-  // interleaved window, and the builds — which is what this table compares — are
-  // separated by a cooldown instead. Nothing compares the two format columns
-  // against each other, so the direction that keeps the tight window is the one
-  // that does not need it, which is why this is worth saying: the ladder's
-  // rung-to-rung differences now rest on the cooling rather than on interleaving.
-  const built = new Map<string, Map<FormatKey, Work>>();
-
-  for (const path of rowPaths) {
-    const perFormat = new Map<FormatKey, Work>();
-
-    for (const fmt of formatKeys) {
-      const format = await path.make(fmt);
-
-      perFormat.set(fmt, (ts: number) => format(ts).length);
-    }
-
-    built.set(path.id, perFormat);
-  }
-
-  const run = await measureRows(
-    rowPaths,
-    (path) => formatKeys.map((fmt) => ({ key: fmt, work: built.get(path.id)!.get(fmt)! })),
-    { base: BASE_TS, step: STEP_MS, report: N, passBudget: PASSES, budgetMs: PASS_BUDGET_MS, cooldownMs },
-    (path, measured) => {
-      for (const fmt of formatKeys) {
-        results.get(fmt)!.set(path.id, measured.best.get(fmt)!);
-      }
-
-      if (ruleAt.has(index)) table.rule();
-      index++;
-
-      const fp = profiled.get(path.id) ?? null;
-      // a row whose subprocess failed says so, rather than taking the timings
-      // and everything below them down with it
-      const held = !withFootprint ? [] : fp === null ? ["err", "err"] : [fp.rssMB.toFixed(1), fp.intl.toLocaleString("en-US")];
-
-      table.row([
-        label.get(path.id)!,
-        ...formatKeys.map((fmt) => measured.best.get(fmt)!.toFixed(1)),
-        ...held,
-        bytesFor.get(path.id)!,
-      ]);
-    }
-  );
-
-  sink += run.checksum;
-  for (const p of run.passes) passCounts.add(p);
-  for (const id of run.scaled) scaledPaths.add(id);
-
-  console.log(`\n${formatKeys.map((fmt) => `${fmt}: ${patternFor("moment", fmt)}`).join("   ")}`);
-  console.log(`passes taken per build: ${[...passCounts].sort((a, b) => a - b).join(", ")}`);
-
-  // moment core sized on its own, so the baseline row can report how much of
-  // itself is the dependency rather than leaving the reader to wonder whether it
-  // was counted at all
-  const core = await minifiedSize(
-    await writeEntry(
-      "moment-core.ts",
-      `import moment from 'moment';\nexport const format = (ts: number, pattern: string) => moment(ts).format(pattern);\n`
-    )
-  );
-
-  if (!withFootprint) {
-    console.log(`\n--footprint adds rss and Intl.DateTimeFormat counts, one subprocess per row (~2.5s).`);
-  }
-
-  // moment-timezone's row would otherwise look like it excluded the dependency
-  // it cannot run without.
-  console.log(`bytes: minified, no gzip. moment-timezone's row includes moment core, ${core.toLocaleString("en-US")} B of it.`);
-
-  if (scaledPaths.size > 0) {
-    console.log(
-      `\nnote: ${scaledPaths.size} of the ${paths.length} builds cost enough per value to be timed over fewer than ` +
-        `${N} and scaled up. Every other build is timed over the full ${N}.`
-    );
-  }
-}
-
 // ---- reading dates ----------------------------------------------------------
-// The same ladder against the other direction: parsing a date, and building one
-// from a timestamp. Formatting is where the profiling started, but an app that
+// The other half of the ladder's columns: parsing a date, and building one from
+// a timestamp. Formatting is where the profiling started, but an app that
 // renders a date usually read one first — Grafana parses every time range in the
 // URL, and every value a user types into a picker.
 //
-// Worth a table of its own because the patches split unevenly across the two
+// Worth its own columns because the patches split unevenly across the two
 // directions, and the split is not guessable from the patch descriptions. Some
 // are formatter-only by construction (C compiles a format string to handlers; A
 // and E cache and then cheaply read the zone-NAME lookup, which no parse
@@ -726,17 +596,27 @@ const parsePasses = new Set<number>();
 const PARSE_CHECKS = [0, 1, 500, 1_501, PARSE_POOL - 1];
 const parseBroken: string[] = [];
 
-if (tables.has("parse")) {
-  const pools = new Map(parseCases.map((kase) => [kase.key, inputPool(kase)]));
+/** a column of the ladder: two formats written, five shapes read */
+type LadderKey = FormatKey | ParseCaseKey;
 
-  // Every parser built and checked before anything is timed. The checks call
-  // each parse five times, which is work, and a row is now measured with the
-  // rows around it cooled — doing that between two timed rows would put the load
-  // back where it was just taken out of.
-  const parsers = new Map<string, Map<ParseCaseKey, Work>>();
+if (tables.has("ladder")) {
+  // Everything a row needs is built before the first row is timed: the
+  // formatters, the parsers, the input pools, the parse checks, the byte counts,
+  // and the subprocess profiles. All of it is real work — esbuild runs, five
+  // parses per cell get called — and a row is measured with the rows around it
+  // cooled rather than crowded. Doing any of it between two timed rows would put
+  // the load back where the cooldown just took it out of.
+  const pools = new Map(parseCases.map((kase) => [kase.key, inputPool(kase)]));
+  const built = new Map<string, Map<LadderKey, Work>>();
 
   for (const path of rowPaths) {
-    const perCase = new Map<ParseCaseKey, Work>();
+    const perKey = new Map<LadderKey, Work>();
+
+    for (const fmt of formatKeys) {
+      const format = await path.make(fmt);
+
+      perKey.set(fmt, (ts: number) => format(ts).length);
+    }
 
     for (const kase of parseCases) {
       // the spec carries the formatting pattern too, which parsing has no use for
@@ -752,22 +632,50 @@ if (tables.has("parse")) {
         }
       }
 
-      perCase.set(kase.key, workFor(parse, pool));
+      perKey.set(kase.key, workFor(parse, pool));
     }
 
-    parsers.set(path.id, perCase);
+    built.set(path.id, perKey);
   }
 
-  console.log(`reading a date: the same builds, parsing instead of formatting\n`);
+  // Bytes and heap alongside the ms, so a rung can be read as a trade rather
+  // than as a speedup alone — the ladder is ordered by how easy each patch is to
+  // argue upstream, and what it costs to ship and to hold is part of that
+  // argument. Profiled in parallel: rss is what a process allocates, which
+  // contention does not change, and the Intl counts are exact.
+  const profiled = withFootprint
+    ? new Map(await Promise.all(rowPaths.map(async (p) => [p.id, await footprint(p)] as const)))
+    : new Map<string, Footprint | null>();
 
-  // Every timing column floored well above what it holds here. These are ms
-  // figures on whatever host runs them, and a throttled machine reads several
-  // times a quiet one — a column sized to today's numbers stops aligning on a
-  // slower box, which is where these are most likely to be read.
-  const table = streamTable(["build", ...parseCases.map((kase) => `${kase.key} ms`)], {
-    minWidths: Object.fromEntries([[0, 22], ...parseCases.map((_, i) => [i + 1, 9])]),
+  const bytesFor = new Map(
+    await Promise.all(
+      rowPaths.map(async (p) => [p.id, (await minifiedSize(await shippedEntry(p))).toLocaleString("en-US")] as const)
+    )
+  );
+
+  console.log(`the ladder in the middle adds one patch per rung to the one above it\n`);
+
+  const heldHeaders = withFootprint ? ["rss MB", "intl instances"] : [];
+  const columns: LadderKey[] = [...formatKeys, ...parseCases.map((kase) => kase.key)];
+  const headers = ["build", ...columns.map((key) => `${key} ms`), ...heldHeaders, "bytes"];
+  // The bytes column is the one whose values are reliably wider than its header
+  // — six-digit figures with separators under a five-letter word — and a column
+  // narrower than its contents does not right-align, it just runs over. Sized
+  // from the values, which are all in hand before the first row is timed.
+  //
+  // The timing columns are given more room than today's numbers need for the
+  // same reason: these are ms figures on whatever host runs them, and a
+  // throttled machine reads several times a quiet one.
+  const bytesWidth = Math.max(...[...bytesFor.values()].map((v) => v.length));
+  const table = streamTable(headers, {
+    minWidths: Object.fromEntries([
+      [0, 22],
+      ...columns.map((_, i) => [i + 1, 10]),
+      [headers.length - 1, bytesWidth],
+    ]),
   });
-  const label = new Map(groups.flat().map(({ id, label }) => [id, label]));
+
+  /** where the rules between groups go, by index into rowPaths */
   const ruleAt = new Set<number>();
   let at = 0;
 
@@ -776,31 +684,79 @@ if (tables.has("parse")) {
     ruleAt.add(at);
   }
 
+  const label = new Map(groups.flat().map(({ id, label }) => [id, label]));
   // Each column's own resolution, gathered as the rows land: how far apart two
   // readings of that cell fell. Kept per column rather than per table because
   // the columns differ by an order of magnitude in cost and so in steadiness,
-  // and the ladder's parse-side steps are small enough that the difference
-  // between a real step and a coincidence turns on which column it is in.
-  const floors = new Map<ParseCaseKey, number[]>(parseCases.map((kase) => [kase.key, []]));
+  // and the ladder's smaller steps are small enough that the difference between
+  // a real step and a coincidence turns on which column it is in.
+  const floors = new Map<LadderKey, number[]>(columns.map((key) => [key, []]));
+  /** builds whose writing cells were shortened, which the legend has to admit to */
+  const shortened = new Set<string>();
   let index = 0;
 
+  // A row is one build across all seven columns, and a row is what this table
+  // compares — so the builds are separated by a cooldown while each row's cells
+  // stay inside one interleaved window. Nothing compares a writing column
+  // against a reading one, which is what makes that the right way round.
+  //
+  // The two halves are timed as separate segments because they were calibrated
+  // separately and still need to be: writing runs the full `N` values and takes
+  // as many passes as its budget allows, while reading costs enough per value
+  // that a pass is sized by time and then scaled. Merging the tables merged the
+  // printing, not the timing.
   const run = await measureRows(
     rowPaths,
-    (path) => parseCases.map((kase) => ({ key: kase.key, work: parsers.get(path.id)!.get(kase.key)! })),
-    { base: BASE_TS, step: STEP_MS, report: N, passBudget: PARSE_PASSES, budgetMs: PARSE_BUDGET_MS, cooldownMs },
+    (path) => [
+      {
+        entries: formatKeys.map((fmt) => ({ key: fmt as LadderKey, work: built.get(path.id)!.get(fmt)! })),
+        passBudget: PASSES,
+        budgetMs: PASS_BUDGET_MS,
+      },
+      {
+        entries: parseCases.map((kase) => ({ key: kase.key as LadderKey, work: built.get(path.id)!.get(kase.key)! })),
+        passBudget: PARSE_PASSES,
+        budgetMs: PARSE_BUDGET_MS,
+      },
+    ],
+    { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
     (path, measured) => {
       if (ruleAt.has(index)) table.rule();
       index++;
 
-      for (const kase of parseCases) {
-        const s = measured.spread.get(kase.key)!;
+      for (const key of columns) {
+        const s = measured.spread.get(key)!;
 
-        if (Number.isFinite(s)) floors.get(kase.key)!.push(s * 100);
-
-        parseResults.get(kase.key)!.set(path.id, measured.best.get(kase.key)!);
+        if (Number.isFinite(s)) floors.get(key)!.push(s * 100);
       }
 
-      table.row([label.get(path.id)!, ...parseCases.map((kase) => measured.best.get(kase.key)!.toFixed(1))]);
+      for (const fmt of formatKeys) {
+        results.get(fmt)!.set(path.id, measured.best.get(fmt)!);
+
+        if (measured.sizes.get(fmt)! < N) shortened.add(path.id);
+      }
+
+      for (const kase of parseCases) {
+        parseResults.get(kase.key)!.set(path.id, measured.best.get(kase.key)!);
+        parseSizes.push(measured.sizes.get(kase.key)!);
+      }
+
+      const [writing, reading] = measured.passes;
+
+      passCounts.add(writing!);
+      parsePasses.add(reading!);
+
+      const fp = profiled.get(path.id) ?? null;
+      // a row whose subprocess failed says so, rather than taking the timings
+      // and everything below them down with it
+      const held = !withFootprint ? [] : fp === null ? ["err", "err"] : [fp.rssMB.toFixed(1), fp.intl.toLocaleString("en-US")];
+
+      table.row([
+        label.get(path.id)!,
+        ...columns.map((key) => measured.best.get(key)!.toFixed(1)),
+        ...held,
+        bytesFor.get(path.id)!,
+      ]);
     }
   );
 
@@ -811,12 +767,10 @@ if (tables.has("parse")) {
   }
 
   sink += run.checksum % 1_000;
-  for (const p of run.passes) parsePasses.add(p);
-  parseSizes.push(...run.sizes);
 
   /** the worse half of a column's cells, so one steady cell cannot speak for it */
-  const columnFloor = (kase: ParseCaseKey) => {
-    const seen = floors.get(kase)!.sort((a, b) => a - b);
+  const columnFloor = (key: LadderKey) => {
+    const seen = floors.get(key)!.sort((a, b) => a - b);
 
     return seen.length === 0 ? NaN : seen[Math.min(seen.length - 1, Math.floor(seen.length * 0.75))]!;
   };
@@ -824,13 +778,45 @@ if (tables.has("parse")) {
   // The columns are keys, so they need a legend; and each carries its OWN
   // resolution rather than the table carrying one, which is not guessable.
   console.log(
-    `\n${parseCases.map((kase) => `${kase.key}: ${kase.what}`).join("\n")}\n\n` +
-      `ms per ${N}, scaled from ${Math.min(...parseSizes).toLocaleString("en-US")}-` +
-      `${Math.max(...parseSizes).toLocaleString("en-US")} values in a ${PARSE_BUDGET_MS}ms pass, fastest of ` +
-      `${[...parsePasses].sort((a, b) => a - b).join("/")}.\nRead each column no finer than its own floor — ` +
-      `how far apart two readings of the same cell fell:\n\n` +
-      `  ${parseCases.map((kase) => `${kase.key} ${columnFloor(kase.key).toFixed(1)}%`).join("   ")}\n`
+    `\n${formatKeys.map((fmt) => `${fmt}: ${patternFor("moment", fmt)}`).join("   ")}\n` +
+      `${parseCases.map((kase) => `${kase.key}: ${kase.what}`).join("\n")}\n\n` +
+      `Read each column no finer than its own floor — how far apart two readings of the same cell fell:\n\n` +
+      `  ${columns.map((key) => `${key} ${columnFloor(key).toFixed(1)}%`).join("   ")}\n`
   );
+
+  // The two halves ran on different pass settings, so one sentence covering both
+  // would have to round something away.
+  console.log(
+    `writing: ms per ${N}, fastest of ${[...passCounts].sort((a, b) => a - b).join("/")} passes.` +
+      (shortened.size === 0
+        ? ``
+        : ` ${shortened.size} of the ${rowPaths.length} builds cost enough per value to run fewer than ${N} and be scaled up.`)
+  );
+  console.log(
+    `reading: ms per ${N}, scaled from ${Math.min(...parseSizes).toLocaleString("en-US")}-` +
+      `${Math.max(...parseSizes).toLocaleString("en-US")} values in a ${PARSE_BUDGET_MS}ms pass, fastest of ` +
+      `${[...parsePasses].sort((a, b) => a - b).join("/")}.`
+  );
+
+  // moment core sized on its own, so the baseline row can report how much of
+  // itself is the dependency rather than leaving the reader to wonder whether it
+  // was counted at all
+  const core = await minifiedSize(
+    await writeEntry(
+      "moment-core.ts",
+      `import moment from 'moment';\nexport const format = (ts: number, pattern: string) => moment(ts).format(pattern);\n`
+    )
+  );
+
+  // moment-timezone's row would otherwise look like it excluded the dependency
+  // it cannot run without.
+  console.log(`bytes: minified, no gzip. moment-timezone's row includes moment core, ${core.toLocaleString("en-US")} B of it.`);
+
+  if (!withFootprint) {
+    console.log(`\n--footprint adds rss and Intl.DateTimeFormat counts, one subprocess per row (~2.5s).`);
+  }
+
+  console.log();
 }
 
 if (parseBroken.length > 0) {
@@ -852,7 +838,7 @@ if (parseBroken.length > 0) {
 // a measured number rather than an assumption, and so the rungs that do reach
 // the default path (D, G, H) are visible somewhere.
 //
-// It shares the format table's kernel and reads its own cases: these are whole
+// It shares the ladder's kernel and reads its own cases: these are whole
 // operations rather than formatter closures, since the point is the API a caller
 // uses, and half of them do not format anything.
 
@@ -979,18 +965,17 @@ if (tables.has("default")) {
     // the builds of one case timed adjacently, so drift between cases cannot be
     // read as a difference between builds
     (kase) => [
-      ...DEFAULT_BUILDS.map((b) => ({ key: b.id, work: kase.system(loaded.get(b.id)!) })),
-      { key: "named", work: kase.named(loaded.get("stock")!) },
+      {
+        entries: [
+          ...DEFAULT_BUILDS.map((b) => ({ key: b.id, work: kase.system(loaded.get(b.id)!) })),
+          { key: "named", work: kase.named(loaded.get("stock")!) },
+        ],
+        passBudget: DEFAULT_PASSES,
+        budgetMs: PASS_BUDGET_MS,
+        group: DEFAULT_BUILDS.length + 1,
+      },
     ],
-    {
-      base: BASE_TS,
-      step: STEP_MS,
-      report: N,
-      passBudget: DEFAULT_PASSES,
-      budgetMs: PASS_BUDGET_MS,
-      group: DEFAULT_BUILDS.length + 1,
-      cooldownMs,
-    },
+    { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
     (kase, measured) => {
       best.set(kase.key, measured.best);
 
@@ -1046,11 +1031,11 @@ if (tables.has("default")) {
 // states than any real formatting loop, so a narrow wrong answer could hide in
 // the values never asked for.
 
-if (tables.has("format") && !withVerify) {
+if (tables.has("ladder") && !withVerify) {
   console.log(`output parity vs stock luxon skipped — pass --verify to run it (~7s).`);
 }
 
-if (tables.has("format") && withVerify) {
+if (tables.has("ladder") && withVerify) {
   const PARITY_N = 20_000;
   const PARITY_STEP = 3_600_000;
   const rows: (string[] | null)[] = [];
@@ -1147,7 +1132,7 @@ if (allTables) {
         // at ids across a file boundary.
         builds: rowPaths.map((p) => p.id),
         ms: Object.fromEntries([...results].map(([fmt, ms]) => [fmt, Object.fromEntries(ms)])),
-        // the reading table, same shape. Nothing diffs these across engines yet;
+        // the reading columns, same shape. Nothing diffs these across engines yet;
         // they are written because they were measured, and because which patches
         // pay off on the parse path is exactly the kind of thing the two engines
         // could disagree about.

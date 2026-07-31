@@ -80,17 +80,24 @@ moment's bundled tzdata, or the host ICU does — but the timings are only a
 result if the outputs match, so run it before quoting any of them.
 `npm run verify` runs both.
 
-`upstream` prints four tables and any combination can be run alone, which is
-the loop for iterating on a patch: `--patches` (~1s), `--format` (~18s),
-`--parse` (~9s), and `--default` (~13s). It also takes `--footprint` for rss and
-Intl-formatter counts, one subprocess per row.
+`upstream` prints three tables and any combination can be run alone, which is
+the loop for iterating on a patch: `--patches` (~1s), `--ladder` (~27s), and
+`--default` (~13s). It also takes `--footprint` for rss and Intl-formatter
+counts, one subprocess per row.
 
-The first three all name a zone, since that is what the patches were written
-for. `--default` is the same ladder with no zone named at all, which is what a
-caller who never configures one gets: luxon falls back to `SystemZone`, whose
-offset is a `getTimezoneOffset` call rather than an Intl one, so stock is
-already an order of magnitude cheaper there and the Intl-removing patches have
-much less to remove.
+`--ladder` is the main table: one row per build, carrying both what that build
+costs to write a date and what it costs to read one, with its shipped bytes at
+the end. The two halves are timed separately — reading costs enough per value
+that its passes are sized by time and scaled, writing runs the full value count
+— and each column states its own noise floor underneath, because they differ by
+an order of magnitude in cost and so in steadiness.
+
+Both of those name a zone, since that is what the patches were written for.
+`--default` is the same ladder with no zone named at all, which is what a caller
+who never configures one gets: luxon falls back to `SystemZone`, whose offset is
+a `getTimezoneOffset` call rather than an Intl one, so stock is already an order
+of magnitude cheaper there and the Intl-removing patches have much less to
+remove.
 
 `coverage` (~12s) is the other axis. Where `format` and `upstream` go deep on
 writing and reading a date, it goes wide: 28 public API calls — arithmetic,

@@ -9,21 +9,30 @@ lettered A through H, all of them memoization or provable short-circuits: no API
 changes, no output changes.
 
 The workload is a column of timestamps rendered in a named IANA zone — what a
-dashboard or a data table produces thousands of at a time — plus the same ladder
-run against parsing, and once more against the default zone.
+dashboard or a data table produces thousands of at a time — plus the same column
+read back rather than written, and the whole ladder once more against the default
+zone.
 
 ## The tables
 
 | table | flag | what it answers |
 | --- | --- | --- |
 | patches | `--patches` | what each patch costs in shipped bytes |
-| format | `--format` | the ladder, writing a date in a named zone |
-| parse | `--parse` | the same ladder reading one |
+| ladder | `--ladder` | what each rung is worth writing and reading a date in a named zone, and what it ships |
 | default | `--default` | the same ladder with no zone named at all |
 
 Any combination can be run alone, which is the loop for iterating on one patch.
 `--verify` adds the output-parity table. `--footprint` adds rss and Intl-formatter
 counts.
+
+The ladder is one table with a row per build: two columns for writing a date,
+five for reading one, and the shipped bytes at the end. They are printed together
+because they are the same builds and the interesting thing about them is the
+comparison down a column, not across. They are *timed* separately, in two
+segments per row, because reading costs enough per value that its passes have to
+be sized by time and scaled where writing runs the full count. Nothing reads a
+writing column against a reading one, which is what makes splitting the timing
+free.
 
 The baseline is moment-**timezone**, not moment: a named zone needs its packed
 offset table, and only its `z` token renders an abbreviation. moment core is
@@ -154,8 +163,9 @@ them as one patch rather than six.
 **Four hoisted constants.** Lookup tables and one `Date` object that luxon
 rebuilt per call, in `DateTime.normalizeUnit`, `Duration.normalizeUnit`,
 `formatRelativeTime` and `SystemZone#offset`. None of these are on a formatting
-path, so the format table cannot see them at all — every row of it names a zone,
-and `SystemZone` is the default. The same engine split runs through them: V8
+path, so the ladder's writing columns cannot see them at all — every row of it
+names a zone, and `SystemZone` is the default. The same engine split runs through
+them: V8
 escape-analyzes some of the allocations away and JavaScriptCore does not, so node
 sees a few percent where bun sees a lot more.
 
@@ -194,18 +204,18 @@ these six gave up, and it is not recoverable without unmerging them.
 
 ## Reading dates
 
-Reading was not what most of this was aimed at, and the parse table shows which
-of it carries over.
+Reading was not what most of this was aimed at, and the ladder's five reading
+columns show which of it carries over.
 
 The biggest formatting wins do nothing here. A and E are the zone-name lookup and
 no parse performs one; C compiles a format string for writing and no parse walks
-one. None of the three moves a parse column by more than the column's own noise
-floor. Three patches carry this table instead: B and F, both being `offset()`,
-which every zoned parse needs before it can place a local time, and D, the only
-one in the set written for reading.
+one. None of the three moves a reading column by more than that column's own
+noise floor. Three patches carry these columns instead: B and F, both being
+`offset()`, which every zoned parse needs before it can place a local time, and
+D, the only one in the set written for reading.
 
 The two ISO columns are the same parse differing only in how many zone lookups it
-makes, and that count is the whole story of the table. A string with no offset on
+makes, and that count is the whole story of them. A string with no offset on
 it costs three: `fixOffset` cannot turn a local time into an instant without
 knowing the offset, and cannot know the offset without an instant, so it seeds
 itself with the offset at `Settings.now()` and then probes twice around the
@@ -227,16 +237,16 @@ level because the count stops mattering once the lookups are free.
 (A `fixOffset` that asked for the offset once instead of three times would reach
 the same place from the other direction, and is a larger change to argue for.)
 
-That also settles the two comparisons this table used to lose. easy-tz's zone no
-longer beats the patch set on the zone-bound column, because both are now bounded
-by luxon's own parsing rather than by a zone lookup. And the two token formats,
-the last columns where moment-timezone was still ahead, have gone the other way.
-The patched builds are ahead on every shape in the table, and on a bare timestamp
-it is not close.
+That also settles the two comparisons the reading side used to lose. easy-tz's
+zone no longer beats the patch set on the zone-bound column, because both are now
+bounded by luxon's own parsing rather than by a zone lookup. And the two token
+formats, the last columns where moment-timezone was still ahead, have gone the
+other way. The patched builds are ahead on every shape measured, and on a bare
+timestamp it is not close.
 
 ## The default zone
 
-Every other table names a zone, which is the configuration the patches were
+The ladder names a zone, which is the configuration the patches were
 written for. `--default` is the same ladder with no zone named at all — what a
 caller who never configures one gets.
 
@@ -249,8 +259,8 @@ and H's non-Intl half — its hoisted constants and the `adjustTime` fast path.
 The table is short for that reason. Several of its cases have no patch on them at
 all, and a run where those sit inside the floor printed under the table is the
 table working rather than a null result. Its last column is stock again with a
-zone named, which is what every other table on the page measures — a baseline for
-how much of stock's cost was the named zone in the first place, not a control.
+zone named, which is what the ladder measures — a baseline for how much of
+stock's cost was the named zone in the first place, not a control.
 
 ## Verdict
 
@@ -262,7 +272,7 @@ name patches over ten zones, five locales and all six `timeZoneName` styles
 either side of every modern transition
 ([`test/zone-name-patches.test.ts`](../test/zone-name-patches.test.ts)).
 
-That answers the question the last two rows of the format table are for: same
+That answers the question the ladder's last two rows are for: same
 patches on both sides, so the only difference is where the zone comes from. It
 used to be pattern-dependent, and with E and F it is not — the full upstream
 build is level with the easy-tz-bound one on both formats, where before them
