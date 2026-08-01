@@ -753,7 +753,21 @@ if (tables.has("ladder")) {
   // same reason: these are ms figures on whatever host runs them, and a
   // throttled machine reads several times a quiet one.
   const bytesWidth = Math.max(...[...bytesFor.values()].map((v) => v.length));
+  // Two questions in one table since the format and parse ladders were merged,
+  // and eight columns is enough that which half a column is in stopped being
+  // obvious from its name — `tokens` parses a pattern, `text` formats one.
+  //
+  // `millis` is the one column its band does not describe: it parses nothing,
+  // being the same construction with the string taken away, and it sits there as
+  // that half's floor. The footnote under the table says so, which is the right
+  // place for it — a band is a signpost and reads worse for every caveat put in
+  // it.
+  const bands = [
+    { label: "formatting", from: 1, to: ladderFormats.length },
+    { label: "parsing", from: ladderFormats.length + 1, to: columns.length },
+  ];
   const table = streamTable(headers, {
+    groups: bands,
     minWidths: Object.fromEntries([
       [0, 22],
       ...columns.map((_, i) => [i + 1, 10]),
@@ -890,13 +904,13 @@ if (tables.has("ladder")) {
   // The two halves ran on different pass settings, so one sentence covering both
   // would have to round something away.
   console.log(
-    `writing: ms per ${N}, fastest of ${[...passCounts].sort((a, b) => a - b).join("/")} passes.` +
+    `formatting: ms per ${N}, fastest of ${[...passCounts].sort((a, b) => a - b).join("/")} passes.` +
       (shortened.size === 0
         ? ``
         : ` ${shortened.size} of the ${rowPaths.length} builds cost enough per value to run fewer than ${N} and be scaled up.`)
   );
   console.log(
-    `reading: ms per ${N}, scaled from ${Math.min(...parseSizes).toLocaleString("en-US")}-` +
+    `parsing: ms per ${N}, scaled from ${Math.min(...parseSizes).toLocaleString("en-US")}-` +
       `${Math.max(...parseSizes).toLocaleString("en-US")} values in a ${PARSE_BUDGET_MS}ms pass, fastest of ` +
       `${[...parsePasses].sort((a, b) => a - b).join("/")}.`
   );

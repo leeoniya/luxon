@@ -27,11 +27,26 @@
 
 import { visibleWidth } from "./color.ts";
 
+/** A band drawn over a run of columns, naming what they have in common. */
+export interface ColumnGroup {
+  label: string;
+  /** first column index it covers */
+  from: number;
+  /** last column index it covers, inclusive */
+  to: number;
+}
+
 export interface StreamTableOpts {
   /** columns to left-align, beyond column 0 which always is */
   leftCols?: readonly number[];
   /** per-column minimum width, by index, for columns whose values outgrow their header */
   minWidths?: Readonly<Record<number, number>>;
+  /**
+   * Bands over the header, for a table whose columns answer more than one
+   * question. Columns no band covers are left blank, which is the point: it is
+   * how a column that belongs to neither side says so.
+   */
+  groups?: readonly ColumnGroup[];
 }
 
 export interface StreamTable {
@@ -70,6 +85,30 @@ export function streamTable(headers: string[], opts: StreamTableOpts = {}): Stre
       })
       .join("  ")
       .trimEnd();
+
+  // The label is centred over its columns, and the space either side of it is
+  // ruled rather than blank: a label floating alone leaves the reader counting
+  // columns to work out where its band stops, which is the one thing the row is
+  // there to say. The two-space gap the rest of the table already uses is what
+  // separates one band from the next.
+  if (opts.groups?.length) {
+    const starts = widths.map((_, i) => widths.slice(0, i).reduce((n, w) => n + w + 2, 0));
+    const cells = Array<string>(separator.length).fill(" ");
+
+    for (const { label, from, to } of opts.groups) {
+      const start = starts[from]!;
+      const span = starts[to]! + widths[to]! - start;
+      // a band too narrow to rule inside would misreport its own extent, so it
+      // gets the bare label and nothing that could be read as its span
+      const room = span - label.length - 2;
+      const left = Math.floor(room / 2);
+      const band = room > 0 ? `${"-".repeat(left)} ${label} ${"-".repeat(room - left)}` : label;
+
+      for (let i = 0; i < band.length && start + i < cells.length; i++) cells[start + i] = band[i]!;
+    }
+
+    console.log(cells.join("").trimEnd());
+  }
 
   console.log(line(headers));
   console.log(separator);

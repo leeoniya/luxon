@@ -26,7 +26,12 @@ Any combination can be run alone, which is the loop for iterating on one patch.
 counts.
 
 The ladder is one table with a row per build: three columns for writing a date,
-five for reading one, and the shipped bytes at the end. The writing columns vary
+five for reading one, and the shipped bytes at the end. A `formatting` and a
+`parsing` band over the header mark where one half ends and the other begins,
+since the column names alone stop being self-evident at eight of them — `text`
+formats a pattern and `tokens` parses one. `bytes` sits under neither band, and
+`millis` is the one column its band does not describe: it parses nothing, and is
+there as that half's floor. Its footnote says so. The writing columns vary
 the pattern rather than the zone — `numeric` pays only for an offset, `abbr` also
 renders a zone abbreviation, and `text` names a weekday and a month, which is the
 only one of the three that reaches the `Formatter` anywhere other than its
