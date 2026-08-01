@@ -29,20 +29,28 @@
 // two directions is not guessable from the patches: the two biggest formatting
 // wins do nothing for parsing, and the zone patches do nearly all of it.
 //
+// And a third band beyond both, `other`: arithmetic, Duration, Interval and Info
+// — everything that neither writes a string nor reads one. Those were a table of
+// their own until the patch set outgrew the two directions. G replaces the
+// Duration round trip inside adjustTime and H trims three allocations from under
+// the setters, and neither is reachable from a format string or a parse; they
+// were found by profiling rather than by any column here. The cases are in
+// lib/api-cases.ts and the reading of them is in benchmarks/docs/coverage.md.
+//
 // Each build is also reported by what it costs to ship: the minified bytes of
 // everything that build bundles. What it costs to hold — rss and Intl formatter
 // constructions, profiled one subprocess per row so no build's caches land on
 // another's — is behind --footprint, having answered its question once.
 //
-// Run: node upstream.ts             (no parity scan, ~28s)
-//      node upstream.ts --verify    (+ the parity scan, ~35s)
-//      bun upstream.ts              (the same under JavaScriptCore, ~35s —
+// Run: node upstream.ts             (no parity scan, ~95s)
+//      node upstream.ts --verify    (+ the parity scan, ~102s)
+//      bun upstream.ts              (the same under JavaScriptCore, ~105s —
 //                                    the ladder's reading half costs JSC more, see
 //                                    PARSE_PASSES)
 //      ... --footprint              (+ rss and Intl counts, ~2.5s)
 //
 // The three tables can be run alone, which is the loop for iterating on a patch:
-// --patches (~1s), --ladder (~27s under node, ~32s under bun — the reading half
+// --patches (~1s), --ladder (~80s under node, ~90s under bun — the reading half
 // costs JSC more, see PARSE_PASSES), --default (~13s). Any combination works,
 // and naming none runs all three. Only a full run writes the JSON that
 // cross-engine.ts reads.
@@ -59,9 +67,28 @@ import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { bakedRules, tablesHost, yearStart } from "./lib/easy-tz.ts";
-import { parseCases, parserFor, formatterFor, type BuildSpec, type ParseCase, type ParseCaseKey } from "./lib/build.ts";
+import { API_CASES, defaultMomentShape, type ApiBand, type ApiCase } from "./lib/api-cases.ts";
+import {
+  momentFor,
+  momentRole,
+  parseCases,
+  parserFor,
+  formatterFor,
+  type BuildSpec,
+  type ParseCase,
+  type ParseCaseKey,
+} from "./lib/build.ts";
 import { LOCALE, patternFor, zoneFormatKeys, type FormatKey } from "./lib/format-paths.ts";
-import { measureRows, pkgVersion, runtime, type SampleBudget, type Work } from "./lib/kernel.ts";
+import {
+  LEAN_BUDGET,
+  LEAN_BUDGET_MS,
+  measureRows,
+  pkgVersion,
+  runtime,
+  timeLoop,
+  type SampleBudget,
+  type Work,
+} from "./lib/kernel.ts";
 import type { LuxonModule } from "./lib/luxon-types.ts";
 import { allTables, cooldownMs, tables, withFootprint, withVerify } from "./lib/opts.ts";
 import {
@@ -206,15 +233,14 @@ if (UPSTREAM.length !== patchKeys.length) {
 // The cost of that choice is G's rung, which is now measured in I's absence and
 // so reads larger than the G in the shipped tree. See "What the merge cost".
 //
-// F's rung is the one to read against coverage.md rather than against the
-// columns beside it: it interns Locales, which every direction here builds one
-// of, but what it was written for is Info, and this table has no Info in it.
+// F's rung is the one to read across the whole width rather than off the
+// formatting columns alone: it interns Locales, which every direction builds one
+// of, but what it was written for is Info, and only the `other` band has any.
 //
-// H's rung is the same kind of row and more so. Every column here writes or reads
-// a date, and H is on neither route: it is under the setters, so the only part of
-// it these columns touch is the one clone that fromMillis does. coverage.ts is
-// where it is priced — plus, set, startOf, endOf and Duration#as — and the rung
-// is here so that the bytes are declared next to everything else's.
+// H's rung is the same kind of row and more so. The formatting and parsing
+// columns are on neither of its routes — it is under the setters, so the only
+// part of it they touch is the one clone that fromMillis does. The `other` band
+// is where it is priced: plus, set, startOf, endOf and Duration#as.
 const RUNG_ORDER = [
   "zoneInfoCache", // A
   "offsetScan", // B
@@ -682,8 +708,33 @@ const parsePasses = new Set<number>();
 const PARSE_CHECKS = [0, 1, 500, 1_501, PARSE_POOL - 1];
 const parseBroken: string[] = [];
 
-/** a column of the ladder: two formats written, five shapes read */
-type LadderKey = FormatKey | ParseCaseKey;
+/** a column of the ladder: a format written, a shape read, or a public API call */
+type LadderKey = string;
+
+// The API cases in the order they are printed: by band, so a column sits under
+// the band that describes it, and within a band in the order they were written.
+//
+// These are timed as their own segment because they were calibrated as their own
+// table — every one of them is short enough per value that a pass has to be sized
+// by time and scaled, where the writing columns run the full N. Merging the
+// tables merged the printing, not the timing.
+const apiCases: ApiCase[] = (["formatting", "parsing", "other"] as ApiBand[]).flatMap((band) =>
+  API_CASES.filter((kase) => kase.band === band)
+);
+
+// like the parse columns, these run fewer than `N` values and are scaled, so the
+// legend says what they really ran
+const apiSizes: number[] = [];
+const apiPasses = new Set<number>();
+
+/**
+ * The moment instance a case is timed on: one per shape of Moment built, not one
+ * per case. See momentRole in lib/build.ts — a single string parse anywhere in
+ * the process turns format()'s field reads polymorphic for the life of it, which
+ * cost the formatting cells 13-19% before this existed. The cases that only
+ * build from a timestamp collapse to one instance and so still share its warmth.
+ */
+const momentInstanceFor = (kase: ApiCase) => momentFor(momentRole(kase.momentShape ?? defaultMomentShape));
 
 if (tables.has("ladder")) {
   // Everything a row needs is built before the first row is timed: the
@@ -721,7 +772,62 @@ if (tables.has("ladder")) {
       perKey.set(kase.key, workFor(parse, pool));
     }
 
+    // The API cases, where a build that has no answer for one leaves the cell
+    // empty rather than filling it with a number from something else.
+    //
+    // The two easy-tz rows are the whole band's worth of that. They exist to ask
+    // whether binding easy-tz's zone is still worth it, and the API cases name
+    // their zone as a string, so running them here would resolve it through Intl
+    // and print a plain-luxon number under a row that claims otherwise. Passing
+    // the zone down instead would work, and would also mean every Duration, Info
+    // and Interval cell — none of which touch a zone at all — got measured twice
+    // to say the same thing. The format and parse columns already answer the
+    // question those rows are there for.
+    if (!path.easyZone) {
+      for (const kase of apiCases) {
+        const work =
+          path.ships === "moment-timezone"
+            ? kase.moment?.(momentInstanceFor(kase))
+            : kase.luxon(await loadLuxon(path.patches));
+
+        if (work !== undefined) perKey.set(kase.key, work);
+      }
+    }
+
     built.set(path.id, perKey);
+  }
+
+  // ---- do the builds still agree? ----
+  //
+  // Every patch here is supposed to be invisible, and a timing table is the last
+  // place a behavior change would announce itself — a build that skips work is
+  // exactly what this bench rewards. The format and parse columns are checked
+  // already: parsing round-trips the instant it was given (PARSE_CHECKS above),
+  // and --verify renders 20k strings per build against stock. The API columns had
+  // no such check until they moved here, so this is the one they arrived with.
+  //
+  // The cases are deterministic by construction — pool indices come off the
+  // timestamp, not a counter — so summing each over a fixed window and comparing
+  // across builds is nearly free and catches a patch that changed an answer
+  // rather than just the time taken to reach it.
+  const CHECK_N = 256;
+  const checked = rowPaths.filter((p) => p.ships === "luxon" && !p.easyZone);
+  const disagree: string[] = [];
+
+  for (const kase of apiCases) {
+    if (kase.live === true) continue;
+
+    const sums = checked.map((p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum);
+
+    if (sums.some((s) => s !== sums[0]!)) {
+      disagree.push(`${kase.key}: ${checked.map((p, i) => `${p.id}=${sums[i]!}`).join(" ")}`);
+    }
+  }
+
+  if (disagree.length > 0) {
+    throw new Error(
+      `builds disagree on ${disagree.length} API case(s), so the table below is not comparable:\n${disagree.join("\n")}`
+    );
   }
 
   // Bytes and heap alongside the ms, so a rung can be read as a trade rather
@@ -742,7 +848,15 @@ if (tables.has("ladder")) {
   console.log(`the ladder in the middle adds one patch per rung to the one above it\n`);
 
   const heldHeaders = withFootprint ? ["rss MB", "intl instances"] : [];
-  const columns: LadderKey[] = [...ladderFormats, ...parseCases.map((kase) => kase.key)];
+  // Grouped by band rather than by where a column came from, so the header band
+  // over a column is the one that describes it: the format and parse columns
+  // built into this file lead their bands, and the API cases follow in the band
+  // each declares.
+  const inBand = (band: ApiBand) => apiCases.filter((kase) => kase.band === band).map((kase) => kase.key);
+  const formatting: LadderKey[] = [...ladderFormats, ...inBand("formatting")];
+  const parsing: LadderKey[] = [...parseCases.map((kase) => kase.key), ...inBand("parsing")];
+  const other: LadderKey[] = inBand("other");
+  const columns: LadderKey[] = [...formatting, ...parsing, ...other];
   const headers = ["build", ...columns.map((key) => `${key} ms`), ...heldHeaders, "bytes"];
   // The bytes column is the one whose values are reliably wider than its header
   // — six-digit figures with separators under a five-letter word — and a column
@@ -753,18 +867,22 @@ if (tables.has("ladder")) {
   // same reason: these are ms figures on whatever host runs them, and a
   // throttled machine reads several times a quiet one.
   const bytesWidth = Math.max(...[...bytesFor.values()].map((v) => v.length));
-  // Two questions in one table since the format and parse ladders were merged,
-  // and eight columns is enough that which half a column is in stopped being
-  // obvious from its name — `tokens` parses a pattern, `text` formats one.
+  // Three questions in one table, and at this width which one a column belongs to
+  // stopped being obvious from its name — `tokens` parses a pattern, `text`
+  // formats one, and `set` does neither.
   //
-  // `millis` is the one column its band does not describe: it parses nothing,
-  // being the same construction with the string taken away, and it sits there as
-  // that half's floor. The footnote under the table says so, which is the right
-  // place for it — a band is a signpost and reads worse for every caveat put in
-  // it.
+  // Two columns their band does not describe, both of them deliberate. `millis`
+  // parses nothing, being the same construction with the string taken away, and
+  // sits in `parsing` as that band's floor; `fromMillis` and `now` are there for
+  // the same reason. `other` is defined by exclusion rather than by a subject:
+  // arithmetic, Duration, Interval and Info, which is everything that neither
+  // writes a string nor reads one. The footnotes say so, which is the right place
+  // for it — a band is a signpost and reads worse for every caveat put in it.
+  const bandAt = (from: number, span: number) => ({ from, to: from + span - 1 });
   const bands = [
-    { label: "formatting", from: 1, to: ladderFormats.length },
-    { label: "parsing", from: ladderFormats.length + 1, to: columns.length },
+    { label: "formatting", ...bandAt(1, formatting.length) },
+    { label: "parsing", ...bandAt(1 + formatting.length, parsing.length) },
+    { label: "other", ...bandAt(1 + formatting.length + parsing.length, other.length) },
   ];
   const table = streamTable(headers, {
     groups: bands,
@@ -823,6 +941,18 @@ if (tables.has("ladder")) {
         passBudget: PARSE_PASSES,
         budgetMs: PARSE_BUDGET_MS,
       },
+      {
+        // only the cases this build has an answer for, so a row with no easy-tz
+        // equivalent or no moment one costs nothing to skip rather than being
+        // timed against a stub
+        entries: apiCases.flatMap((kase) => {
+          const work = built.get(path.id)!.get(kase.key);
+
+          return work === undefined ? [] : [{ key: kase.key as LadderKey, work }];
+        }),
+        passBudget: LEAN_BUDGET,
+        budgetMs: LEAN_BUDGET_MS,
+      },
     ],
     { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
     (path, measured) => {
@@ -830,9 +960,9 @@ if (tables.has("ladder")) {
       index++;
 
       for (const key of columns) {
-        const s = measured.spread.get(key)!;
+        const s = measured.spread.get(key);
 
-        if (Number.isFinite(s)) floors.get(key)!.push(s * 100);
+        if (s !== undefined && Number.isFinite(s)) floors.get(key)!.push(s * 100);
       }
 
       for (const fmt of ladderFormats) {
@@ -846,13 +976,29 @@ if (tables.has("ladder")) {
         parseSizes.push(measured.sizes.get(kase.key)!);
       }
 
-      const [writing, reading] = measured.passes;
+      const [writing, reading, api] = measured.passes;
 
       passCounts.add(writing!);
       parsePasses.add(reading!);
+      // a row with no API cells (the easy-tz rows) reports no pass count for the
+      // segment, which is not the same as reporting zero passes
+      if (api !== undefined) apiPasses.add(api);
+
+      for (const kase of apiCases) {
+        const size = measured.sizes.get(kase.key);
+
+        if (size !== undefined) apiSizes.push(size);
+      }
 
       if (path.id === "moment") {
-        for (const key of columns) anchor.set(key, measured.best.get(key)!);
+        for (const key of columns) {
+          const v = measured.best.get(key);
+
+          // Interval and Duration#shiftTo have no moment equivalent, so those
+          // columns have no anchor and print unshaded. Better than shading them
+          // against something moment did not do.
+          if (v !== undefined) anchor.set(key, v);
+        }
       }
 
       const fp = profiled.get(path.id) ?? null;
@@ -863,9 +1009,9 @@ if (tables.has("ladder")) {
       table.row([
         label.get(path.id)!,
         ...columns.map((key) => {
-          const v = measured.best.get(key)!;
+          const v = measured.best.get(key);
 
-          return shade(v.toFixed(1), v, anchor.get(key));
+          return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(key));
         }),
         ...held,
         bytesFor.get(path.id)!,
@@ -888,13 +1034,35 @@ if (tables.has("ladder")) {
     return seen.length === 0 ? NaN : seen[Math.min(seen.length - 1, Math.floor(seen.length * 0.75))]!;
   };
 
+  /** the floors list is 40-odd entries long, and one line of it is not a list */
+  const wrap = (parts: string[], width = 110) => {
+    const lines = [""];
+
+    for (const part of parts) {
+      const at = lines.length - 1;
+
+      if (lines[at]!.length + part.length + 3 > width && lines[at] !== "") lines.push("");
+      lines[lines.length - 1] += (lines.at(-1) === "" ? "" : "   ") + part;
+    }
+
+    return lines.map((l) => `  ${l}`).join("\n");
+  };
+
   // The columns are keys, so they need a legend; and each carries its OWN
   // resolution rather than the table carrying one, which is not guessable.
+  //
+  // Only the first two bands are spelled out. The API columns are named after
+  // the call they make, which is the whole description — `Interval splitBy` does
+  // not read better for a line saying it splits an Interval — and 33 of those
+  // lines would bury the five above them that do carry information.
   console.log(
     `\n${ladderFormats.map((fmt) => `${fmt}: ${patternFor("moment", fmt)}`).join("   ")}\n` +
       `${parseCases.map((kase) => `${kase.key}: ${kase.what}`).join("\n")}\n\n` +
+      `Every other column is the named call, on a DateTime built beforehand rather than per value.\n` +
+      `--: the build has no equivalent — moment ships no Interval, and the easy-tz rows are\n` +
+      `formatting and parsing only, since the API cases name their zone as a string.\n\n` +
       `Read each column no finer than its own floor — how far apart two readings of the same cell fell:\n\n` +
-      `  ${columns.map((key) => `${key} ${columnFloor(key).toFixed(1)}%`).join("   ")}\n`
+      `${wrap(columns.map((key) => `${key} ${columnFloor(key).toFixed(1)}%`))}\n`
   );
 
   // Only when something was actually shaded, so a redirected run does not
@@ -913,6 +1081,19 @@ if (tables.has("ladder")) {
     `parsing: ms per ${N}, scaled from ${Math.min(...parseSizes).toLocaleString("en-US")}-` +
       `${Math.max(...parseSizes).toLocaleString("en-US")} values in a ${PARSE_BUDGET_MS}ms pass, fastest of ` +
       `${[...parsePasses].sort((a, b) => a - b).join("/")}.`
+  );
+  console.log(
+    `API columns: ms per ${N}, scaled from ${Math.min(...apiSizes).toLocaleString("en-US")}-` +
+      `${Math.max(...apiSizes).toLocaleString("en-US")} values in a ${LEAN_BUDGET_MS}ms pass, fastest of ` +
+      `${[...apiPasses].sort((a, b) => a - b).join("/")}.`
+  );
+
+  // Where the shading is a library comparison rather than a like-for-like one.
+  const approx = apiCases.filter((kase) => kase.approx === true).map((kase) => kase.key);
+
+  console.log(
+    `${approx.join(", ")}: luxon calls into ICU where moment expands its own tables, so these\n` +
+      `reach the same user-visible answer by different means and the shading is not like-for-like.`
   );
 
   // moment core sized on its own, so the baseline row can report how much of

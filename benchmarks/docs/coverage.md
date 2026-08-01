@@ -1,56 +1,71 @@
-# coverage.ts — the public API, against moment
+# The public API columns
 
-> `node coverage.ts` (or `bun coverage.ts`). Timing methodology is in
-> [methodology.md](methodology.md).
+> Part of [`upstream`](upstream.md)'s ladder: `node upstream.ts --ladder`. Timing
+> methodology is in [methodology.md](methodology.md). The cases themselves are in
+> [`lib/api-cases.ts`](../lib/api-cases.ts).
 
-The other axis. Where [`format`](format.md) and [`upstream`](upstream.md) go deep
-on writing a date and reading one, this goes wide: 33 public API calls — reading,
-arithmetic, writing, `Duration`, `Interval`, `Info` — each timed on stock luxon,
-on the fully patched build, and on its moment equivalent.
+The other axis. Where the ladder's `formatting` and `parsing` bands go deep on
+writing a date and reading one, these go wide: 30 public API calls — construction,
+arithmetic, writing, `Duration`, `Interval`, `Info` — on every build in the ladder
+and on moment.
 
-## Why it exists
+They were a table of their own, `coverage.ts`, until that was merged into the
+ladder. What changed in the move is the comparison available: the cases used to
+carry stock luxon and the fully patched build, the two endpoints, because the
+ladder owned the rung-by-rung story and re-deriving it would have been a second
+answer to a question already answered. As columns they get every rung for free,
+which is what makes a patch arguable from a public API call rather than only from
+a format string.
 
-The narrowness of the other tables became misleading once the patch set grew past
-the formatter.
+Three cases did not survive the move. `fromMillis`, `fromISO` and `fromFormat`
+turned out to be the same calls as `millis`, `iso+off` and `tokens` in the
+`parsing` band — the same input pool read by the same entry point, differing only
+in which timing segment they landed in. Two names for one measurement is worse
+than one, and where the two segments disagreed on an identical call the
+disagreement was the harness rather than the library.
+
+## Why they exist
+
+The narrowness of the other two bands became misleading once the patch set grew
+past the formatter.
 
 `G` hoists both `normalizeUnit` tables and the `SystemZone` probe, and replaces
 the `Duration` round trip inside `adjustTime`. None of those are reachable from
 any formatting or parsing case; they were found by profiling, not by any table,
-and a reader of `upstream.ts` would not know those paths exist. `A` and `E` sit
-under every zoned operation, not just the ones that print something.
+and a reader of the other two bands would not know those paths exist. `A` and `E`
+sit under every zoned operation, not just the ones that print something.
 
-The `adjustTime` change is the reason this table has its current shape. It is
-under every `plus` and `minus`, and so under `endOf`, `hasSame`, `diff`,
-`toRelative` and `Interval#splitBy`, and `upstream.ts` has a row for none of
-those.
+The `adjustTime` change is the reason this set has its current shape. It is under
+every `plus` and `minus`, and so under `endOf`, `hasSame`, `diff`, `toRelative`
+and `Interval#splitBy`, and the other two bands have a column for none of those.
 
-## Reading the table
+## Reading the columns
 
-moment leads, because it is the number the work is aimed at. Nobody adopts a date
-library to be a given multiple of its own previous self; the question a row
+moment is the top row of the ladder and what every cell below it is shaded
+against, because it is the number the work is aimed at. Nobody adopts a date
+library to be a given multiple of its own previous self; the question a column
 answers is whether luxon is now something you would pick over the thing people
-already have. Stock luxon is the distance travelled rather than the target.
+already have. Stock luxon, the row under it, is the distance travelled rather
+than the target.
 
-So the columns are moment's milliseconds, then stock's, then the patched build's,
-then the same two as ratios in the same order. Lower is better in every column,
-1.000 is parity, and a 4x speedup reads as 0.250. Above 1.000 the patched build
-is behind.
+A `--` is a build with no equivalent to run, which happens twice. moment ships no
+`Interval` and has no `Duration#shiftTo`, so those four columns are luxon-only and
+are left unshaded rather than shaded against something moment did not do. And the
+two easy-tz rows sit out the whole band: they exist to ask whether binding
+easy-tz's zone is still worth it, the cases name their zone as a string, and
+running them there would resolve it through Intl and print a plain-luxon number
+under a row that claims otherwise. The `formatting` and `parsing` columns already
+answer the question those rows are there for.
 
-Both ratios are kept because a row where the patches take a twentieth of stock's
-time and still trail moment is a different result from one where they overtake
-it, and neither the milliseconds nor a single ratio says which happened.
-
-This table does not re-derive the ladder — [`upstream`](upstream.md) owns that,
-rung by rung — and carries only the two endpoints.
-
-Which internals a row reaches is in `coverage.ts` itself rather than in a column,
-because it does not follow the timings, and the places it comes apart are the
-interesting ones. `toLocaleString` routes through F and barely moves, because F
-interns locales and this table holds the locale fixed. `toISO` never reaches the
+Which internals a column reaches is in
+[`lib/api-cases.ts`](../lib/api-cases.ts) rather than in the table, because it
+does not follow the timings, and the places it comes apart are the interesting
+ones. `toLocaleString` routes through F and barely moves, because F interns
+locales and these cases hold the locale fixed. `toISO` never reaches the
 `Formatter` at all — it builds its string directly — so I does nothing for it and
 G does.
 
-### The format-pattern rows
+### The format-pattern columns
 
 `toFormat` appears several times because the pattern decides which internals run,
 and for a long time every formatting bench in this repo used one shape: all
@@ -59,7 +74,7 @@ paths were written for, so a table containing only it credits G with most of wha
 I does and makes I look redundant.
 
 The other shapes are not that. A month or weekday **name** never reaches a
-numeric fast path at all, so in the text rows G has nothing to contribute and the
+numeric fast path at all, so in the text columns G has nothing to contribute and the
 interpreter I replaces is the whole cost. A **wide** pattern multiplies that,
 because the per-token switch runs once per token per value while the other
 patches' savings are per value. And words in a **non-English** locale leave the
@@ -73,15 +88,17 @@ a request path rather than in a rendered table. `toHTTP` is the dearer of the tw
 because it changes zone first: it is `toRFC2822` plus a `toUTC()`, and pricing
 that is half of why it is here.
 
-### The starred rows
+### The not-like-for-like columns
 
-Rows marked `*` are ones where moment reaches the same user-visible answer by
-different means: it expands its own bundled locale tables where luxon calls into
-ICU. Those are two libraries doing comparable work rather than two
-implementations of one algorithm. `Interval` has no moment equivalent short of a
-plugin.
+The footnote under the table names four: `toFormat text fr`, `toLocaleString`,
+`toRelative` and `Duration toHuman`. In each, moment reaches the same
+user-visible answer by different means — it expands its own bundled locale tables
+where luxon calls into ICU. Those are two libraries doing comparable work rather
+than two implementations of one algorithm, so the shading across those columns is
+a library comparison and should not be read as one implementation beating
+another.
 
-### The Info rows
+### The Info columns
 
 These call `moment.localeData(x).months()`, which returns the list moment already
 holds, rather than the public `moment.months()`, which reads a process-global
@@ -91,40 +108,40 @@ the columns are against.
 
 ## Where luxon still trails moment
 
-The bench prints the current list, computed from the run. It falls into four
-groups.
+Read it off the shading: a red cell in the bottom rung is a column the finished
+tree is still behind moment on. They fall into three groups.
 
-**The starred rows** are the ICU boundary described above, and are the trade each
-library made rather than something to fix here.
+**The not-like-for-like columns** are the ICU boundary described above, and are
+the trade each library made rather than something to fix here.
 
-**The `Info` rows** are the same boundary at a scale where the ratio flatters
+**The `Info` columns** are the same boundary at a scale where the ratio flatters
 itself: both sides are well under a millisecond for the whole batch. The stock
-column is where that row's argument is, and it is a large one.
+row is where that column's argument is, and it is a large one.
 
 **`endOf` and `diff`** are the ones to read as unfinished: luxon doing the same
 job moment does and taking longer at it.
 
-This group used to have four rows in it, and the other two are worth saying what
+This group used to have four in it, and the other two are worth saying what
 became of, because neither was fixed the same way.
 
 `Duration#as` was `shiftTo` and `normalizeValues` — a whole `Duration` built,
 walked and cloned so one number could be read off it, against moment's `asHours`,
-which divides. H computes the sum directly and the row now leads.
+which divides. H computes the sum directly and the column now leads.
 
 `fromObject` was a measurement artifact. Its inputs advanced month, day and hour
 off one counter, which lands every construction in a different month from the one
 before it, and E caches the transition-free span around the offset it last looked
-up. Nothing hit that cache, so the row was paying 3.69 ICU calls per construction
-where the same code paying 0.38 is what an ordinary caller sees. The row now
-walks hours the way a caller filling a calendar does. The old shape is a real
+up. Nothing hit that cache, so the column was paying 3.69 ICU calls per
+construction where the same code paying 0.38 is what an ordinary caller sees. It
+now walks hours the way a caller filling a calendar does. The old shape is a real
 cost of E, and a caller who really does hop between months pays it; it just is
-not what a row named `fromObject` should be reporting.
+not what a column named `fromObject` should be reporting.
 
 `diff` is the one left with an obvious next step, and it is not a leaf. It walks
 units largest-first and calls `earlier.plus(results)` once or twice per unit to
 test each guess, so it pays `adjustTime` up to ten times for one answer, and then
 builds two more `Duration`s to combine halves of a result it has already computed.
-G took the arithmetic under it and H took the allocation, which is why the row
+G took the arithmetic under it and H took the allocation, which is why the column
 has moved as far as it has; what is left is the algorithm, so it wants its own
 patch and its own argument.
 

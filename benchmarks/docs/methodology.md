@@ -128,8 +128,8 @@ same in each:
 
 - `upstream` and `format` compare rendered output across builds, and with
   `--verify` do it exhaustively across zones, locales, styles and transitions.
-- `coverage` requires stock and the patched build to return identical results for
-  every case before it times anything.
+- `upstream`'s API columns require every build in the ladder to return identical
+  results for every case before it times anything.
 - `suite` checksums every cell and reports any that did not return stock's value.
 - The reading columns read each value back to the instant it was rendered from,
   since a build that cannot read a shape would otherwise post the best number in

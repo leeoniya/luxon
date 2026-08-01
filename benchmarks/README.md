@@ -22,7 +22,7 @@ running one does not bury its numbers in several pages of explanation:
 | doc | what is in it |
 | --- | --- |
 | [`docs/upstream.md`](docs/upstream.md) | the nine patches one by one, `E`'s tzdata precondition, and the order to file them in |
-| [`docs/coverage.md`](docs/coverage.md) | where luxon still trails moment across the public API, and what is left to do about it |
+| [`docs/coverage.md`](docs/coverage.md) | the ladder's public API columns: why each is there, and where luxon still trails moment |
 | [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
 | [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
 | [`docs/cross-engine.md`](docs/cross-engine.md) | which patches pay off on both V8 and JavaScriptCore |
@@ -58,8 +58,7 @@ rather than whatever a sibling checkout was last built from. That directory's
 | `npm run bench` | luxon's own suite (`datetime.js`, `info.js`), one build, ops/sec |
 | `npm run suite` | those same 29 cases across stock and the full patched build |
 | `npm run format` | can a consumer close the moment-timezone gap from *outside* luxon? |
-| `npm run upstream` | what can be removed from *inside* it, patch by patch |
-| `npm run coverage` | what the patches are worth across the public API, vs moment |
+| `npm run upstream` | what can be removed from *inside* it, patch by patch, across the public API |
 | `npm run cross-engine` | whether the ladder ranks the same on V8 and JavaScriptCore |
 | `npm test` | the offset and zone-name patches against stock, exhaustively |
 | `npm run check` | `tsc`, type-check only |
@@ -74,8 +73,8 @@ row for a default run. `--cooldown 0` turns the idling off, which is what to do
 when iterating on a patch and comparing a run against itself rather than reading
 rows against each other; `--cooldown <ms>` sets it to anything else.
 
-Timings in the tables that have a moment baseline — `upstream`'s ladder,
-`coverage`, and `format` — are shaded against it on a terminal: moment keeps the
+Timings in the tables that have a moment baseline — `upstream`'s ladder and
+`format` — are shaded against it on a terminal: moment keeps the
 default colour, cells faster than it go green, cells slower go red, and further
 either way is more saturated. It is a log scale, since these ratios run from
 about a fifth of moment's time to fifty times it, and anything within ~10% is
@@ -97,16 +96,34 @@ result if the outputs match, so run it before quoting any of them.
 `npm run verify` runs both.
 
 `upstream` prints three tables and any combination can be run alone, which is
-the loop for iterating on a patch: `--patches` (~1s), `--ladder` (~27s), and
+the loop for iterating on a patch: `--patches` (~1s), `--ladder` (~80s), and
 `--default` (~13s). It also takes `--footprint` for rss and Intl-formatter
 counts, one subprocess per row.
 
-`--ladder` is the main table: one row per build, carrying both what that build
-costs to write a date and what it costs to read one, with its shipped bytes at
-the end. The two halves are timed separately — reading costs enough per value
-that its passes are sized by time and scaled, writing runs the full value count
-— and each column states its own noise floor underneath, because they differ by
-an order of magnitude in cost and so in steadiness.
+`--ladder` is the main table: one row per build, and one column per thing a
+build can be asked to do, with its shipped bytes at the end. The columns are
+banded into `formatting`, `parsing` and `other`, the last being everything that
+neither writes a string nor reads one — arithmetic, `Duration`, `Interval`,
+`Info`. It is a wide table, ~600 columns of terminal, and deliberately: a patch
+is argued from one row against the row above it, and every column that row can
+answer is part of that argument.
+
+The three bands are timed as three separate segments, because they were
+calibrated separately and still need to be: formatting runs the full value
+count, while parsing and the API calls cost enough per value that their passes
+are sized by time and then scaled. Each column states its own noise floor
+underneath, because they differ by an order of magnitude in cost and so in
+steadiness. A `--` is a build with no equivalent to run: moment ships no
+`Interval`, and the easy-tz rows are formatting and parsing only, since the API
+cases name their zone as a string rather than taking one.
+
+The API columns exist because the patch set outgrew the two bands that found it:
+`G` hoists both `normalizeUnit` tables and replaces the `Duration` round trip
+inside `adjustTime`, none of which any formatting or parsing case touches, and
+`A` and `E` sit under every zoned operation rather than only the ones that print
+something. They were a table of their own (`coverage.ts`) until they moved here.
+Every build's answers are checked against every other's before anything is
+timed, so a patch that changed an answer fails the bench rather than winning it.
 
 Both of those name a zone, since that is what the patches were written for.
 `--default` is the same ladder with no zone named at all, which is what a caller
@@ -114,17 +131,6 @@ who never configures one gets: luxon falls back to `SystemZone`, whose offset is
 a `getTimezoneOffset` call rather than an Intl one, so stock is already an order
 of magnitude cheaper there and the Intl-removing patches have much less to
 remove.
-
-`coverage` (~12s) is the other axis. Where `format` and `upstream` go deep on
-writing and reading a date, it goes wide: 28 public API calls — arithmetic,
-`Duration`, `Interval`, `Info`, the ISO writers — each timed on stock, on the
-full patched build, and on its moment equivalent. It exists because the patch set
-outgrew the tables that found it: `G` hoists both `normalizeUnit` tables and
-replaces the `Duration` round trip inside `adjustTime`, none of which any
-formatting or parsing case touches, and `A` and `E` sit under every zoned
-operation rather than only the ones that print something. It checks that both
-builds return identical results before timing anything, so a patch that changed
-an answer fails the bench rather than winning it.
 
 ## How the patches are applied
 
@@ -163,7 +169,6 @@ datetime.js  info.js  index.js   luxon's own suite, on tinybench
 suite.ts                         those 29 cases across build columns
 format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
-coverage.ts                      28 public API calls, patched and vs moment
 cross-engine.ts                  upstream.ts under node and bun, diffed
 patches/                         the nine diffs
 docs/                            what the tables mean

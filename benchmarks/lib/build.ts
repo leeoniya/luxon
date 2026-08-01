@@ -53,7 +53,7 @@ const momentByRole = new Map<string, MomentTz>();
  * formatter per zone across hundreds of them, and they all want the same one.
  * ~10ms and ~3MB each.
  */
-function momentFor(role: string): MomentTz {
+export function momentFor(role: string): MomentTz {
   let m = momentByRole.get(role);
 
   if (m === undefined) {
@@ -83,7 +83,7 @@ function momentFor(role: string): MomentTz {
  * Probed on an instance that is never timed, since probing is itself a call of
  * the kind this is here to keep out of the timed instances.
  */
-function momentRole(build: (m: MomentTz) => object): string {
+export function momentRole(build: (m: MomentTz) => object): string {
   return Object.keys(build(momentFor("probe"))).sort().join(",");
 }
 

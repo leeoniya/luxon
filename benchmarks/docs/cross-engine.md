@@ -56,7 +56,8 @@ Two things it taught are worth keeping even without the table:
   disagreeing. Any future verdict column here needs the same warning.
 - `F` was the patch that kept tripping it. It is aimed at `Info`, which a
   formatting table barely touches, so a formatting-side ranking was the wrong
-  place to judge it from. Its case is in [coverage.md](coverage.md).
+  place to judge it from. Its case is in the ladder's `other` band — see
+  [coverage.md](coverage.md).
 
 ## What it found
 

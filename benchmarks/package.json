@@ -8,7 +8,6 @@
     "suite": "node suite.ts",
     "format": "node format.ts",
     "upstream": "node upstream.ts",
-    "coverage": "node coverage.ts",
     "cross-engine": "node cross-engine.ts",
     "verify": "node format.ts --verify && node upstream.ts --verify",
     "test": "node --test 'test/*.test.ts'",

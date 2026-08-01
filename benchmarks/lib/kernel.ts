@@ -463,11 +463,15 @@ export async function measureRows<R, K>(
 
 // ---- sizing for a wide table ------------------------------------------------
 
-// What benchmarks/coverage.ts runs `interleavedBest` at. That table is 28 rows
-// across two luxon builds plus a moment column, where the default
-// DEFAULT_BUDGET_MS and a 3-7 pass range put the bench into minutes of sustained
-// load — long enough on a thermally limited host that it starts measuring its
-// own cooling.
+// What the API columns of benchmarks/upstream.ts's ladder run `interleavedBest`
+// at. Those are 30 columns across eleven luxon builds plus a moment row, where
+// the default DEFAULT_BUDGET_MS and a 3-7 pass range put the bench into minutes
+// of sustained load — long enough on a thermally limited host that it starts
+// measuring its own cooling.
+//
+// Calibrated when they were a table of their own (benchmarks/coverage.ts, since
+// merged into the ladder); the per-entry cost range they were swept over is the
+// same, which is what the calibration is a function of.
 //
 // Swept against a deliberately expensive reference (150ms x 5-9 passes) over
 // entries spanning this table's cost range, worst per-entry deviation:

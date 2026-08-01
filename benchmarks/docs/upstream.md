@@ -21,27 +21,47 @@ zone.
 | ladder | `--ladder` | what each rung is worth writing and reading a date in a named zone, and what it ships |
 | default | `--default` | the same ladder with no zone named at all |
 
-Any combination can be run alone, which is the loop for iterating on one patch.
-`--verify` adds the output-parity table. `--footprint` adds rss and Intl-formatter
-counts.
+Any combination can be run alone, which is the loop for iterating on one patch:
+`--patches` (~1s), `--ladder` (~80s), `--default` (~13s). `--verify` adds the
+output-parity table. `--footprint` adds rss and Intl-formatter counts.
 
-The ladder is one table with a row per build: three columns for writing a date,
-five for reading one, and the shipped bytes at the end. A `formatting` and a
-`parsing` band over the header mark where one half ends and the other begins,
-since the column names alone stop being self-evident at eight of them — `text`
-formats a pattern and `tokens` parses one. `bytes` sits under neither band, and
-`millis` is the one column its band does not describe: it parses nothing, and is
-there as that half's floor. Its footnote says so. The writing columns vary
-the pattern rather than the zone — `numeric` pays only for an offset, `abbr` also
-renders a zone abbreviation, and `text` names a weekday and a month, which is the
-only one of the three that reaches the `Formatter` anywhere other than its
-numeric path. They are printed together
-because they are the same builds and the interesting thing about them is the
-comparison down a column, not across. They are *timed* separately, in two
-segments per row, because reading costs enough per value that its passes have to
-be sized by time and scaled where writing runs the full count. Nothing reads a
-writing column against a reading one, which is what makes splitting the timing
-free.
+The ladder is one table with a row per build and a column per thing a build can
+be asked to do, with the shipped bytes at the end. Three bands over the header
+sort the columns, since the names alone stopped being self-evident long before
+there were forty of them — `text` formats a pattern, `tokens` parses one, and
+`set` does neither:
+
+- **`formatting`** — writing a date. Three columns that build a `DateTime` per
+  value and format it, then the `toFormat` and ISO-writer calls on a `DateTime`
+  built beforehand. The first three vary the pattern rather than the zone:
+  `numeric` pays only for an offset, `abbr` also renders a zone abbreviation, and
+  `text` names a weekday and a month, which is the only one of the three that
+  reaches the `Formatter` anywhere other than its numeric path.
+- **`parsing`** — reading one, plus the two constructors that take no string.
+- **`other`** — everything that neither writes a string nor reads one:
+  arithmetic, `Duration`, `Interval`, `Info`. Defined by exclusion rather than by
+  a subject, which is why it is named that way.
+
+`bytes` sits under no band. Two columns are not what their band describes, both
+deliberately: `millis` parses nothing, being the same construction with the
+string taken away, and sits in `parsing` as that band's floor, and `fromObject`
+and `now` are there for the same reason. The footnotes say so.
+
+The bands are printed together because they are the same builds and the
+interesting thing about them is the comparison down a column, not across. They
+are *timed* separately, in three segments per row, because parsing and the API
+calls cost enough per value that their passes have to be sized by time and
+scaled where formatting runs the full count. Nothing reads one band's column
+against another's, which is what makes splitting the timing free.
+
+A `--` is a build with no equivalent to run: moment ships no `Interval` and no
+`Duration#shiftTo`, and the easy-tz rows are `formatting` and `parsing` only,
+since the API cases name their zone as a string rather than taking one.
+
+It is a wide table — around 600 columns of terminal — and deliberately so. A
+patch is argued from one row against the row above it, and every column that row
+can answer is part of the argument. [coverage.md](coverage.md) reads the API
+columns; the rest of this file reads the patches.
 
 The baseline is moment-**timezone**, not moment: a named zone needs its packed
 offset table, and only its `z` token renders an abbreviation. moment core is
@@ -93,10 +113,10 @@ which of the two formats a rung helps tells you which call it removed. A pattern
 with no zone name in it only ever pays for the offset; a pattern with one pays
 for both.
 
-A rung being small is not a verdict on the patch, only on what this table asks of
-it. F is the clearest case: interning `Locale` objects barely shows against a
-pattern that holds its locale fixed, and the calls it was written for are on
-[coverage.md](coverage.md) instead.
+A rung being small is not a verdict on the patch, only on what those columns ask
+of it. F is the clearest case: interning `Locale` objects barely shows against a
+pattern that holds its locale fixed, and the calls it was written for are in the
+`other` band — see [coverage.md](coverage.md).
 
 ### Why I is last
 
@@ -234,11 +254,11 @@ together on the paths that reach them. `adjustTime` was building a nine-key
 an integer sum will do; `impl/diff.js`'s `dayDiff` was building another to reach
 a single division. Every `plus` and `minus` goes through `adjustTime`, which puts
 it under `endOf`, `hasSame`, `diff`, `toRelative` and `Interval#splitBy` as well
-— and this file has a row for none of those. [coverage.md](coverage.md) is where
-that lands.
+— and the `formatting` and `parsing` bands have a column for none of those. The
+`other` band is where that lands; see [coverage.md](coverage.md).
 
-The `adjustTime` fast path was found by taking coverage's four worst rows against
-moment and profiling them. `diff`, `endOf('month')`, `toRelative` and
+The `adjustTime` fast path was found by taking the four API columns furthest
+behind moment and profiling them. `diff`, `endOf('month')`, `toRelative` and
 `hasSame('day')` were all behind, all four for the same reason.
 
 G contains the other two rewrites in the set, alongside B: the `adjustTime` fast
@@ -294,11 +314,10 @@ object, for the same reason as above from the other direction: on a plain object
 to `plus()`, so `endOf("__proto__")` would quietly behave like `startOf` instead
 of throwing.
 
-The ladder's rung for H is nearly flat, and expectedly so — every column here
-writes or reads a date, and the only part of H on those routes is the one `clone`
-that `fromMillis` does. [coverage.md](coverage.md) is where it is priced: `plus`,
-`set`, `startOf`, `endOf` and `Duration#as`. The rung is here so that its bytes
-are declared alongside everything else's.
+H's rung is nearly flat across the `formatting` and `parsing` bands, and
+expectedly so — those columns write or read a date, and the only part of H on
+those routes is the one `clone` that `fromMillis` does. The `other` band is where
+it is priced: `plus`, `set`, `startOf`, `endOf` and `Duration#as`.
 
 ### I — `compileFormat`
 
@@ -359,8 +378,9 @@ reaches no numeric fast path at all, which is what `text` varies and why I's ste
 moves it further than it moves the other two.
 
 The shapes further out — a long pattern, a non-English locale, a non-gregorian
-calendar — are rows on [coverage.md](coverage.md) rather than columns here, since
-they vary the caller's pattern rather than the patch set.
+calendar — are the `toFormat` columns in the `formatting` band rather than
+variations on these three, since they vary the caller's pattern rather than the
+patch set. [coverage.md](coverage.md) reads them.
 
 ### What the merge cost
 
@@ -387,8 +407,8 @@ below it. The ladder answers the second question for I, by putting it last — b
 it can only do that for one patch at a time.
 
 `--drop <letters>` answers it for any of them, by leaving a patch out of every
-build a run makes — the ladder, the byte table, the parity scan, `coverage`,
-`suite`, and both engines under `cross-engine`. Run the bench with and without,
+build a run makes — the ladder, the byte table, the parity scan, `suite`, and
+both engines under `cross-engine`. Run the bench with and without,
 and the difference between the two full-set rows is what that patch is worth once
 everything else is in.
 

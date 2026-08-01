@@ -54,8 +54,8 @@ relative-time table lands on `DateTime#toRelativeCalendar`; the reused `Date`
 inside `SystemZone` on `DateTime.now` — the default zone, and so the one
 configuration [`upstream`](upstream.md) never names; and the `Duration` unit table
 plus the `adjustTime` fast path on `DateTime#add`. That last one is the largest by
-a wide margin, and [`coverage`](coverage.md) is where its reach is visible rather
-than here.
+a wide margin, and the ladder's [`other` band](coverage.md) is where its reach is
+visible rather than here.
 
 **I**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
 bulk.
