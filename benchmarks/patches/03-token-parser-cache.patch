@@ -6,14 +6,14 @@ Summary: fromFormat: reuse the parser it builds per call, the way buildFormatPar
 
 C: fromFormat compiles a regex for every string it reads
 
-H's counterpart on the reading side, and the same observation: the work depends
+I's counterpart on the reading side, and the same observation: the work depends
 on the format, not on the value. fromFormat calls explainFromTokens, which
 constructs a TokenParser and drops it. That constructor tokenizes the format,
 expands macro tokens, builds a unit per token, concatenates the units' sources
 into one pattern and compiles it with RegExp. Then it matches one string against
 it and the whole thing is garbage.
 
-Unlike H this needs no restructuring, because the object to cache already
+Unlike I this needs no restructuring, because the object to cache already
 exists. It is even already public: DateTime.buildFormatParser hands a
 TokenParser out and DateTime.fromFormatParser takes one back, an API whose only
 purpose is to let a caller hoist this out of a loop. So reuse is not a property

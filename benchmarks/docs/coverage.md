@@ -47,7 +47,7 @@ Which internals a row reaches is in `coverage.ts` itself rather than in a column
 because it does not follow the timings, and the places it comes apart are the
 interesting ones. `toLocaleString` routes through F and barely moves, because F
 interns locales and this table holds the locale fixed. `toISO` never reaches the
-`Formatter` at all — it builds its string directly — so H does nothing for it and
+`Formatter` at all — it builds its string directly — so I does nothing for it and
 G does.
 
 ### The format-pattern rows
@@ -56,15 +56,15 @@ G does.
 and for a long time every formatting bench in this repo used one shape: all
 numeric, en-US, gregorian calendar. That is exactly the input G's numeric fast
 paths were written for, so a table containing only it credits G with most of what
-H does and makes H look redundant.
+I does and makes I look redundant.
 
 The other shapes are not that. A month or weekday **name** never reaches a
 numeric fast path at all, so in the text rows G has nothing to contribute and the
-interpreter H replaces is the whole cost. A **wide** pattern multiplies that,
+interpreter I replaces is the whole cost. A **wide** pattern multiplies that,
 because the per-token switch runs once per token per value while the other
 patches' savings are per value. And words in a **non-English** locale leave the
 English short-circuit for `Locale#extract` and ICU, where the interpreter rebuilds
-an Intl options literal per token per value — the branch H hoists at compile time
+an Intl options literal per token per value — the branch I hoists at compile time
 and no other patch touches.
 
 `toRFC2822` and `toHTTP` are the text shape with the pattern fixed by a standard
@@ -101,27 +101,38 @@ library made rather than something to fix here.
 itself: both sides are well under a millisecond for the whole batch. The stock
 column is where that row's argument is, and it is a large one.
 
-**`Duration#as`** is `shiftTo` and `normalizeValues`, which is real work luxon
-does and moment's `asHours` does not.
+**`endOf` and `diff`** are the ones to read as unfinished: luxon doing the same
+job moment does and taking longer at it.
 
-**`fromObject`, `endOf`, `diff` and `hasSame`** are the ones to read as
-unfinished: luxon doing the same job moment does and taking longer at it. Three
-of them are also where G's `adjustTime` fast path landed — those four rows are
-what sent the profiler at `adjustTime` to begin with, and they moved a long way,
-but not all the way.
+This group used to have four rows in it, and the other two are worth saying what
+became of, because neither was fixed the same way.
 
-`diff` is the one left with an obvious next step. It walks units largest-first
-and calls `earlier.plus(results)` once or twice per unit to test each guess, so it
-pays `adjustTime` up to ten times for one answer, and then builds two more
-`Duration`s to combine the high- and low-order halves of a result it has already
-computed. That is a change to the diffing algorithm rather than to a leaf
-expression, so it wants its own patch and its own argument.
+`Duration#as` was `shiftTo` and `normalizeValues` — a whole `Duration` built,
+walked and cloned so one number could be read off it, against moment's `asHours`,
+which divides. H computes the sum directly and the row now leads.
+
+`fromObject` was a measurement artifact. Its inputs advanced month, day and hour
+off one counter, which lands every construction in a different month from the one
+before it, and E caches the transition-free span around the offset it last looked
+up. Nothing hit that cache, so the row was paying 3.69 ICU calls per construction
+where the same code paying 0.38 is what an ordinary caller sees. The row now
+walks hours the way a caller filling a calendar does. The old shape is a real
+cost of E, and a caller who really does hop between months pays it; it just is
+not what a row named `fromObject` should be reporting.
+
+`diff` is the one left with an obvious next step, and it is not a leaf. It walks
+units largest-first and calls `earlier.plus(results)` once or twice per unit to
+test each guess, so it pays `adjustTime` up to ten times for one answer, and then
+builds two more `Duration`s to combine halves of a result it has already computed.
+G took the arithmetic under it and H took the allocation, which is why the row
+has moved as far as it has; what is left is the algorithm, so it wants its own
+patch and its own argument.
 
 ## Investigated and dropped
 
 **A `toLocaleString` identity cache.** `toLocaleString` is the formatting API
 luxon's own docs steer callers toward, and nothing in the patch set moves it.
-Profiled under all eight patches it is 61–66% `Intl.DateTimeFormat#format` across
+Profiled under all nine patches it is 61–66% `Intl.DateTimeFormat#format` across
 the presets, which nothing can remove without changing what luxon returns, and
 another ~8% is the `Date` that `format` has to be handed, whose instant varies
 per call. Of the ~29% left, ~9% is the `JSON.stringify` key `getCachedDTF` builds

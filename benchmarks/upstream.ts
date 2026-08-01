@@ -123,9 +123,10 @@ const DOCS = "benchmarks/docs";
 // rather than silently measuring a smaller set.
 //
 // A and the first of G's six were found by profiling stock luxon, the rest of
-// G's by re-profiling that build. A, F and G are caches or short-circuits; H is
-// the structural one, and it makes two of G's six redundant by construction (it
-// parses each pattern once and folds punctuation into literal runs).
+// G's by re-profiling that build, and H by profiling the build with all of them
+// in. A, F, G and H are caches or short-circuits; I is the structural one, and it
+// makes two of G's six redundant by construction (it parses each pattern once and
+// folds punctuation into literal runs).
 //
 // Named through `inPlay` rather than `patchKey` directly because `--drop` can
 // take any of them out from under this file, and a group that threw on a patch
@@ -133,7 +134,7 @@ const DOCS = "benchmarks/docs";
 // most useful on.
 const inPlay = (names: string[]) => names.filter(hasPatch).map(patchKey);
 
-const CACHES = inPlay(["zoneInfoCache", "localeIntern", "hotPath"]);
+const CACHES = inPlay(["zoneInfoCache", "localeIntern", "hotPath", "trimAllocs"]);
 const ALL_PATCHES = [...CACHES, ...inPlay(["compileFormat"])];
 // B is the zone lookup rather than the formatter.
 const OFFSET = inPlay(["offsetScan"]);
@@ -161,7 +162,7 @@ const contiguous = (letters: readonly string[]) =>
  * Ranges and an "all but X" for the rung one short of the set both read shorter,
  * and both were here. Together they put three notations in one column, so a
  * reader working out what "A-D" held had to first notice it was not "A+B+C" or
- * "all but H" — and the only thing this column exists to say is which patches a
+ * "all but I" — and the only thing this column exists to say is which patches a
  * row carries. Spelling them out is longer and cannot be misread, and the widest
  * label is the second-to-last row, which is not wide.
  */
@@ -181,32 +182,39 @@ if (UPSTREAM.length !== patchKeys.length) {
 // Ordered by how easy each is to argue for upstream rather than by size: A and F
 // are caches, B and D are self-contained rewrites of one method each, C is a
 // memoization of an object luxon already hands out through buildFormatParser, E
-// needs the tzdata-gap argument accepted, and G is a set of leaf short-circuits.
-// D lands after C only because A and B were written first and the rungs are
-// cumulative — the two Intl calls are independent of each other. The patch files
-// are lettered in this order, so a rung's label reads in the order it built.
+// needs the tzdata-gap argument accepted, and G and H are sets of leaf
+// short-circuits. D lands after C only because A and B were written first and the
+// rungs are cumulative — the two Intl calls are independent of each other. The
+// patch files are lettered and numbered in this order, so a rung's label reads in
+// the order it built and the letter of the patch without a rung is the last one.
 //
-// H is deliberately absent, and is what the final row adds.
+// I is deliberately absent, and is what the final row adds.
 //
 // Exactly one patch can be in that position, because the rungs are cumulative:
 // every other patch is priced by what it ADDS to a partial tree, and whichever
 // one goes last is priced by what the COMPLETE tree LOSES without it. Those are
 // different questions, and for most patches the first is the one worth asking —
-// it is the "should this land" question. H is the exception. It overlaps G,
-// which is the last rung, so an H measured before G would be credited with
-// savings G would also have found, and a reader comparing an H-shaped rung
+// it is the "should this land" question. I is the exception. It overlaps G,
+// which is the last rung, so an I measured before G would be credited with
+// savings G would also have found, and a reader comparing an I-shaped rung
 // against a G-shaped one further down would be comparing two prices for some of
-// the same work. Putting H last removes the double count: the last two rows
-// differ by H alone, so the step between them is what H is worth with everything
+// the same work. Putting I last removes the double count: the last two rows
+// differ by I alone, so the step between them is what I is worth with everything
 // else already in, which is the only form of the question a shipping decision
 // turns on.
 //
-// The cost of that choice is G's rung, which is now measured in H's absence and
+// The cost of that choice is G's rung, which is now measured in I's absence and
 // so reads larger than the G in the shipped tree. See "What the merge cost".
 //
 // F's rung is the one to read against coverage.md rather than against the
 // columns beside it: it interns Locales, which every direction here builds one
 // of, but what it was written for is Info, and this table has no Info in it.
+//
+// H's rung is the same kind of row and more so. Every column here writes or reads
+// a date, and H is on neither route: it is under the setters, so the only part of
+// it these columns touch is the one clone that fromMillis does. coverage.ts is
+// where it is priced — plus, set, startOf, endOf and Duration#as — and the rung
+// is here so that the bytes are declared next to everything else's.
 const RUNG_ORDER = [
   "zoneInfoCache", // A
   "offsetScan", // B
@@ -215,6 +223,7 @@ const RUNG_ORDER = [
   "transitionInterval", // E
   "localeIntern", // F
   "hotPath", // G
+  "trimAllocs", // H, and last of the rungs because I is not one
 ];
 
 /** each rung is the one above it plus one patch, so the list above is the table */
@@ -229,7 +238,7 @@ const RUNGS: string[][] = RUNG_ORDER.map((_, i) => RUNG_ORDER.slice(0, i + 1));
 const LADDER: { id: string; keys: PatchKey[] }[] = [...RUNGS.map(inPlay), UPSTREAM]
   // each row has to hold something the row above it did not. the everything row
   // is in the same filter as the rungs because it is the one that collapses when
-  // H is dropped: H is the only patch with no rung of its own, so without it the
+  // I is dropped: I is the only patch with no rung of its own, so without it the
   // last rung already is the everything build
   .filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length))
   .map((keys, i, all) => ({
@@ -486,8 +495,8 @@ if (tables.has("patches")) {
  * table varies and not the thing that one does. The ladder walks patch sets over
  * a fixed zone, and its other two writing columns are both all-numeric en-US
  * gregorian patterns — the one input for which G's numeric fast paths cover most
- * of what H's compiled program covers, so a ladder made only of those is the
- * place most likely to understate H. format.ts walks zones over a fixed patch
+ * of what I's compiled program covers, so a ladder made only of those is the
+ * place most likely to understate I. format.ts walks zones over a fixed patch
  * set, and a third pattern there would cost it a table, a correctness sweep and
  * an Intl-counting subprocess to answer a question it is not asking.
  */
@@ -571,7 +580,7 @@ if (rowPaths.length !== paths.length) {
 //
 // Worth its own columns because the patches split unevenly across the two
 // directions, and the split is not guessable from the patch descriptions. Some
-// are formatter-only by construction (H compiles a format string to handlers; A
+// are formatter-only by construction (I compiles a format string to handlers; A
 // and D cache and then cheaply read the zone-NAME lookup, which no parse
 // performs). One is parse-only for the mirror-image reason: C compiles a format
 // string for reading, which no format path walks. Some are shared machinery that
@@ -1112,7 +1121,7 @@ if (tables.has("default")) {
 // informational rather than pass/fail.
 //
 // Opt-in (--verify): 20k values per path per format, which the timings do not
-// need. It is still the only check that covers all eight patches — the tests in
+// need. It is still the only check that covers all nine patches — the tests in
 // benchmarks/test/ cover the offset, zone-name and parser-cache ones — so it has
 // to pass before any is argued for upstream.
 //

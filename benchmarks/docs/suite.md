@@ -57,7 +57,7 @@ plus the `adjustTime` fast path on `DateTime#add`. That last one is the largest 
 a wide margin, and [`coverage`](coverage.md) is where its reach is visible rather
 than here.
 
-**H**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
+**I**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
 bulk.
 
 ## The two cases that reset the caches

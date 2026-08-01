@@ -132,7 +132,7 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
      intlDTCache.clear();
      intlNumCache.clear();
      intlRelCache.clear();
-@@ -423,6 +490,18 @@ export default class Locale {
+@@ -423,5 +490,17 @@ export default class Locale {
    }
  
    redefaultToEN(alts = {}) {

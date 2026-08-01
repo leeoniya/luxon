@@ -15,13 +15,16 @@
 // crosses DST transitions in both directions: an offset read that left the probe
 // holding a stale time would show up as one zone reading another's answer.
 //
-// Last, adjustTime and dayDiff compute directly what they used to route through a
-// Duration. Both are guarded, and the guards are the whole correctness argument:
-// the fast path in adjustTime is only exact when every field is an integer, and
-// only when the sum stays inside the finite range, where luxon's existing
-// behaviour is to add nothing at all. So that sweep is organised by input rather
-// than by method — fractions in each of the nine fields, values past 2^53, sums
-// that overflow — and would fail if either guard were dropped.
+// Last, adjustTime and dayDiff compute directly what they used to route through
+// objects built to be read once. Both are guarded, and the guards are the whole
+// correctness argument: the fast path in adjustTime is only exact when every
+// field is an integer, and only when the sum stays inside the finite range, where
+// luxon's existing behaviour is to add nothing at all. So that sweep is organised
+// by input rather than by method — fractions in each of the nine fields, values
+// past 2^53, sums that overflow — and would fail if either guard were dropped.
+// dayDiff's guard is a different kind: it reads the civil date off the DateTime
+// and converts it, and the conversion has to be the one that does not read years
+// under 100 as 19xx, so there is a sweep of those.
 //
 // The formatter half of G is covered by the --verify pass in benchmarks/format.ts
 // and benchmarks/upstream.ts, which compares every rendered string against stock.
@@ -475,6 +478,40 @@ describe("hotPath is invisible", () => {
                   : null,
                 `Interval#count ${zone} ${ts} +${span}d`
               );
+            }
+          }
+        }
+      });
+
+      test("dayDiff over years the two-digit rule would rewrite", async () => {
+        const patched = await loadLuxon(keys);
+
+        // utcDayStart now reads dt.c and converts it itself, and the obvious way
+        // to write that conversion — Date.UTC(year, month - 1, day) — reads any
+        // year under 100 as 19xx. objToLocalTS undoes that; nothing else here
+        // would notice if this stopped calling it. Year 100 and the leap day at
+        // 99/100 are in because Date.UTC's 1999 is a leap year and 99 is not.
+        const YEARS = [1, 49, 50, 70, 99, 100, 101, 1899, 1900, 2024];
+
+        for (const zone of ["America/New_York", "UTC"]) {
+          for (const year of YEARS) {
+            for (const [month, day] of [
+              [1, 1],
+              [2, 28],
+              [3, 1],
+              [12, 31],
+            ] as const) {
+              const of = (m: typeof stock) =>
+                m.DateTime.fromObject({ year, month, day, hour: 13, minute: 30 }, { zone });
+              const to = (m: typeof stock) => m.DateTime.fromObject({ year: 2024, month: 6, day: 15 }, { zone });
+
+              for (const units of [["days"], ["weeks"], ["weeks", "days"], ["years", "days"]]) {
+                assert.equal(
+                  of(patched).diff(to(patched), units as DurationUnit[]).toISO(),
+                  of(stock).diff(to(stock), units as DurationUnit[]).toISO(),
+                  `diff ${units.join(",")} ${zone} ${year}-${month}-${day}`
+                );
+              }
             }
           }
         }

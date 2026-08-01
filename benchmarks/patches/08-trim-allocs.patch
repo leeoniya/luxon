@@ -1,0 +1,217 @@
+Patch: trimAllocs
+Letter: H
+Requires: none
+Files: src/datetime.js, src/duration.js
+Summary: three objects built to be read once and dropped: clone's second config, as()'s intermediate Duration, endOf's per-call unit literal
+
+H: three objects that exist only to be read once
+
+Same shape as G's third family, and a separate patch only because it is a
+separate argument: G's two are on the arithmetic *math*, where the risk is
+floating point, and these three are on the arithmetic *plumbing*, where the risk
+is that some caller depends on a property of the object being removed. Each of
+the three is a few lines. Together they are worth more than any of them, because
+two of the three are under every setter DateTime has.
+
+  datetime.js  clone   builds its config twice. `current` is the seven fields
+                       being carried over, and then `{ ...current, ...alts,
+                       old: current }` is a second object built by merging it
+                       with the caller's changes. Naming the seven fields costs
+                       one comparison each and removes the merge.
+  duration.js  as      is shiftTo(unit).get(unit): a whole Duration constructed,
+                       normalized and cloned again on the way out of shiftTo, so
+                       that one number can be read off it and the rest thrown
+                       away.
+  datetime.js  endOf   builds `{ [unit]: 1 }` per call. A computed key makes a
+                       dictionary-mode object, which normalizeObject then walks.
+                       There are nine of them and they never change.
+
+clone is the one that matters, and not only for the allocation. The second object
+takes its shape from `alts`, which is a different set of keys at each of the six
+call sites — {ts}, {ts, zone, wasHole}, {loc}, {ts, o, wasHole}, and adjustTime's
+{ts, o} — so the config the DateTime constructor reads is a different shape on
+every path into it, and the constructor's field reads never settle on one. Naming
+the fields gives every call site the same shape.
+
+Two of the seven fields turn out to be dead in the merged object, which is worth
+knowing before reading the comparisons as defensive: the constructor ignores
+`config.o` whenever `config.old` is set, which clone always sets, and no call site
+passes `invalid` at all. They are forwarded anyway, so that this is a rewrite of
+the spread and not a bet about which of its fields anyone needs.
+
+as() is the fiddly one, because shiftTo is not the plain sum it reduces to. Two
+things are copied out of it rather than simplified away:
+
+The trunc-and-remainder split. shiftTo takes the integer part of the running
+total and carries `(own * 1000 - whole * 1000) / 1000` as the remainder, then
+adds it back. That is not the identity in floating point, and `whole + remainder`
+is the number callers have been getting.
+
+The `|| 0`. get(unit) reads through the unit getter, which ends in `|| 0`, so a
+Duration whose value for that unit is NaN answers 0 today. Duration.fromMillis
+throws on NaN before it can reach here, but fromDurationLike and the matrix
+divisions can still produce one, and the difference would only show up as a 0
+turning into a NaN somewhere downstream.
+
+And one thing that had to be found rather than reasoned about: as("__proto__")
+does not throw. Duration.normalizeUnit looks its argument up in an object
+literal, where "__proto__" finds Object.prototype and "constructor" finds a
+function, and both are truthy enough to pass the check that is supposed to reject
+them. shiftTo then matches no unit at all and the getter reads undefined off what
+comes back. The sum here has no such fixed point — it would answer 0, or throw
+out of the matrix — so anything normalizeUnit answers that is not one of the nine
+ordered units falls back to shiftTo. Correcting normalizeUnit instead is the
+better fix and a different patch.
+
+endOf needs a Map and not an object for the memo, because the key is whatever
+string the caller passed. `oneOf["__proto__"]` on a plain object finds
+Object.prototype, which is truthy and would be handed to plus() as a duration —
+so endOf("__proto__"), which throws InvalidUnitError today, would instead
+silently behave like startOf. A Map has no such key.
+
+Measured on the all-8 build, fastest of nine interleaved passes, node then bun,
+each edit alone and then together:
+
+  clone      plus -15% / -25%, set -13% / -24%, hasSame -10% / -23%,
+             endOf -8% / -23%, startOf -9% / -18%, toRelative -5% / -13%
+  as         Duration#as -70% / -77%, everything else flat
+  endOf      endOf -11% / 0%
+  all three  plus -21% / -24%, endOf -20% / -19%, set -14% / -24%,
+             startOf -12% / -16%, Duration#as -68% / -75%, toRelative -4% / -17%
+
+with toFormat flat throughout as a control. The engine split runs the way it does
+for G's constants: V8 escape-analyzes some of these allocations away and JSC does
+not, so bun sees roughly double what node does on clone. The endOf memo is the
+exception and the weakest of the three — it is worth something on V8 and nothing
+on JSC — and it is here because it is four lines and the other two carry the
+patch.
+
+Verification is in benchmarks/test/trim-allocs-patch.test.ts: every one of clone's
+call sites across five zones and both DST directions, every unit and its aliases,
+the strings that are not units, and Duration#as over fractional, negative,
+past-2^53 and non-finite inputs at both conversion accuracies, all against stock.
+It compares wasHole and locale as well as the instant, because clone carries
+fields that no timestamp reflects, and Object.is rather than === so that NaN and
+-0 have to agree. Twelve deliberate breakages of this patch were run against it
+and eleven failed the suite; the survivor replaces Math.trunc with Math.round,
+which the remainder line then cancels out. Luxon's own suite was also run against
+a tree with this applied and produced an identical pass/fail set.
+
+diff --git a/src/datetime.js b/src/datetime.js
+--- a/src/datetime.js
++++ b/src/datetime.js
+@@ -53,6 +53,22 @@ import Invalid from "./impl/invalid.js";
+ 
+ const INVALID = "Invalid DateTime";
+ const MAX_DATE = 8.64e15;
++
++// UPSTREAM-H: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
++// A Map rather than an object because the key is whatever the caller passed:
++// oneOf["__proto__"] on an object finds Object.prototype, which is truthy, and
++// endOf("__proto__") would then behave like startOf instead of throwing.
++const oneOfCache = new Map();
++
++function oneOf(unit) {
++  let one = oneOfCache.get(unit);
++
++  if (one === undefined) {
++    oneOfCache.set(unit, (one = { [unit]: 1 }));
++  }
++
++  return one;
++}
+ 
+ function unsupportedZone(zone) {
+   return new Invalid("unsupported zone", `the zone "${zone.name}" is not supported`);
+@@ -97,7 +113,23 @@ function clone(inst, alts) {
+     invalid: inst.invalid,
+     wasHole: inst.wasHole,
+   };
+-  return new DateTime({ ...current, ...alts, old: current });
++  // UPSTREAM-H: was `new DateTime({ ...current, ...alts, old: current })`, a
++  // second object merged out of the first. `alts` is a different set of keys at
++  // each call site, so the config the constructor reads was a different shape on
++  // every path into it; naming the fields gives it one. `o` and `invalid` are
++  // forwarded for faithfulness rather than for effect — the constructor ignores
++  // `o` whenever `old` is set, which is always here, and nothing passes
++  // `invalid`.
++  return new DateTime({
++    ts: alts.ts === undefined ? current.ts : alts.ts,
++    zone: alts.zone === undefined ? current.zone : alts.zone,
++    c: alts.c === undefined ? current.c : alts.c,
++    o: alts.o === undefined ? current.o : alts.o,
++    loc: alts.loc === undefined ? current.loc : alts.loc,
++    invalid: alts.invalid === undefined ? current.invalid : alts.invalid,
++    wasHole: alts.wasHole === undefined ? current.wasHole : alts.wasHole,
++    old: current,
++  });
+ }
+ 
+ // find the right offset a given local time. The o input is our guess, which determines which
+@@ -1807,7 +1839,8 @@ export default class DateTime {
+    */
+   endOf(unit, opts) {
++    // UPSTREAM-H: was this.plus({ [unit]: 1 }); see oneOf() at the top of the file
+     return this.isValid
+-      ? this.plus({ [unit]: 1 })
++      ? this.plus(oneOf(unit))
+           .startOf(unit, opts)
+           .minus(1)
+       : this;
+diff --git a/src/duration.js b/src/duration.js
+--- a/src/duration.js
++++ b/src/duration.js
+@@ -756,8 +756,52 @@ export default class Duration {
+    * @example Duration.fromObject({hours: 60}).as('days') //=> 2.5
+    * @return {number}
+    */
+   as(unit) {
+-    return this.isValid ? this.shiftTo(unit).get(unit) : NaN;
++    if (!this.isValid) return NaN;
++
++    // UPSTREAM-H: was this.shiftTo(unit).get(unit) — a Duration built, walked,
++    // normalized and cloned so that one number could be read back off it. With a
++    // single target unit shiftTo's loop is the sum below: everything ordered
++    // above the target converted up into it, everything below divided into it.
++    //
++    // Two things are copied out of shiftTo rather than simplified away. Its
++    // trunc-and-remainder split is not the identity in floating point, and
++    // whole + remainder is the number callers get today. And get() reads through
++    // the unit getter, which ends in `|| 0`, so a NaN answers 0 today.
++    const u = Duration.normalizeUnit(unit);
++    const at = orderedUnits.indexOf(u);
++
++    // normalizeUnit does not always answer with a unit: its table is an object
++    // literal, so "__proto__" resolves to Object.prototype and "constructor" to
++    // a function, both truthy enough to get past its own check. shiftTo then
++    // matches no unit and returns something the getter reads as undefined. That
++    // is luxon's answer today and this is not the patch that changes it.
++    if (at < 0) return this.shiftTo(unit).get(unit);
++
++    const vals = this.values;
++    const matrix = this.matrix;
++
++    let own = 0;
++
++    for (let i = 0; i < at; i++) {
++      const higher = orderedUnits[i];
++      if (isNumber(vals[higher])) own += matrix[higher][u] * vals[higher];
++    }
++
++    if (isNumber(vals[u])) own += vals[u];
++
++    const whole = Math.trunc(own);
++    const rest = (own * 1000 - whole * 1000) / 1000;
++    let out = whole;
++
++    if (rest !== 0) out += rest;
++
++    for (let i = at + 1; i < orderedUnits.length; i++) {
++      const lower = orderedUnits[i];
++      if (isNumber(vals[lower]) && vals[lower] !== 0) out += vals[lower] / matrix[u][lower];
++    }
++
++    return out || 0;
+   }
+ 
+   /**

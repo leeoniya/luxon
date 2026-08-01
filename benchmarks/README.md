@@ -21,7 +21,7 @@ running one does not bury its numbers in several pages of explanation:
 
 | doc | what is in it |
 | --- | --- |
-| [`docs/upstream.md`](docs/upstream.md) | the eight patches one by one, `E`'s tzdata precondition, and the order to file them in |
+| [`docs/upstream.md`](docs/upstream.md) | the nine patches one by one, `E`'s tzdata precondition, and the order to file them in |
 | [`docs/coverage.md`](docs/coverage.md) | where luxon still trails moment across the public API, and what is left to do about it |
 | [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
 | [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
@@ -165,7 +165,7 @@ format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
 coverage.ts                      28 public API calls, patched and vs moment
 cross-engine.ts                  upstream.ts under node and bun, diffed
-patches/                         the eight diffs
+patches/                         the nine diffs
 docs/                            what the tables mean
 test/                            parity tests for the patches that rewrite logic
 lib/                             harness (see each file's header)

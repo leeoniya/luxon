@@ -121,11 +121,11 @@ const MO_NUMERIC = "YYYY-MM-DD HH:mm:ss";
 // Patterns that are not all-numeric, because an all-numeric one in en-US on the
 // gregorian calendar is the input G's num()/padStart/roundTo fast paths were
 // written for, and for a while it was the only input any bench here had. The
-// three shapes below are the ones that fall outside it, and they are H's case
+// three shapes below are the ones that fall outside it, and they are I's case
 // rather than G's:
 //
 //   text     a month or weekday name never reaches a numeric fast path at all
-//   wide     the per-token switch H removes runs once per token, so its cost
+//   wide     the per-token switch I removes runs once per token, so its cost
 //            scales with the pattern and the other patches' savings do not
 //   fr       words in a non-English locale go through Locale#extract, where the
 //            interpreter rebuilds an Intl options literal per token per value
@@ -174,15 +174,34 @@ const CASES: Case[] = [
     },
   },
   {
+    // An odometer, and deliberately: consecutive values are an hour apart, so the
+    // row walks 2024 rather than jumping around inside it.
+    //
+    // It used to jump. month, day and hour were each `i % n` off the same
+    // counter, which advances all three at once and lands every construction in a
+    // different month from the one before it. E caches the transition-free span
+    // around the last offset it looked up, and no two consecutive values shared
+    // one, so the row was measuring E's miss path at a rate no caller produces —
+    // 3.69 ICU calls per construction, against 0.38 for the pattern here. That is
+    // a real cost of E and worth knowing, but it is a fact about the cache and
+    // this row is supposed to be about fromObject.
+    //
+    // Hours ascending is the shape of the callers that build dates in bulk: a
+    // calendar filling a grid, a series filling buckets. A caller who really does
+    // hop between months exists, and pays what the old shape measured.
     key: "fromObject",
     luxon: (m) => (ts) => {
       const i = idx(ts);
-      return m.DateTime.fromObject({ year: 2024, month: 1 + (i % 12), day: 1 + (i % 28), hour: i % 24 }, { zone: ZONE })
-        .valueOf();
+      return m.DateTime.fromObject(
+        { year: 2024, month: 1 + (Math.floor(i / 672) % 12), day: 1 + (Math.floor(i / 24) % 28), hour: i % 24 },
+        { zone: ZONE }
+      ).valueOf();
     },
     moment: () => (ts) => {
       const i = idx(ts);
-      return moment.tz({ year: 2024, month: i % 12, day: 1 + (i % 28), hour: i % 24 }, ZONE).valueOf();
+      return moment
+        .tz({ year: 2024, month: Math.floor(i / 672) % 12, day: 1 + (Math.floor(i / 24) % 28), hour: i % 24 }, ZONE)
+        .valueOf();
     },
   },
   {
@@ -374,7 +393,7 @@ const CASES: Case[] = [
   },
   {
     // not the Formatter: toISO builds its string directly and normalizes only
-    // its `precision` argument, which is why H does nothing for it and G does
+    // its `precision` argument, which is why I does nothing for it and G does
     key: "toISO",
     luxon: (m) => {
       const p = pool(m);

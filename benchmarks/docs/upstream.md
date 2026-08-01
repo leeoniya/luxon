@@ -5,7 +5,7 @@
 > [`../patches/`](../patches), each with its reasoning in its header.
 
 What can be removed from *inside* luxon, patch by patch. Eight candidate patches,
-lettered A through H, all of them memoization or provable short-circuits: no API
+lettered A through I, all of them memoization or provable short-circuits: no API
 changes, no output changes.
 
 The workload is a column of timestamps rendered in a named IANA zone — what a
@@ -93,29 +93,29 @@ it. F is the clearest case: interning `Locale` objects barely shows against a
 pattern that holds its locale fixed, and the calls it was written for are on
 [coverage.md](coverage.md) instead.
 
-### Why H is last
+### Why I is last
 
-Seven of the eight patches have a rung. H does not, so the final row is the one
-that adds it, and the last two rows of the table differ by H alone.
+Eight of the nine patches have a rung. I does not, so the final row is the one
+that adds it, and the last two rows of the table differ by I alone.
 
 That position answers a different question from the rest of the ladder, and it is
-the question H needed answering. Every other rung is priced by what it **adds** to
+the question I needed answering. Every other rung is priced by what it **adds** to
 a partial tree — the "should this land" question. Whichever patch goes last is
 priced by what the **complete tree loses without it**, which is the "should this
 stay" question, and the two differ by exactly the overlap between that patch and
 everything below it.
 
 For most of these patches the overlap is small and the distinction does not
-matter. For H it is neither. H and G both take work off the route a numeric token
-walks, so an H measured before G would be credited with savings G would also have
+matter. For I it is neither. I and G both take work off the route a numeric token
+walks, so an I measured before G would be credited with savings G would also have
 found, and a reader comparing a rung priced that way against G's further down
-would be seeing part of the same work billed twice. Ordering H last removes the
-double count. The step from `A+B+C+D+E+F+G` to `all (A-H)` is what H is worth
+would be seeing part of the same work billed twice. Ordering I last removes the
+double count. The step from `A+B+C+D+E+F+G+H` to `all (A-I)` is what I is worth
 with everything else already in, which is the only form of the question a
 shipping decision turns on.
 
 Exactly one patch can occupy that slot, so the cost of the choice lands on G:
-G's rung is now measured in H's absence and reads larger than the G in the tree
+G's rung is now measured in I's absence and reads larger than the G in the tree
 that actually ships. That trade is worth making in this direction because G was
 never the patch in doubt.
 
@@ -145,12 +145,12 @@ is verified against stock `offset()` over every transition its zones have.
 
 ### C — `tokenParserCache`
 
-The same argument as H, pointed the other way. `fromFormat` resolves a format
+The same argument as I, pointed the other way. `fromFormat` resolves a format
 string to a compiled RegExp on every call and then throws it away, which is what
 the Formatter used to do with a token list per value; the fix is the same one,
 resolve it once per format and keep it.
 
-It needs none of H's restructuring, because the object worth keeping is already
+It needs none of I's restructuring, because the object worth keeping is already
 public: `buildFormatParser` hands a `TokenParser` out and `fromFormatParser`
 takes one back, an API whose only purpose is to let a caller hoist exactly this
 out of a loop. C does it for the callers who did not. The whole patch is a Map, a
@@ -169,7 +169,7 @@ two thirds off the abbreviated format and moves no parse column at all.
 ### E — `transitionInterval`
 
 One interval cache serving both lookups: the offset and the name are cached
-together across the interval that two probes prove transition-free. Apart from H
+together across the interval that two probes prove transition-free. Apart from I
 it is the only rung that helps both formats, because it is the one patch that
 touches both calls.
 
@@ -246,7 +246,56 @@ lost the TimeClip the `Date` constructor was doing on its behalf: it neither
 truncated a fractional timestamp toward zero nor went invalid outside
 ±`MAX_DATE`.
 
-### H — `compileFormat`
+### H — `trimAllocs`
+
+Three objects that are built to be read once and dropped: `clone`'s second
+config, the `Duration` that `Duration#as` constructs in order to read one number
+off it, and the `{ [unit]: 1 }` literal `endOf` makes per call.
+
+It is the same shape as G's third family and a separate patch because it is a
+separate argument. G's two are on the arithmetic *math*, where the thing that
+could go wrong is floating point; these three are on the arithmetic *plumbing*,
+where the thing that could go wrong is a caller depending on a property of the
+object being removed.
+
+`clone` is the one that carries the patch, and not only for the allocation it
+saves. Its config was `{ ...current, ...alts, old: current }`, and `alts` is a
+different set of keys at each of the six call sites — `{ts}`, `{ts, zone,
+wasHole}`, `{loc}`, `{ts, o, wasHole}` — so the object the `DateTime` constructor
+reads had a different shape on every path into it, and its field reads never
+settled. Naming the seven fields gives every call site one shape. Every setter
+`DateTime` has goes through it.
+
+`as` is the fiddly one. `shiftTo` is not the plain sum it reduces to: it splits
+its running total into an integer part and a remainder and adds them back, which
+is not the identity in floating point, and the getter it returns through ends in
+`|| 0`, so a `NaN` currently answers `0`. Both are copied rather than simplified,
+because this is the patch that removes the allocation and not the patch that
+changes the answer.
+
+Writing the sweep for it turned up something separate and worth reporting
+upstream on its own: `Duration.normalizeUnit` does not reject `"__proto__"` or
+`"constructor"`. It looks its argument up in an object literal, where both find
+something truthy enough to pass the check meant to throw on them, and `as` then
+returns `undefined` instead of raising `InvalidUnitError`. The fast path here
+declines to have an opinion — anything `normalizeUnit` answers that is not one of
+the nine ordered units falls back to `shiftTo` — so the quirk survives the patch
+intact. It is a `normalizeUnit` fix, and a different one.
+
+`endOf`'s memo is the weakest of the three, worth something on V8 and nothing on
+JSC, and it is in because it is four lines. It needs a `Map` rather than an
+object, for the same reason as above from the other direction: on a plain object
+`oneOf["__proto__"]` finds `Object.prototype`, which is truthy and would be handed
+to `plus()`, so `endOf("__proto__")` would quietly behave like `startOf` instead
+of throwing.
+
+The ladder's rung for H is nearly flat, and expectedly so — every column here
+writes or reads a date, and the only part of H on those routes is the one `clone`
+that `fromMillis` does. [coverage.md](coverage.md) is where it is priced: `plus`,
+`set`, `startOf`, `endOf` and `Duration#as`. The rung is here so that its bytes
+are declared alongside everything else's.
+
+### I — `compileFormat`
 
 The structural one. Compiling a pattern to handlers once removes three costs
 together: the ~70-case switch per token per value, the eight closures
@@ -255,13 +304,13 @@ its branches allocated. It also folds punctuation into literal runs, so
 separators cost a concat.
 
 It is not a substitute for the caches — those are worth a great deal between
-them, and H adds to the total on top of all of them. It is the largest single
+them, and I adds to the total on top of all of them. It is the largest single
 formatter win in isolation.
 
-It is also the patch this table was rearranged for. H is the one patch without a
-rung, so the step onto the final row is what H is worth with every other patch
+It is also the patch this table was rearranged for. I is the one patch without a
+rung, so the step onto the final row is what I is worth with every other patch
 already applied, and it moves all three writing columns on both engines. The reading
-columns are the control: H never touches parsing, so they should not move, and a
+columns are the control: I never touches parsing, so they should not move, and a
 run where they do is a run whose row-to-row noise is worth checking before the
 writing columns are believed.
 
@@ -269,21 +318,21 @@ Read that step against the row above it, not as a share of the milliseconds
 between stock and the full set. Late rungs are compressed on that second measure,
 because each one only ever takes a fraction of what the rungs above it left — but
 compressed is not the same as negligible, and the size of a last rung is still
-mostly about the patch. G's last rung was roughly twice the size of H's when G
+mostly about the patch. G's last rung was roughly twice the size of I's when G
 held that slot, which is a real difference and not an artefact of the position.
 
 Most of that difference is that the two are eligible for different amounts of the
 cell. A writing cell here times `DateTime.fromMillis(ts, opts).toFormat(pattern)`,
 construction as well as formatting, and construction is something like two fifths
-of it. H is a `Formatter` change and does nothing whatever for the other three
+of it. I is a `Formatter` change and does nothing whatever for the other three
 fifths; G is on both, since its `tsToObj` rewrite is where construction spends its
-time. Measured apart on V8, removing H costs nothing measurable on construction
+time. Measured apart on V8, removing I costs nothing measurable on construction
 and slightly more than doubles formatting, which is within noise of what removing
 G costs formatting — the two are level on the half they share, and G is ahead
-overall because it also owns a half H cannot reach. On JavaScriptCore G is ahead
+overall because it also owns a half I cannot reach. On JavaScriptCore G is ahead
 on both halves.
 
-So H is worth roughly half of G by this table's measure on V8 and less than that
+So I is worth roughly half of G by this table's measure on V8 and less than that
 on JSC, and that ranking is the honest one. What it is not is marginal. Dropping
 it leaves the *fully patched* tree — not stock, which is an order of magnitude
 away from both — around two thirds slower at writing a date, which is the
@@ -296,12 +345,12 @@ is always going to look small against the whole journey and large against what i
 left at the end of it. The first denominator answers how the tree got here; the
 second answers what shipping this one changes.
 
-The `text` column exists because of H, and specifically because a ladder without
-it understates H. `numeric` and `abbr` are both all-numeric patterns in en-US on
+The `text` column exists because of I, and specifically because a ladder without
+it understates I. `numeric` and `abbr` are both all-numeric patterns in en-US on
 the gregorian calendar, which is the one input for which G's `num`, `padStart`
-and `roundTo` fast paths cover most of what H's compiled program covers — so a
-table made only of those credits G with much of H's work. A weekday or month name
-reaches no numeric fast path at all, which is what `text` varies and why H's step
+and `roundTo` fast paths cover most of what I's compiled program covers — so a
+table made only of those credits G with much of I's work. A weekday or month name
+reaches no numeric fast path at all, which is what `text` varies and why I's step
 moves it further than it moves the other two.
 
 The shapes further out — a long pattern, a non-English locale, a non-gregorian
@@ -310,17 +359,17 @@ they vary the caller's pattern rather than the patch set.
 
 ### What the merge cost
 
-H subsumes two of G's six formatter fast paths by construction, since it parses
+I subsumes two of G's six formatter fast paths by construction, since it parses
 each pattern once and folds punctuation into literal runs. While those two were
 their own patches, a build without them measured that redundancy directly. They
 cannot be removed on their own now, and no build here stands in for one that
-could: dropping G whole measures G's weight rather than H's redundancy, which is
+could: dropping G whole measures G's weight rather than I's redundancy, which is
 a different question badly asked. Losing that check is the one thing merging
 these six gave up, and it is not recoverable without unmerging them.
 
-The overlap is still visible from the other end, though, which is what ordering H
-last buys. G's rung sits above H now, so it is measured on a tree with none of H
-in it and reads larger than the G that ships; the final step then prices H on a
+The overlap is still visible from the other end, though, which is what ordering I
+last buys. G's rung sits above I now, so it is measured on a tree with none of I
+in it and reads larger than the G that ships; the final step then prices I on a
 tree that has all of G. Neither number double-counts the shared work, and the
 sum of the two is the honest total for the pair.
 
@@ -329,7 +378,7 @@ sum of the two is the honest total for the pair.
 A rung measures what a patch adds *given everything above it*. That is the right
 question for "should this land", and the wrong one for "should this stay",
 because the two differ by exactly the overlap between the patch and everything
-below it. The ladder answers the second question for H, by putting it last — but
+below it. The ladder answers the second question for I, by putting it last — but
 it can only do that for one patch at a time.
 
 `--drop <letters>` answers it for any of them, by leaving a patch out of every
@@ -342,10 +391,10 @@ Two cautions on reading that difference. It is a comparison **between two runs**
 where every other comparison this bench makes is between cells interleaved inside
 one process, so it carries drift that nothing cancels — read it against the
 per-column floors and prefer a margin several times them. And it is not needed for
-H, whose answer is already the last step of the ladder in a single run.
+I, whose answer is already the last step of the ladder in a single run.
 
 Rows that collapse into the one above them are folded away — including the last
-row under `--drop H`, since H is the only patch without a rung and the ladder
+row under `--drop I`, since I is the only patch without a rung and the ladder
 therefore already ends at the full set without it. Rung labels spell out every
 letter they hold, so a dropped patch shows as a gap in them; the last row is the
 only one that abbreviates, and it says `all (no C)` rather than a range when
@@ -361,7 +410,7 @@ Reading was not what most of this was aimed at, and the ladder's five reading
 columns show which of it carries over.
 
 The biggest formatting wins do nothing here. A and D are the zone-name lookup and
-no parse performs one; H compiles a format string for writing and no parse walks
+no parse performs one; I compiles a format string for writing and no parse walks
 one. None of the three moves a reading column by more than that column's own
 noise floor. Three patches carry these columns instead: B and E, both being
 `offset()`, which every zoned parse needs before it can place a local time, and
@@ -454,16 +503,19 @@ In the order they are lettered, which is what the letters are for.
    purpose.
 2. **E.** Needs the tzdata-gap argument accepted once, and pays off on both calls
    for it.
-3. **F and G.** Neither is smaller than what is above it; both are things this
-   table understates, since they are independent of the zone work and reach calls
-   that never format anything. Each is argued on [coverage.md](coverage.md).
-4. **H.** Last to file and last on the ladder, for the same reason: it is the one
+3. **F, G and H.** None is smaller than what is above it; all three are things
+   this table understates, since they are independent of the zone work and reach
+   calls that never format anything. Each is argued on
+   [coverage.md](coverage.md). H files after G because two of its three are the
+   same kind of change as G's last family and are easier to review having read
+   it, not because it depends on it — H applies to stock on its own.
+4. **I.** Last to file and last on the ladder, for the same reason: it is the one
    that changes how the `Formatter` is built rather than what it calls, so it is
    the one whose review is a design review. Its position is chosen to be read as
    "what does the finished tree lose without this", which is the question that
    position is worth answering — and the answer is all three writing columns.
 
-A, B, D and H are the ones that hold on any engine — all four remove an Intl call
+A, B, D and I are the ones that hold on any engine — all four remove an Intl call
 or most of one, which no engine can be fast at — and C does the same on the
 reading side by removing a RegExp compile. See
 [cross-engine.md](cross-engine.md) for the ones that do not.

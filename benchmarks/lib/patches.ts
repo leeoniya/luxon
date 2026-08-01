@@ -37,7 +37,7 @@ export type PatchKey = string;
 
 export interface Patch {
   key: PatchKey;
-  /** A-H, its position in apply order; what the report tables label it */
+  /** A-I, its position in apply order; what the report tables label it */
   letter: string;
   /** one-line summary for report tables */
   what: string;
