@@ -1029,7 +1029,9 @@ if (tables.has("ladder")) {
 
   // Once, above all three, rather than under each. The tables are far enough
   // apart that repeating it would read as three different legends.
-  if (colorEnabled) console.log(`${colorLegend("moment-timezone")}\n`);
+  if (colorEnabled) {
+    console.log(`${colorLegend("moment-timezone", "stock luxon in the columns moment has no cell for")}\n`);
+  }
 
   for (const band of BANDS) {
     const columns = band.segments.flatMap((seg) => seg.keys);
@@ -1123,14 +1125,19 @@ if (tables.has("ladder")) {
           parseResults.get(kase.key)!.set(path.id, measured.best.get(kase.key)!);
         }
 
-        if (path.id === "moment") {
+        // moment is the baseline wherever moment has an answer. Where it does
+        // not — Interval and Duration#shiftTo, which it does not ship — stock
+        // luxon stands in, so those columns are shaded against what the patches
+        // started from rather than printing flat. Both rows are in `groups`
+        // ahead of every row that reads this, and in this order, but the fill
+        // is written as "first row that has one wins" rather than assuming it:
+        // colours that silently inverted if the rows were reordered would be
+        // worse than no colours.
+        if (path.id === "moment" || path.id === "luxon (stock)") {
           for (const key of columns) {
             const v = measured.best.get(key);
 
-            // Interval and Duration#shiftTo have no moment equivalent, so those
-            // columns have no anchor and print unshaded. Better than shading them
-            // against something moment did not do.
-            if (v !== undefined) anchor.set(key, v);
+            if (v !== undefined && !anchor.has(key)) anchor.set(key, v);
           }
         }
 

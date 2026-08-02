@@ -47,6 +47,13 @@ stand-in for the noise floor, not a substitute for the measured per-column floor
 printed under each table, and a margin can clear the shading while still sitting
 inside its column's floor. Redirected output is never shaded.
 
+Four columns have no moment cell to shade against, because moment ships neither
+`Interval` nor `Duration#shiftTo`. Those take stock luxon as their baseline
+instead, so they are read as what the patches did to luxon rather than as a
+comparison between libraries — which is the question those columns can answer.
+The legend above the tables names both baselines; without it a coloured cell
+would not say which one it meant.
+
 A row is usually one interleaved group, but it can be several: `upstream`'s
 ladder times its writing and its reading columns as two, because they need
 different pass sizing. Interleaving is per group, which costs nothing when the

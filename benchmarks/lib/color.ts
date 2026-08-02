@@ -92,11 +92,20 @@ export function visibleWidth(text: string): number {
  * One line naming what the colours mean, for the foot of a table that uses them.
  * Empty when nothing was coloured, so a redirected run does not explain an
  * encoding it did not use.
+ *
+ * `fallback` is for tables whose baseline row cannot answer every column: naming
+ * it matters, because a reader with no way to tell which baseline a cell was
+ * shaded against cannot read the colour at all. It goes in its own sentence
+ * rather than as a clause on the first, which put it between "green faster
+ * than" and "red slower".
  */
-export function colorLegend(baseline: string): string {
-  return colorEnabled
-    ? `colour: green faster than ${baseline}, red slower, both by log scale; within ${Math.round(
-        (2 ** DEAD - 1) * 100
-      )}% left plain.`
-    : "";
+export function colorLegend(baseline: string, fallback?: string): string {
+  if (!colorEnabled) return "";
+
+  const dead = Math.round((2 ** DEAD - 1) * 100);
+
+  return (
+    `colour: green faster than the baseline, red slower, both by log scale; within ${dead}% left plain.\n` +
+    `baseline: ${baseline}${fallback === undefined ? "" : `, and ${fallback}`}.`
+  );
 }
