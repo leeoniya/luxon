@@ -22,8 +22,10 @@ zone.
 | default | `--default` | the same ladder with no zone named at all |
 
 Any combination can be run alone, which is the loop for iterating on one patch:
-`--patches` (~1s), `--ladder` (~80s), `--default` (~13s). `--verify` adds the
-output-parity table. `--footprint` adds rss and Intl-formatter counts.
+`--patches` (~1s), `--ladder` (~80s), `--default` (~13s). `--verify` turns on
+every correctness check, including the output-parity table and the two that run
+during setup — see [methodology.md](methodology.md#correctness-before-speed) for
+why they are off by default. `--footprint` adds rss and Intl-formatter counts.
 
 The ladder is three tables of the same shape — the same builds, in the same
 order, with a row per build and the shipped bytes at the end — one per question
@@ -322,7 +324,7 @@ also checks `tsToObj` against `Date`'s own getters over 200k random instants.
 
 ### H — `arithDirect`
 
-Two objects built, converted and dropped to reach a number plain arithmetic
+Three objects built, converted and dropped to reach a number plain arithmetic
 already has, one offset round trip that re-derives what the receiver is already
 carrying, plus the four constants above.
 
@@ -351,14 +353,41 @@ sweep compares it alongside the instant. `false` is right even for a receiver
 resolved out of a DST hole, because a hole resolution lands on a civil time
 outside the hole, so re-reading it cannot reach `fixOffset`'s hole branch.
 
-Neither replacement is unconditional, because `as()` is not the plain sum it
-looks like: the fast path holds only when every field is an integer and only
-while the sum stays finite, and `dayDiff`'s conversion has to be the one that
-does not read years under 100 as 19xx. The guards are the correctness argument
-and the sweep is built to break them — 85,806 comparisons over five zones, 32
-duration shapes and both DST directions, in
+The third object is the argument itself, and it is the largest of the three.
+`plus({ days: 1 })` is the way every caller writes this, and `plus` handed that
+literal to `Duration.fromDurationLike`, which built a keyed object out of it, a
+`Locale` for it and a `Duration` around both — so that `adjustTime` could read
+nine getters off it and drop it. `minus` built a second one, because `negate()`
+clones. The nine numbers are now produced directly, which takes roughly a
+quarter to a third off `plus` and `minus` and carries into everything above
+them.
+
+That is a normalization rather than a validation shortcut: every argument
+`Duration.fromObject` rejects is still rejected, with the same error and the
+same message, which is what most of the sweep is checking. The subtler half of
+the win is shape — `normalizeObject`'s result has computed keys and a layout
+that depends on which units the caller named, so those nine reads saw a
+different object for `{ days: 1 }` than for `{ hours: 1 }`, and now see one.
+
+Neither of the first two replacements is unconditional, because `as()` is not the
+plain sum it looks like: the fast path holds only when every field is an integer
+and only while the sum stays finite, and `dayDiff`'s conversion has to be the one
+that does not read years under 100 as 19xx. The guards are the correctness
+argument and the sweep is built to break them — 85,806 comparisons over five
+zones, 32 duration shapes and both DST directions, in
 [`test/arith-direct-patch.test.ts`](../test/arith-direct-patch.test.ts). Finding
 the finite-range guard took 1,200 parity failures.
+
+The argument sweep in the same file is organised by the shape of the argument
+instead: singular against plural spellings and both in one object, inherited
+against own properties, non-enumerable and symbol keys, getters, the values
+`asNumber` coerces against the ones it rejects, a bad unit beside a bad value,
+and every non-object luxon throws on. Both sweeps were built by mutating the
+patch until they failed. One hazard is worth passing on to anyone doing the
+same: `Interval#splitBy` loops until `plus` carries its cursor past the end and
+guards only the `Duration` it was handed, so a mutation that stops `plus`
+advancing does not fail the suite — it appends until the machine is out of
+memory. Cap each run's wall time and heap.
 
 The four constants are moves rather than rewrites — none captures anything — so
 the same file checks every key of both unit tables in both spellings and mixed
@@ -451,6 +480,13 @@ removes three costs together: the ~70-case switch per token per value, the eight
 closures `formatDateTimeFromString` built per call, and the Intl options object
 literals its branches allocated. It also folds punctuation into literal runs, so
 separators cost a concat.
+
+It is the largest patch here in shipped bytes, and it was larger still while it
+kept the interpreter it replaces beside the compiler under a second name. That
+was for reviewability and it was the wrong place to buy it: the retained method
+was a third of everything the whole patch set adds to the bundle, nothing called
+it, and being a class method meant no minifier would drop it. It is deleted, and
+the two implementations are read side by side in the patch's own diff.
 
 The second is the name memo, and it is a bigger number than the compile step for
 any caller not writing English. A name token — month, weekday, era, day period —

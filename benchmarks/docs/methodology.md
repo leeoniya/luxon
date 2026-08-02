@@ -123,19 +123,34 @@ the formatting columns 13-19% the once it went unnoticed.
 
 ## Correctness before speed
 
-Every bench checks agreement before it reports a timing, and the check is not the
-same in each:
+A patch that changes an answer fails the bench rather than winning it. Every
+check that establishes this is behind `--verify`, and none of them runs in a
+plain timing run:
 
-- `upstream` and `format` compare rendered output across builds, and with
-  `--verify` do it exhaustively across zones, locales, styles and transitions.
+- `upstream` and `format` compare rendered output across builds exhaustively,
+  across zones, locales, styles and transitions.
 - `upstream`'s API columns require every build in the ladder to return identical
-  results for every case before it times anything.
-- `suite` checksums every cell and reports any that did not return stock's value.
+  results for every case, checked during setup before anything is timed.
 - The reading columns read each value back to the instant it was rendered from,
   since a build that cannot read a shape would otherwise post the best number in
   its column.
+- `suite` checksums every cell and reports any that did not return stock's
+  value.
 
-A patch that changes an answer fails the bench rather than winning it.
+They are opt-in for where they run rather than for what they cost. All but the
+last happen while the process is setting up, and the next thing that happens is
+the first row of the first table — which is the one row with no cooldown in
+front of it, on the argument that every row begins on a host that has just been
+loading modules. Several seconds of every build answering every case at full
+tilt is not a module load, and the row that follows it is the one that pays.
+
+One check is free and therefore always on: a timed reading cell returns the
+instant it parsed, so a parse that quietly fails returns `NaN`, and `NaN`
+poisons the checksum each band asserts on. That catches the failure the sampled
+round-trips were there for without running anything extra.
+
+The intended shape of a session is a `--verify` run when the patches change, and
+plain runs for every timing after that.
 
 ## Bytes
 

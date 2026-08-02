@@ -756,12 +756,19 @@ if (tables.has("ladder")) {
       // the spec carries the formatting pattern too, which parsing has no use for
       const parse = await parserFor(await path.spec!(ladderFormats[0]!), kase, pool?.[0]);
 
-      for (const i of PARSE_CHECKS) {
-        const ts = BASE_TS + i * STEP_MS;
-        const got = parse(ts, pool?.[i] ?? "");
+      // Opt-in, like every other check here: this runs immediately before the
+      // first row is timed, and the first row is the one row with no cooldown
+      // in front of it. The failure it looks for is still caught for free
+      // without it — a parse that does not round-trip returns NaN, which
+      // poisons the checksum every band asserts on below.
+      if (withVerify) {
+        for (const i of PARSE_CHECKS) {
+          const ts = BASE_TS + i * STEP_MS;
+          const got = parse(ts, pool?.[i] ?? "");
 
-        if (got !== ts) {
-          parseBroken.push(`${path.id} / ${kase.key}: read ${got} for ${ts} (d${got - ts})`);
+          if (got !== ts) {
+            parseBroken.push(`${path.id} / ${kase.key}: read ${got} for ${ts} (d${got - ts})`);
+          }
         }
       }
 
@@ -804,26 +811,39 @@ if (tables.has("ladder")) {
   //
   // The cases are deterministic by construction — pool indices come off the
   // timestamp, not a counter — so summing each over a fixed window and comparing
-  // across builds is nearly free and catches a patch that changed an answer
-  // rather than just the time taken to reach it.
-  const CHECK_N = 256;
-  const checked = rowPaths.filter((p) => p.ships === "luxon" && !p.easyZone);
-  const disagree: string[] = [];
+  // across builds catches a patch that changed an answer rather than just the
+  // time taken to reach it.
+  //
+  // Opt-in (--verify), because of WHERE it runs rather than what it costs. It is
+  // a few seconds of every build answering every API case at full tilt, and the
+  // next thing that happens is the first row of the first table — the one row
+  // measureRows does not put a cooldown in front of, on the argument that every
+  // row starts on a host that has just been loading modules. That argument holds
+  // only if nothing larger than a module load happens first.
+  if (withVerify) {
+    const CHECK_N = 256;
+    const checked = rowPaths.filter((p) => p.ships === "luxon" && !p.easyZone);
+    const disagree: string[] = [];
 
-  for (const kase of apiCases) {
-    if (kase.live === true) continue;
+    for (const kase of apiCases) {
+      if (kase.live === true) continue;
 
-    const sums = checked.map((p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum);
+      const sums = checked.map((p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum);
 
-    if (sums.some((s) => s !== sums[0]!)) {
-      disagree.push(`${kase.key}: ${checked.map((p, i) => `${p.id}=${sums[i]!}`).join(" ")}`);
+      if (sums.some((s) => s !== sums[0]!)) {
+        disagree.push(`${kase.key}: ${checked.map((p, i) => `${p.id}=${sums[i]!}`).join(" ")}`);
+      }
     }
-  }
 
-  if (disagree.length > 0) {
-    throw new Error(
-      `builds disagree on ${disagree.length} API case(s), so the table below is not comparable:\n${disagree.join("\n")}`
-    );
+    if (disagree.length > 0) {
+      throw new Error(
+        `builds disagree on ${disagree.length} API case(s), so the table below is not comparable:\n${disagree.join("\n")}`
+      );
+    }
+
+    // and then hand the host back what that just spent, so the first row is not
+    // the only one measured on a machine that has been at full load
+    await cooldown(cooldownMs);
   }
 
   // Bytes and heap alongside the ms, so a rung can be read as a trade rather
@@ -1441,7 +1461,12 @@ if (tables.has("default")) {
 // the values never asked for.
 
 if (tables.has("ladder") && !withVerify) {
-  console.log(`output parity vs stock luxon skipped — pass --verify to run it (~7s).`);
+  console.log(
+    `output parity vs stock luxon skipped — pass --verify to run it, along with the two checks that\n` +
+      `run before timing starts: the API-case agreement scan and the parse round-trips (~10s total).\n` +
+      `All three are off by default because they run at full load on the same host that is about to\n` +
+      `be timed, not because they are slow. A timed cell returning NaN is still caught for free.`
+  );
 }
 
 if (tables.has("ladder") && withVerify) {

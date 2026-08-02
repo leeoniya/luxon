@@ -529,6 +529,206 @@ describe("arithDirect is invisible", () => {
           }
         }
       });
+
+      // plus and minus no longer build a Duration to read their argument. What
+      // they build instead has to reject everything Duration.fromObject
+      // rejected, with the same error and the same message, and coerce
+      // everything it coerced the same way — so this sweep is about the shape
+      // of the ARGUMENT rather than about the arithmetic, and most of it is
+      // inputs no caller would write on purpose.
+      //
+      // The two that are easy to get wrong and impossible to see: a bad unit
+      // and a bad value in the same object must report the unit, because the
+      // line it replaces evaluates its member expression before its right hand
+      // side; and minus negates, where -0 is falsy and the getters it used to
+      // read through turned a negated zero back into zero.
+      test("every shape of argument plus and minus accept, and every shape they reject", async (t) => {
+        const patched = await loadLuxon(keys);
+
+        const ARGS: [string, () => unknown][] = [
+          // the ordinary ones
+          ["{ days: 1 }", () => ({ days: 1 })],
+          ["{ milliseconds: 1 }", () => ({ milliseconds: 1 })],
+          ["{ hours: 1, minutes: 30 }", () => ({ hours: 1, minutes: 30 })],
+          ["{ years: 1, months: -2, days: 3 }", () => ({ years: 1, months: -2, days: 3 })],
+          ["{}", () => ({})],
+
+          // numbers, which take a different branch from objects
+          ["0", () => 0], ["1", () => 1], ["-1", () => -1], ["86400000", () => 86_400_000],
+          ["0.5", () => 0.5], ["-0", () => -0], ["NaN", () => NaN],
+          ["Infinity", () => Infinity], ["-Infinity", () => -Infinity],
+
+          // singular and plural spellings of the same unit, and both at once,
+          // where the later key has to win as it did in normalizeObject
+          ["{ day: 1 }", () => ({ day: 1 })],
+          ["{ day: 1, days: 2 }", () => ({ day: 1, days: 2 })],
+          ["{ days: 2, day: 1 }", () => ({ days: 2, day: 1 })],
+          ["{ DAYS: 1 }", () => ({ DAYS: 1 })],
+          ["{ Days: 1 }", () => ({ Days: 1 })],
+
+          // values normalizeObject skips outright
+          ["{ days: undefined }", () => ({ days: undefined })],
+          ["{ days: null }", () => ({ days: null })],
+          ["{ days: undefined, hours: 1 }", () => ({ days: undefined, hours: 1 })],
+
+          // values asNumber coerces rather than rejects
+          ["{ days: '3' }", () => ({ days: "3" })],
+          ["{ days: '3.5' }", () => ({ days: "3.5" })],
+          ["{ days: ' 3 ' }", () => ({ days: " 3 " })],
+          ["{ days: [] }", () => ({ days: [] })],
+          ["{ days: [5] }", () => ({ days: [5] })],
+          ["{ days: new Number(5) }", () => ({ days: new Number(5) })],
+          ["{ days: { valueOf: () => 5 } }", () => ({ days: { valueOf: () => 5 } })],
+
+          // and values it rejects
+          ["{ days: true }", () => ({ days: true })],
+          ["{ days: false }", () => ({ days: false })],
+          ["{ days: '' }", () => ({ days: "" })],
+          ["{ days: 'x' }", () => ({ days: "x" })],
+          ["{ days: NaN }", () => ({ days: NaN })],
+          ["{ days: Infinity }", () => ({ days: Infinity })],
+          ["{ days: {} }", () => ({ days: {} })],
+          ["{ days: [1, 2] }", () => ({ days: [1, 2] })],
+
+          // units it rejects, alone and beside a good one
+          ["{ bogus: 1 }", () => ({ bogus: 1 })],
+          ["{ days: 1, bogus: 1 }", () => ({ days: 1, bogus: 1 })],
+          ["{ weekday: 1 }", () => ({ weekday: 1 })],
+          ["{ ordinal: 1 }", () => ({ ordinal: 1 })],
+
+          // a bad unit and a bad value together: the unit has to be reported
+          ["{ bogus: 'nope' }", () => ({ bogus: "nope" })],
+          ["{ bogus: true }", () => ({ bogus: true })],
+          ["{ days: '', bogus: 1 }", () => ({ days: "", bogus: 1 })],
+
+          // own versus inherited, which is the hasOwnProperty branch
+          ["Object.create({ days: 9 })", () => Object.create({ days: 9 })],
+          ["own hours over inherited days", () => Object.assign(Object.create({ days: 9 }), { hours: 1 })],
+          ["own days shadowing inherited", () => Object.assign(Object.create({ days: 9 }), { days: 1 })],
+
+          // keys for-in does not visit
+          [
+            "non-enumerable days",
+            () => Object.defineProperty({ hours: 1 }, "days", { value: 5, enumerable: false }),
+          ],
+          ["symbol key", () => ({ [Symbol("days")]: 5, hours: 1 })],
+
+          // a getter, which must be read exactly once and in for-in order
+          ["{ get days() { return 2 } }", () => ({ get days() { return 2; } })],
+
+          // things that are neither number nor plain object
+          ["null", () => null],
+          ["undefined", () => undefined],
+          ["'x'", () => "x"],
+          ["''", () => ""],
+          ["true", () => true],
+          ["false", () => false],
+          ["[]", () => []],
+          ["[1]", () => [1]],
+          ["Symbol()", () => Symbol("d")],
+          ["new Date(0)", () => new Date(0)],
+          ["() => {}", () => () => {}],
+        ];
+
+        let checked = 0;
+
+        for (const zone of ZONES) {
+          for (const instant of [INSTANTS[0]!, INSTANTS[2]!, INSTANTS[4]!]) {
+            for (const [label, make] of ARGS) {
+              for (const op of ["plus", "minus"] as const) {
+                const read = (mod: typeof stock) =>
+                  outcome(() => {
+                    const dt = mod.DateTime.fromMillis(instant, { zone });
+                    const arg = make() as never;
+                    const d = op === "plus" ? dt.plus(arg) : dt.minus(arg);
+
+                    // 1/x separates 0 from -0, which is what the negate guard
+                    // is for and what nothing else here would notice
+                    return d.isValid
+                      ? `${d.valueOf()}/${1 / d.valueOf()}/${d.offset}/${d.wasHole}`
+                      : `invalid:${d.invalidReason}`;
+                  });
+
+                checked++;
+
+                assert.equal(read(patched), read(stock), `${zone} ${op}(${label})`);
+              }
+            }
+          }
+        }
+
+        t.diagnostic(`${checked} compared`);
+        assert.ok(checked > 1_000, `only ${checked} compared`);
+      });
+
+      // a Duration argument reaches neither the number branch nor the object
+      // one, and an invalid Duration is the only way NaN gets into the record
+      test("Duration arguments, valid and invalid", async () => {
+        const patched = await loadLuxon(keys);
+
+        // every one of the nine units on its own, because the record is copied
+        // field by field on this branch and a unit left behind would show up
+        // nowhere else
+        const SHAPES: (Record<string, number> | null)[] = [
+          { years: 1 }, { quarters: 1 }, { months: 1 }, { weeks: 1 }, { days: 1 },
+          { hours: 1 }, { minutes: 1 }, { seconds: 1 }, { milliseconds: 1 },
+          { hours: 2, minutes: 30 }, { milliseconds: 0 }, {},
+          { days: 1.5 }, { seconds: 1e308 }, { years: 1, months: 2 },
+          { years: 1, quarters: 1, months: 1, weeks: 1, days: 1, hours: 1, minutes: 1, seconds: 1, milliseconds: 1 },
+          null, // stands for Duration.invalid
+        ];
+
+        for (const zone of ZONES) {
+          for (const shape of SHAPES) {
+            for (const op of ["plus", "minus"] as const) {
+              const read = (mod: typeof stock) =>
+                outcome(() => {
+                  const dur =
+                    shape === null ? mod.Duration.invalid("because") : mod.Duration.fromObject(shape);
+                  const dt = mod.DateTime.fromMillis(INSTANTS[0]!, { zone });
+                  const d = op === "plus" ? dt.plus(dur) : dt.minus(dur);
+
+                  return d.isValid ? `${d.valueOf()}/${d.offset}/${d.wasHole}` : `invalid:${d.invalidReason}`;
+                });
+
+              assert.equal(read(patched), read(stock), `${zone} ${op}(${JSON.stringify(shape)})`);
+            }
+          }
+        }
+      });
+
+      // Interval and Duration reach adjustTime through plus and minus too, and
+      // an Interval's endpoints are two DateTimes moving in opposite directions
+      test("Interval and Duration callers of plus and minus", async () => {
+        const patched = await loadLuxon(keys);
+
+        for (const zone of ZONES) {
+          const read = (mod: typeof stock) =>
+            outcome(() => {
+              const a = mod.DateTime.fromMillis(INSTANTS[0]!, { zone });
+              const iv = mod.Interval.fromDateTimes(a, a.plus({ months: 2 }));
+
+              // Interval#splitBy is deliberately not here. It loops until plus
+              // carries the cursor past the end, and its only guard is on the
+              // Duration it was handed, so a plus that fails to advance never
+              // terminates and fills the heap instead of failing. That is a
+              // hazard for anything that mutates this patch to see what the
+              // sweep catches, and the callers below reach the same code.
+              return [
+                iv.length("days"),
+                iv.toDuration(["months", "days"]).toISO(),
+                iv.contains(a.plus({ days: 5 })),
+                a.diff(a.minus({ years: 1, hours: 3 }), ["years", "days", "hours"]).toISO(),
+                a.endOf("month").toISO(),
+                a.startOf("week").toISO(),
+                a.hasSame(a.plus({ hours: 1 }), "day"),
+                a.toRelative({ base: a.minus({ months: 3 }) }),
+              ].join("|");
+            });
+
+          assert.equal(read(patched), read(stock), zone);
+        }
+      });
     });
   }
 });

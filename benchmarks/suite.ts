@@ -57,7 +57,7 @@
 
 import { measureRows, pkgVersion, runtime, type SampleBudget, type Work } from "./lib/kernel.ts";
 import type { DateTimeWithLoc } from "./lib/luxon-types.ts";
-import { cooldownMs } from "./lib/opts.ts";
+import { cooldownMs, withVerify } from "./lib/opts.ts";
 import { loadLuxon, patchKeys, type LuxonModule, type PatchKey } from "./lib/patches.ts";
 import { streamTable } from "./lib/stream-table.ts";
 
@@ -455,22 +455,35 @@ if (cases.length > 1) {
 // Checksums, gathered outside the timed loop: one call per cell, compared across
 // columns. A patch is supposed to be invisible from the API, and a case whose
 // number moved is a bug rather than a benchmark result.
+//
+// Opt-in (--verify) with the rest of them. It is a call per cell and it runs
+// after the last row is timed, so it cannot throttle anything this run
+// measured — but it can throttle the next bench started behind it, and having
+// one rule for every check in here is worth more than the calls it saves.
 const checks = new Map<string, number>();
 
-for (const kase of cases) {
-  for (const col of COLUMNS) {
-    checks.set(key(col.label, kase.name), kase.make(modules.get(col.label)!)(DT_TS));
+if (withVerify) {
+  for (const kase of cases) {
+    for (const col of COLUMNS) {
+      checks.set(key(col.label, kase.name), kase.make(modules.get(col.label)!)(DT_TS));
+    }
   }
 }
 
-const mismatched = cases.flatMap((kase) => {
-  const want = checks.get(key(STOCK, kase.name))!;
-  const off = COLUMNS.filter((col) => checks.get(key(col.label, kase.name)) !== want);
+const mismatched = !withVerify
+  ? []
+  : cases.flatMap((kase) => {
+      const want = checks.get(key(STOCK, kase.name))!;
+      const off = COLUMNS.filter((col) => checks.get(key(col.label, kase.name)) !== want);
 
-  return off.length === 0
-    ? []
-    : [`${kase.name}: stock ${want}, ${off.map((c) => `${c.label} ${checks.get(key(c.label, kase.name))}`).join(", ")}`];
-});
+      return off.length === 0
+        ? []
+        : [
+            `${kase.name}: stock ${want}, ${off
+              .map((c) => `${c.label} ${checks.get(key(c.label, kase.name))}`)
+              .join(", ")}`,
+          ];
+    });
 
 // ---- what a difference has to beat ------------------------------------------
 //
@@ -551,6 +564,10 @@ ${verdict}`);
 
 console.log(`\nwhat this table means: ${DOCS}/suite.md   how it is timed: ${DOCS}/methodology.md`);
 
+if (!withVerify) {
+  console.log(`\ncross-build checksum comparison skipped — pass --verify to run it.`);
+}
+
 if (mismatched.length > 0) {
   console.log(`\nCHECKSUM MISMATCH — these cases did not return stock's value:`);
   for (const line of mismatched) console.log(`  ${line}`);
@@ -560,5 +577,5 @@ if (mismatched.length > 0) {
 // consumed, but it is not a run-to-run signal and does not stay put across runs:
 // the pass sizing adapts to the host, so what varies is how many iterations got
 // summed. The cross-build parity check is `mismatched` above, which compares
-// each build's value against stock's on identical inputs.
+// each build's value against stock's on identical inputs — under --verify.
 console.log(`\nchecksum: ${run.checksum.toFixed(0)}`);

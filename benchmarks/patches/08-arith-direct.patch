@@ -2,16 +2,16 @@ Patch: arithDirect
 Letter: H
 Requires: none
 Files: src/datetime.js, src/duration.js, src/impl/diff.js, src/impl/english.js, src/zones/systemZone.js
-Summary: seven places on the arithmetic path that built something per call to reach a number: two object round trips, one offset round trip and four constants
+Summary: eight places on the arithmetic path that built something per call to reach a number: three object round trips, one offset round trip and four constants
 
 H: reach the number directly, on the arithmetic path
 
-Seven changes on the route every plus, minus, startOf, endOf, set, hasSame, diff
+Eight changes on the route every plus, minus, startOf, endOf, set, hasSame, diff
 and Interval method takes, in two sizes. Nothing here formats or parses anything,
 which is why the formatting and parsing tables barely see it and the `other` band
 is where it is priced.
 
-The two that carry the patch are whole objects built, converted and dropped to
+The three that carry the patch are whole objects built, converted and dropped to
 reach a number that plain arithmetic already has:
 
   datetime.js  adjustTime  millisToAdd was
@@ -32,9 +32,18 @@ reach a number that plain arithmetic already has:
                            Math.floor(Duration.fromMillis(ms).as("days")), where
                            shiftTo's leftover loop makes as("days") the single
                            division this now does.
+  datetime.js  plus/minus  a Duration built per call to be read once. Both
+                           methods called Duration.fromDurationLike on their
+                           argument, and for the object literal that every
+                           caller writes that is a normalizeObject building a
+                           keyed object, a Locale lookup and a Duration
+                           allocation — after which adjustTime reads nine
+                           getters off it and drops it. minus then built a
+                           second one, because negate() clones. durationValues
+                           produces those nine numbers directly.
 
-Neither is an unconditional replacement, because as() is not the plain sum it
-looks like. Three guards, all in the patch as comments:
+The first two are not unconditional replacements, because as() is not the plain
+sum it looks like. Three guards, all in the patch as comments:
 
 Whole values. In adjustTime the five calendar fields contribute only their
 fractional parts, so when all nine fields are integers those terms are exactly
@@ -85,6 +94,33 @@ zone.offset(ts) itself. So adjustTime's offset is dead on every path that reache
 it. It is left correct rather than dropped, because that is the function's
 contract rather than its caller's current shape.
 
+The argument change is a different kind of claim from the other two, and worth
+separating. Nothing about it is an approximation: durationValues is what
+Duration.fromObject does to an object minus the object it returns, and every
+input fromObject rejects is still rejected, with the same error and the same
+message. The saving is the Duration, the Locale lookup and — for minus — the
+second Duration that negate() clones.
+
+There are two places it could quietly diverge, and both are in the patch as
+comments. normalizeObject writes `normalized[normalizer(u)] = asNumber(v)`, and
+a member expression is evaluated before the value assigned to it, so an object
+with both a bad unit and a bad value reports the unit; writing the two calls in
+the reading order would report the value instead, and nothing but a test looking
+for it would notice. And negate() guards its zeros, because -0 is falsy and the
+getters minus read through turned a negated zero back into zero.
+
+The other half of the win is shape rather than allocation. normalizeObject's
+result has computed keys and a layout that depends on which units the caller
+named, so the nine reads in adjustTime saw a different object for
+plus({ days: 1 }) than for plus({ hours: 1 }). The record here is one fixed
+shape whatever the argument was, which is also why the Duration branch copies
+its nine fields out rather than handing the Duration through.
+
+Measured against the rest of the patch set on the complete tree, node then bun:
+minus -39% / -33%, plus -30% / -23%, endOf('month') -30% / -27%,
+hasSame('day') -22% / -20%, Interval#length -18% / -13%, toRelative -15% / -13%,
+diff -12% / -6%, against columns that do not reach plus moving 0-7% either way.
+
 The other four are constants that were being built inside the function that reads
 them, and are simply moved to module scope:
 
@@ -131,15 +167,135 @@ reaches 1.35x / 1.42x.
 
 Verification is in benchmarks/test/arith-direct-patch.test.ts, plus 85,806
 patched-against-patched comparisons over five zones, 32 duration shapes covering
-fractional, negative, past-2^53 and non-finite values, and DST edges. Luxon's own
-suite was also run against a tree with this applied and produced an identical
-pass/fail set.
+fractional, negative, past-2^53 and non-finite values, and DST edges. The
+argument change adds a sweep organised by the SHAPE of the argument rather than
+its arithmetic — singular against plural spellings and both in one object,
+inherited against own properties, non-enumerable and symbol keys, getters, the
+values asNumber coerces against the ones it rejects, a bad unit beside a bad
+value, and every non-object luxon throws on — and one that walks each of the
+nine units through a Duration argument, since that branch copies field by field
+and a unit left behind would show up nowhere else. Both were built by mutation:
+of eighteen mutations, sixteen fail the suite, and the two that survive are
+argued in the patch as unobservable rather than untested.
+
+One warning for anyone repeating that. Interval#splitBy loops until plus carries
+its cursor past the end and guards only the Duration it was handed, so a
+mutation that stops plus advancing does not fail — it appends until the machine
+is out of memory. The sweep leaves splitBy out for that reason and any harness
+mutating this patch wants a wall-time and heap cap on each run.
+
+Luxon's own suite was also run against a tree with this applied and produced an
+identical pass/fail set.
 
 diff --git a/src/datetime.js b/src/datetime.js
 --- a/src/datetime.js
 +++ b/src/datetime.js
+@@ -18,6 +18,8 @@ import {
+   normalizeObject,
+   roundTo,
+   objToLocalTS,
+   padStart,
++  asNumber,
++  hasOwnProperty,
+ } from "./impl/util.js";
 @@ -151,29 +172,113 @@ function objToTS(obj, offset, zone) {
  
++// UPSTREAM-H: the nine numbers adjustTime reads, produced without the Duration
++// that used to carry them. plus and minus called Duration.fromDurationLike on
++// their argument, which for the object literal every caller writes is a
++// normalizeObject building a keyed object, a Locale lookup and a Duration
++// allocation — all so adjustTime could read nine getters off it and drop it.
++//
++// The record below is what those nine reads wanted. Its shape is fixed, which
++// is the other half of the win: normalizeObject's result has computed keys and
++// a shape that depends on which units the caller named, so the getters reading
++// it could not settle.
++//
++// This is a normalization, not a validation shortcut. Every input normalizeObject
++// rejects is still rejected here, with the same error and the same message,
++// which is what the sweep in benchmarks/test/arith-direct-patch.test.ts is for.
++function durationValues(durationLike, negate) {
++  const v = {
++    years: 0,
++    quarters: 0,
++    months: 0,
++    weeks: 0,
++    days: 0,
++    hours: 0,
++    minutes: 0,
++    seconds: 0,
++    milliseconds: 0,
++  };
++
++  if (typeof durationLike === "number") {
++    // fromMillis is fromObject({ milliseconds: count }), and the unit name in
++    // that literal cannot fail to normalize, so only the value check is left
++    v.milliseconds = asNumber(durationLike);
++  } else if (
++    durationLike !== null &&
++    typeof durationLike === "object" &&
++    durationLike.isLuxonDuration !== true
++  ) {
++    for (const u in durationLike) {
++      if (!hasOwnProperty(durationLike, u)) continue;
++
++      const raw = durationLike[u];
++
++      // normalizeObject's filter, kept in its shape rather than its effect. A
++      // mutation dropping the null half survives every test here and always
++      // will: asNumber(null) is 0, and 0 is what an absent unit already reads
++      // as, so the two are the same answer by a different route. It is written
++      // out so the two functions can be diffed against each other.
++      if (raw === undefined || raw === null) continue;
++
++      // normalizeUnit before asNumber, because normalizeObject writes
++      // `normalized[normalizer(u)] = asNumber(v)` and a member expression is
++      // evaluated before the value assigned to it. So { nope: "nope" } reports
++      // the unit and not the value, and that ordering is observable.
++      const unit = Duration.normalizeUnit(u);
++
++      v[unit] = asNumber(raw);
++    }
++  } else {
++    // a Duration, or something that is none of the three and has to reach
++    // fromDurationLike to be thrown on. An invalid Duration reads NaN out of
++    // every getter, as it did before, and adjustTime's guards send it down the
++    // path that throws on it.
++    const dur = Duration.fromDurationLike(durationLike);
++
++    v.years = dur.years;
++    v.quarters = dur.quarters;
++    v.months = dur.months;
++    v.weeks = dur.weeks;
++    v.days = dur.days;
++    v.hours = dur.hours;
++    v.minutes = dur.minutes;
++    v.seconds = dur.seconds;
++    v.milliseconds = dur.milliseconds;
++  }
++
++  if (negate) {
++    // Duration#negate's own guard: -0 is falsy, so the getters minus used to
++    // read through turned a negated zero back into zero and a bare -v here
++    // would not. Dropping it survives every test, and that is not a gap —
++    // a -0 field reaches adjustTime only as a term of a sum or an addend to a
++    // year, month or day that is already an integer, and x + -0 is x for
++    // every x including -0 itself. It is kept because matching negate is this
++    // function's contract, not because a caller can tell.
++    v.years = v.years === 0 ? 0 : -v.years;
++    v.quarters = v.quarters === 0 ? 0 : -v.quarters;
++    v.months = v.months === 0 ? 0 : -v.months;
++    v.weeks = v.weeks === 0 ? 0 : -v.weeks;
++    v.days = v.days === 0 ? 0 : -v.days;
++    v.hours = v.hours === 0 ? 0 : -v.hours;
++    v.minutes = v.minutes === 0 ? 0 : -v.minutes;
++    v.seconds = v.seconds === 0 ? 0 : -v.seconds;
++    v.milliseconds = v.milliseconds === 0 ? 0 : -v.milliseconds;
++  }
++
++  return v;
++}
++
  // create a new DT instance by adding a duration, adjusting for DSTs
  function adjustTime(inst, dur) {
 -  const oPre = inst.o,
@@ -335,6 +491,31 @@ diff --git a/src/datetime.js b/src/datetime.js
 +  const normalized = normalizedUnits[unit.toLowerCase()];
  
    if (!normalized) throw new InvalidUnitError(unit);
+ 
+@@ -1714,13 +1848,13 @@ export default class DateTime {
+   plus(duration) {
+     if (!this.isValid) return this;
+-    const dur = Duration.fromDurationLike(duration);
+-    return clone(this, adjustTime(this, dur));
++    // UPSTREAM-H: was fromDurationLike, building a Duration for adjustTime to
++    // read nine numbers off and drop. See durationValues.
++    return clone(this, adjustTime(this, durationValues(duration, false)));
+   }
+ 
+   /**
+    * Subtract a period of time to this DateTime and return the resulting DateTime
+    * See {@link DateTime#plus}
+    * @param {Duration|Object|number} duration - The amount to subtract. Either a Luxon Duration, a number of milliseconds, the object argument to Duration.fromObject()
+    @return {DateTime}
+    */
+   minus(duration) {
+     if (!this.isValid) return this;
+-    const dur = Duration.fromDurationLike(duration).negate();
+-    return clone(this, adjustTime(this, dur));
++    // UPSTREAM-H: the same, and negate() was a second Duration on top of the
++    // first — a fresh values object, a clone and nine more getter reads.
++    return clone(this, adjustTime(this, durationValues(duration, true)));
+   }
  
 diff --git a/src/duration.js b/src/duration.js
 --- a/src/duration.js
