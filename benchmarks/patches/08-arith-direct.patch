@@ -2,11 +2,11 @@ Patch: arithDirect
 Letter: H
 Requires: none
 Files: src/datetime.js, src/duration.js, src/impl/diff.js, src/impl/english.js, src/zones/systemZone.js
-Summary: six places on the arithmetic path that built something per call to reach a number: two object round trips and four constants
+Summary: seven places on the arithmetic path that built something per call to reach a number: two object round trips, one offset round trip and four constants
 
 H: reach the number directly, on the arithmetic path
 
-Six changes on the route every plus, minus, startOf, endOf, set, hasSame, diff
+Seven changes on the route every plus, minus, startOf, endOf, set, hasSame, diff
 and Interval method takes, in two sizes. Nothing here formats or parses anything,
 which is why the formatting and parsing tables barely see it and the `other` band
 is where it is priced.
@@ -56,6 +56,34 @@ the obvious way to write it and it is wrong for every year under 100.
 Replacing the inst.c spread in adjustTime with a literal is in the same hunk and
 measured at 1-2%, which is inside the run-to-run noise; it is here because it is
 free and fixes the object's shape, not because it can be shown to pay.
+
+The third change to adjustTime is a return rather than a rewrite. When the
+duration sets no calendar field, the civil object it assembles is inst.c
+unchanged, so objToLocalTS(c) is the receiver's own local time and the fixOffset
+that follows re-derives the timestamp and offset the instance is already
+carrying. Returning before any of that is built takes about 10% off
+endOf('month') and 6-7% off hasSame('day') on both engines, against a control of
+1-2%; those two spend it twice, since endOf is a plus, a startOf and a minus(1)
+and the minus is calendar-free. It shares the range guard above, for the same
+reason: an overflowing sum has to keep reaching the code that preserves luxon's
+existing answer for it.
+
+What that skips is also where wasHole comes from, which is public API, so the
+question is whether false is right for a receiver that was itself resolved out of
+a DST hole. It is, and not by luck: a hole resolution returns a timestamp and
+offset whose civil time lands outside the hole, so reading inst.c back out and
+re-resolving it cannot reach fixOffset's hole branch either. The sweep in
+benchmarks/test/arith-direct-patch.test.ts compares wasHole alongside the instant
+over 21,600 calls, and separately over receivers constructed into holes in four
+zones, including Lord Howe's half-hour DST.
+
+The offset in that return is computed the way the old path computes it, and a
+mutation that returns the receiver's offset instead survives every test here.
+That is not a gap in the sweep: clone() always passes `old`, and the DateTime
+constructor ignores the offset it is handed whenever `old` is present and reads
+zone.offset(ts) itself. So adjustTime's offset is dead on every path that reaches
+it. It is left correct rather than dropped, because that is the function's
+contract rather than its caller's current shape.
 
 The other four are constants that were being built inside the function that reads
 them, and are simply moved to module scope:
@@ -110,13 +138,34 @@ pass/fail set.
 diff --git a/src/datetime.js b/src/datetime.js
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -151,29 +172,74 @@ function objToTS(obj, offset, zone) {
+@@ -151,29 +172,113 @@ function objToTS(obj, offset, zone) {
  
  // create a new DT instance by adding a duration, adjusting for DSTs
  function adjustTime(inst, dur) {
 -  const oPre = inst.o,
 -    year = inst.c.year + Math.trunc(dur.years),
 -    month = inst.c.month + Math.trunc(dur.months) + Math.trunc(dur.quarters) * 3,
+-    c = {
+-      ...inst.c,
+-      year,
+-      month,
+-      day:
+-        Math.min(inst.c.day, daysInMonth(year, month)) +
+-        Math.trunc(dur.days) +
+-        Math.trunc(dur.weeks) * 7,
+-    },
+-    millisToAdd = Duration.fromObject({
+-      years: dur.years - Math.trunc(dur.years),
+-      quarters: dur.quarters - Math.trunc(dur.quarters),
+-      months: dur.months - Math.trunc(dur.months),
+-      weeks: dur.weeks - Math.trunc(dur.weeks),
+-      days: dur.days - Math.trunc(dur.days),
+-      hours: dur.hours,
+-      minutes: dur.minutes,
+-      seconds: dur.seconds,
+-      milliseconds: dur.milliseconds,
+-    }).as("milliseconds"),
+-    localTS = objToLocalTS(c);
 +  // UPSTREAM-H: each of these was a getter call repeated two or three
 +  // times below.
 +  const ic = inst.c,
@@ -130,40 +179,9 @@ diff --git a/src/datetime.js b/src/datetime.js
 +    durMinutes = dur.minutes,
 +    durSeconds = dur.seconds,
 +    durMilliseconds = dur.milliseconds,
-+    year = ic.year + Math.trunc(durYears),
-+    month = ic.month + Math.trunc(durMonths) + Math.trunc(durQuarters) * 3,
-+    // UPSTREAM-H: was a spread of inst.c. inst.c is always tsToObj
-+    // output, so these are its keys, in its order.
-     c = {
--      ...inst.c,
-       year,
-       month,
-       day:
--        Math.min(inst.c.day, daysInMonth(year, month)) +
--        Math.trunc(dur.days) +
--        Math.trunc(dur.weeks) * 7,
-+        Math.min(ic.day, daysInMonth(year, month)) +
-+        Math.trunc(durDays) +
-+        Math.trunc(durWeeks) * 7,
-+      hour: ic.hour,
-+      minute: ic.minute,
-+      second: ic.second,
-+      millisecond: ic.millisecond,
-     },
--    millisToAdd = Duration.fromObject({
--      years: dur.years - Math.trunc(dur.years),
--      quarters: dur.quarters - Math.trunc(dur.quarters),
--      months: dur.months - Math.trunc(dur.months),
--      weeks: dur.weeks - Math.trunc(dur.weeks),
--      days: dur.days - Math.trunc(dur.days),
--      hours: dur.hours,
--      minutes: dur.minutes,
--      seconds: dur.seconds,
--      milliseconds: dur.milliseconds,
--    }).as("milliseconds"),
-+    // UPSTREAM-H: this was a nine-key Duration built and converted per
-+    // call, to reach a number that is almost always this sum. Two things stop
-+    // it from being an unconditional replacement.
++    // UPSTREAM-H: this replaces a nine-key Duration that was built and
++    // converted per call, to reach a number that is almost always this sum. Two
++    // things stop it from being an unconditional replacement.
 +    //
 +    // Whole values: the five calendar fields only contribute their fractional
 +    // parts, so when all nine are integers those five terms are exactly zero
@@ -186,7 +204,48 @@ diff --git a/src/datetime.js b/src/datetime.js
 +      Number.isInteger(durSeconds) &&
 +      Number.isInteger(durMilliseconds)
 +        ? durHours * 3600000 + durMinutes * 60000 + durSeconds * 1000 + durMilliseconds
-+        : NaN,
++        : NaN;
++
++  // UPSTREAM-H: with no calendar field set, the civil object below is inst.c
++  // unchanged, so objToLocalTS(c) is this instance's own local time and
++  // fixOffset re-derives the ts and offset it already carries. Verified
++  // idempotent, including for instances constructed into a DST hole: reading
++  // the civil time back out of a hole resolution lands outside the hole, so the
++  // re-derivation cannot reach fixOffset's hole branch and wasHole is false
++  // here exactly as it is there.
++  //
++  // The finite guard is the same one below and for the same reason — an
++  // overflowing sum has to keep reaching the code that preserves luxon's
++  // existing answer for it.
++  if (
++    durYears === 0 &&
++    durQuarters === 0 &&
++    durMonths === 0 &&
++    durWeeks === 0 &&
++    durDays === 0 &&
++    Number.isFinite(wholeSum * 1000)
++  ) {
++    const only = inst.ts + wholeSum;
++
++    return { ts: only, o: wholeSum === 0 ? oPre : inst.zone.offset(only), wasHole: false };
++  }
++
++  const year = ic.year + Math.trunc(durYears),
++    month = ic.month + Math.trunc(durMonths) + Math.trunc(durQuarters) * 3,
++    // UPSTREAM-H: was a spread of inst.c. inst.c is always tsToObj
++    // output, so these are its keys, in its order.
++    c = {
++      year,
++      month,
++      day:
++        Math.min(ic.day, daysInMonth(year, month)) +
++        Math.trunc(durDays) +
++        Math.trunc(durWeeks) * 7,
++      hour: ic.hour,
++      minute: ic.minute,
++      second: ic.second,
++      millisecond: ic.millisecond,
++    },
 +    millisToAdd = Number.isFinite(wholeSum * 1000)
 +      ? wholeSum
 +      : Duration.fromObject({
@@ -200,9 +259,19 @@ diff --git a/src/datetime.js b/src/datetime.js
 +          seconds: durSeconds,
 +          milliseconds: durMilliseconds,
 +        }).as("milliseconds"),
-     localTS = objToLocalTS(c);
++    localTS = objToLocalTS(c);
  
    let [ts, o, wasHole] = fixOffset(localTS, oPre, inst.zone);
+ 
+   if (millisToAdd !== 0) {
+     ts += millisToAdd;
+     // that could have changed the offset by going over a DST, but we want to keep the ts the same
+     o = inst.zone.offset(ts);
+   }
+ 
+   return { ts, o, wasHole };
+ }
+ 
 @@ -342,33 +408,37 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
    orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
  

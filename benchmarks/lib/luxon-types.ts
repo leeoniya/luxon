@@ -30,6 +30,19 @@ declare module "luxon" {
      */
     locObj?: object | null | undefined;
   }
+
+  interface DateTime {
+    /**
+     * Whether this instant's civil time fell in a DST gap and was moved out of
+     * it.
+     *
+     * luxon documents and exposes this getter, and it is the visible half of
+     * what `adjustTime` returns, so a patch that skips `fixOffset` has to be
+     * checked against it — see benchmarks/test/arith-direct-patch.test.ts.
+     * @types/luxon does not declare it.
+     */
+    readonly wasHole: boolean;
+  }
 }
 
 /**

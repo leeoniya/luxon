@@ -247,6 +247,24 @@ fixed, and dramatic on `Info.months` / `Info.weekdays` in a non-English locale,
 which build a `Locale` per call — see [coverage.md](coverage.md), where that
 collapses to almost nothing.
 
+Once the `Locale` is a shared object with a generation counter on it, it is also
+where `Duration#toHuman`'s formatters belong. `toHuman` asks for one number
+formatter per unit it prints and one list formatter, and builds a fresh options
+object to ask for each, so a two-unit duration pays three `JSON.stringify` cache
+keys and two `PolyNumberFormatter` constructions per call. Called with no options
+all of that is fixed by the locale and the unit — about 40% of the method, and
+the `Duration toHuman` column moves from roughly 3.0x moment to 1.8x. Any option
+at all is spread into both formatters' options, so the memo is only taken when
+the caller passed none.
+
+Hanging it off the `Locale` rather than off the `Duration` is what makes
+`Settings.resetCaches()` reach it. A `Duration` built before the reset still
+holds its `Locale` instance and nothing looks that instance up again, so a memo
+there would go on rendering through the `Intl` objects the reset dropped — which
+is the case `resetCaches()` exists for.
+[`test/locale-intern-patch.test.ts`](../test/locale-intern-patch.test.ts) swaps
+`Intl.NumberFormat` out from under a `Duration` that has already rendered.
+
 ### G, H and I — one idea, three patches
 
 These three were one patch, and the split is the more interesting fact about
@@ -305,7 +323,8 @@ also checks `tsToObj` against `Date`'s own getters over 200k random instants.
 ### H — `arithDirect`
 
 Two objects built, converted and dropped to reach a number plain arithmetic
-already has, plus the four constants above.
+already has, one offset round trip that re-derives what the receiver is already
+carrying, plus the four constants above.
 
 `adjustTime` was building a nine-key `Duration` and converting it to milliseconds
 on every `plus` and `minus`, where an integer sum will do; `impl/diff.js`'s
@@ -319,6 +338,19 @@ The `adjustTime` fast path was found by taking the four API columns furthest
 behind moment and profiling them. `diff`, `endOf('month')`, `toRelative` and
 `hasSame('day')` were all behind, all four for the same reason.
 
+The offset round trip is the third change to the same function and is a return
+rather than a rewrite. A duration that sets no calendar field leaves the civil
+object `adjustTime` assembles identical to the receiver's, so the `objToLocalTS`
+and `fixOffset` that follow recompute the instant and offset the instance already
+holds. Returning first is worth about 10% of `endOf('month')` and 6-7% of
+`hasSame('day')` on both engines — those two pay it twice, since `endOf` is a
+`plus`, a `startOf` and a `minus(1)`, and the `minus` is calendar-free.
+
+What it skips is also where `wasHole` comes from, and `wasHole` is public, so the
+sweep compares it alongside the instant. `false` is right even for a receiver
+resolved out of a DST hole, because a hole resolution lands on a civil time
+outside the hole, so re-reading it cannot reach `fixOffset`'s hole branch.
+
 Neither replacement is unconditional, because `as()` is not the plain sum it
 looks like: the fast path holds only when every field is an integer and only
 while the sum stays finite, and `dayDiff`'s conversion has to be the one that
@@ -331,7 +363,7 @@ the finite-range guard took 1,200 parity failures.
 The four constants are moves rather than rewrites — none captures anything — so
 the same file checks every key of both unit tables in both spellings and mixed
 case, and interleaves zones across DST so a stale `SystemZone` probe would show
-up as one zone reading another's answer. The engine split runs through all six
+up as one zone reading another's answer. The engine split runs through all seven
 changes: V8 escape-analyzes some of these allocations away and JavaScriptCore
 does not.
 

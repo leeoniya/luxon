@@ -126,14 +126,36 @@ itself: both sides are well under a millisecond for the whole batch. The stock
 row is where that column's argument is, and it is a large one.
 
 **`endOf` and `diff`** are the ones to read as unfinished: luxon doing the same
-job moment does and taking longer at it.
+job moment does and taking longer at it. `endOf` is three `DateTime`
+constructions — a `plus` of one unit, a `startOf`, and a `minus(1)` — where
+moment writes the fields in place, and its profile is flat enough that no leaf in
+it is worth taking on its own. H's calendar-free return is the exception and is
+worth about 10% of the column, since two of those three constructions go through
+`adjustTime` and the `minus(1)` sets no calendar field. Closing the rest means
+computing the boundary from the civil fields directly, which is a different kind
+of change from anything in this patch set and wants its own argument about DST.
 
-This group used to have four in it, and the other two are worth saying what
-became of, because neither was fixed the same way.
+This group used to have four in it, and the others are worth saying what became
+of, because none was fixed the same way.
 
 `Duration#as` was `shiftTo` and `normalizeValues` — a whole `Duration` built,
 walked and cloned so one number could be read off it, against moment's `asHours`,
 which divides. J computes the sum directly and the column now leads.
+
+`Duration toHuman` is still on the not-like-for-like list and still behind, but
+by much less, and what closed most of the gap was not the Intl boundary. Only
+about a third of the method is the `Intl.NumberFormat#format` calls it exists to
+make. The rest was asking for the formatters: one per unit printed plus a list
+formatter, each requested with a freshly built options object, so a two-unit
+duration paid three `JSON.stringify` cache keys and two `PolyNumberFormatter`
+constructions per call. With default options every one of those is fixed by the
+locale and the unit, and F already interns the locale, so they now hang off it —
+about 40% of the method, taking the column from roughly 3.0x moment to 1.8x.
+What is left is the ICU boundary, and that part is the trade rather than an
+oversight.
+
+`hasSame` has left this group too, quietly: it is at or slightly ahead of moment
+now, which it was not before H.
 
 `fromObject` was a measurement artifact. Its inputs advanced month, day and hour
 off one counter, which lands every construction in a different month from the one

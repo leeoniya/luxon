@@ -441,6 +441,94 @@ describe("arithDirect is invisible", () => {
           }
         }
       });
+
+      // A duration with no calendar field leaves the civil object identical to
+      // the receiver's, so adjustTime returns before building it and before the
+      // offset round trip that would re-derive what the instance already has.
+      // What that skips is fixOffset, which is also where wasHole comes from —
+      // so wasHole is part of the comparison here and not only the instant.
+      test("durations with no calendar field, including wasHole", async (t) => {
+        const patched = await loadLuxon(keys);
+
+        // amounts either side of the guard: whole and fractional, zero and not,
+        // inside the finite range and past it
+        const AMTS: unknown[] = [
+          0, 1, -1, 1000, 86_400_000, -86_400_000, 0.5, -0.5,
+          { milliseconds: 1 }, { seconds: 90 }, { minutes: -30 }, { hours: 5 }, { hours: -5 },
+          { hours: 1, minutes: 30 }, { seconds: 0.5 }, { milliseconds: 0.25 }, { hours: 0.25 },
+          // zeroed calendar fields still count as calendar-free
+          { days: 0 }, { months: 0 }, { weeks: 0 }, { quarters: 0, hours: 1 }, { years: 0, minutes: 5 },
+          // and these must not take it
+          { days: 1 }, { months: 1 }, { weeks: -2 }, { years: 1, hours: 2 },
+          { hours: Number.MAX_SAFE_INTEGER }, { hours: 1e305 }, { seconds: 1e308 },
+          { hours: 1e305, milliseconds: -1e308 },
+        ];
+
+        let checked = 0;
+
+        for (const zone of ZONES) {
+          for (const instant of INSTANTS) {
+            for (let min = -60; min <= 60; min += 15) {
+              const ts = instant + min * 60_000;
+
+              for (const amt of AMTS) {
+                for (const op of ["plus", "minus"] as const) {
+                  const read = (mod: typeof stock) =>
+                    outcome(() => {
+                      const dt = mod.DateTime.fromMillis(ts, { zone });
+                      const d = op === "plus" ? dt.plus(amt as never) : dt.minus(amt as never);
+                      return d.isValid ? `${d.valueOf()}/${d.offset}/${d.wasHole}` : `invalid:${d.invalidReason}`;
+                    });
+
+                  checked++;
+
+                  assert.equal(
+                    read(patched),
+                    read(stock),
+                    `${zone} ${new Date(ts).toISOString()} ${op} ${JSON.stringify(amt)}`
+                  );
+                }
+              }
+            }
+          }
+        }
+
+        t.diagnostic(`${checked} compared`);
+        assert.ok(checked > 10_000, `only ${checked} compared`);
+      });
+
+      // fromMillis cannot land in a DST hole, so the receivers above are all
+      // outside one. These are built into holes on purpose: reading the civil
+      // time back out of a hole resolution lands outside it, which is why the
+      // skipped round trip could not have reported wasHole either way.
+      test("receivers constructed into a DST hole", async () => {
+        const patched = await loadLuxon(keys);
+
+        for (const zone of ["America/New_York", "Australia/Lord_Howe", "Pacific/Chatham", "Europe/Dublin"]) {
+          for (const [year, month, day] of [
+            [2017, 3, 12], [2024, 3, 10], [2024, 10, 6], [2024, 4, 7],
+          ] as [number, number, number][]) {
+            for (const hour of [1, 2, 3]) {
+              for (const minute of [0, 30]) {
+                const obj = { year, month, day, hour, minute };
+
+                for (const amt of [0, 1, { hours: 1 }, { minutes: 30 }, { milliseconds: -1 }, { days: 1 }]) {
+                  const read = (mod: typeof stock) => {
+                    const d = mod.DateTime.fromObject(obj, { zone }).plus(amt as never);
+                    return d.isValid ? `${d.valueOf()}/${d.offset}/${d.wasHole}` : `invalid:${d.invalidReason}`;
+                  };
+
+                  assert.equal(
+                    read(patched),
+                    read(stock),
+                    `${zone} ${JSON.stringify(obj)} + ${JSON.stringify(amt)}`
+                  );
+                }
+              }
+            }
+          }
+        }
+      });
     });
   }
 });
