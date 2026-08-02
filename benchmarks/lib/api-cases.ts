@@ -94,9 +94,9 @@ export interface ApiCase {
   momentShape?: (mo: MomentTz) => object;
   /**
    * moment reaches the same USER-VISIBLE result by different means, so the
-   * comparison is a library one and not like-for-like. Both the localized cases
-   * are this: luxon calls into ICU and moment expands its own token table, which
-   * is a different amount of work for a different quality of answer.
+   * comparison is a library one and not like-for-like. The localized cases are
+   * this: luxon's names come from ICU and moment's from tables it bundles, which
+   * is a different quality of answer and part of what its bytes buy.
    */
   approx?: true;
   /** reads the clock, so its output cannot be checked across builds */

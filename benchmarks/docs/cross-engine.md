@@ -25,10 +25,10 @@ abbreviated formats, both engines. A rung whose two engine columns differ is a
 rung whose value depends on which engine you believe; one where they agree is one
 that does not.
 
-Those two of the ladder's three writing formats, because these are the two that
+Those two of the ladder's four writing formats, because these are the two that
 differ by which `Intl` call they make, and that is the thing an engine change is
-most likely to move. The `text` column varies the pattern instead, so it is read
-in `upstream` rather than here.
+most likely to move. `text` and `text fr` vary the pattern and the locale
+instead, so they are read in `upstream` rather than here.
 
 The rungs that reach the zone-name lookup are worth watching per engine in
 particular, since they lean on `Intl` behaving the same way in both — and
@@ -56,7 +56,7 @@ Two things it taught are worth keeping even without the table:
   disagreeing. Any future verdict column here needs the same warning.
 - `F` was the patch that kept tripping it. It is aimed at `Info`, which a
   formatting table barely touches, so a formatting-side ranking was the wrong
-  place to judge it from. Its case is in the ladder's `other` band — see
+  place to judge it from. Its case is in the ladder's `other` table — see
   [coverage.md](coverage.md).
 
 ## What it found

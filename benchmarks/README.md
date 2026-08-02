@@ -1,13 +1,13 @@
 # benchmarks
 
-Luxon's own benchmark suite, plus a harness for eight candidate upstream
+Luxon's own benchmark suite, plus a harness for eleven candidate upstream
 patches to `src/`.
 
 The patches came out of profiling luxon against moment-timezone on a formatting
 workload: a column of timestamps rendered in a named IANA zone, which is what a
 dashboard or a data table produces thousands of at a time. Stock luxon runs that
 at ~3x moment-timezone with a plain `yyyy-MM-dd HH:mm:ss`, and ~26x once the
-pattern includes a zone abbreviation. All eight are pure memoization or
+pattern includes a zone abbreviation. All eleven are pure memoization or
 provable short-circuits: no API changes, no output changes.
 
 Nothing here modifies `src/`. Each patch is a unified diff in
@@ -21,7 +21,7 @@ running one does not bury its numbers in several pages of explanation:
 
 | doc | what is in it |
 | --- | --- |
-| [`docs/upstream.md`](docs/upstream.md) | the nine patches one by one, `E`'s tzdata precondition, and the order to file them in |
+| [`docs/upstream.md`](docs/upstream.md) | the eleven patches one by one, `E`'s tzdata precondition, and the order to file them in |
 | [`docs/coverage.md`](docs/coverage.md) | the ladder's public API columns: why each is there, and where luxon still trails moment |
 | [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
 | [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
@@ -100,26 +100,28 @@ the loop for iterating on a patch: `--patches` (~1s), `--ladder` (~80s), and
 `--default` (~13s). It also takes `--footprint` for rss and Intl-formatter
 counts, one subprocess per row.
 
-`--ladder` is the main table: one row per build, and one column per thing a
-build can be asked to do, with its shipped bytes at the end. The columns are
-banded into `formatting`, `parsing` and `other`, the last being everything that
-neither writes a string nor reads one — arithmetic, `Duration`, `Interval`,
-`Info`. It is a wide table, ~600 columns of terminal, and deliberately: a patch
-is argued from one row against the row above it, and every column that row can
-answer is part of that argument.
+`--ladder` is the main event: three tables of the same shape — the same builds
+in the same order, a row per build, its shipped bytes at the end — one per
+question a build can be asked. `formatting`, `parsing`, and `other`, the last
+being everything that neither writes a string nor reads one: arithmetic,
+`Duration`, `Interval`, `Info`. The heading carries the unit, since none of the
+38 columns does. A patch is argued from one row against the row above it, and
+the rows are the same rows throughout, so the three tables stack into one
+argument.
 
-The three bands are timed as three separate segments, because they were
-calibrated separately and still need to be: formatting runs the full value
-count, while parsing and the API calls cost enough per value that their passes
-are sized by time and then scaled. Each column states its own noise floor
-underneath, because they differ by an order of magnitude in cost and so in
-steadiness. A `--` is a build with no equivalent to run: moment ships no
-`Interval`, and the easy-tz rows are formatting and parsing only, since the API
-cases name their zone as a string rather than taking one.
+They are timed in segments rather than in tables, because a segment is a
+calibration: the format-string columns run the full value count, while parsing
+and the API calls cost enough per value that their passes are sized by time and
+scaled. Each column states its own noise floor underneath, because they differ by
+an order of magnitude in cost and so in steadiness. A `--` is a build with no
+equivalent to run — moment ships no `Interval`, and the easy-tz rows answer only
+the columns built on a zone, since the rest name theirs as a string rather than
+taking one.
 
-The API columns exist because the patch set outgrew the two bands that found it:
-`G` hoists both `normalizeUnit` tables and replaces the `Duration` round trip
-inside `adjustTime`, none of which any formatting or parsing case touches, and
+The API columns exist because the patch set outgrew the two questions that found it:
+`H` hoists both `normalizeUnit` tables and replaces the `Duration` round trip
+inside `adjustTime`, and `I` stops `toRelative` asking for diffs it can already
+answer — none of which any formatting or parsing case touches — and
 `A` and `E` sit under every zoned operation rather than only the ones that print
 something. They were a table of their own (`coverage.ts`) until they moved here.
 Every build's answers are checked against every other's before anything is
@@ -170,7 +172,7 @@ suite.ts                         those 29 cases across build columns
 format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
 cross-engine.ts                  upstream.ts under node and bun, diffed
-patches/                         the nine diffs
+patches/                         the eleven diffs
 docs/                            what the tables mean
 test/                            parity tests for the patches that rewrite logic
 lib/                             harness (see each file's header)

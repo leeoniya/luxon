@@ -92,18 +92,36 @@ function easySystemZone(): EasySystemZone {
 //            differently: a name never touches a numeric fast path. Its offset
 //            token is the techie one, which is offset() and not offsetName(),
 //            so it varies the pattern against `numeric` and nothing else.
+//   text fr  the same pattern again, in a locale that is not English.
 //
 // The RFC 2822 shape rather than an invented one, so the row is something a
 // caller actually emits — it is what DateTime#toRFC2822 formats, and moment's
 // spelling of it produces a byte-identical string.
+//
+// `text fr` holds the pattern fixed and varies only the locale, which is the
+// whole reason it earns a column. A name token has an English branch that reads
+// a constant array and a branch for everything else that asks ICU, and those two
+// are ~20x apart; nothing else in the ladder crosses that line, so a patch on it
+// was invisible here. Paired with `text`, the difference between the two columns
+// is that branch and nothing else.
 
-export type FormatKey = "numeric" | "abbr" | "text";
+export type FormatKey = "numeric" | "abbr" | "text" | "text fr";
 
-const FORMATS: Record<FormatKey, { moment: string; luxon: string }> = {
+const FORMATS: Record<FormatKey, { moment: string; luxon: string; locale?: string }> = {
   numeric: { moment: "YYYY-MM-DD HH:mm:ss", luxon: "yyyy-MM-dd HH:mm:ss" },
   abbr: { moment: "YYYY-MM-DD HH:mm:ss z", luxon: "yyyy-MM-dd HH:mm:ss ZZZZ" },
   text: { moment: "ddd, DD MMM YYYY HH:mm:ss ZZ", luxon: "EEE, dd LLL yyyy HH:mm:ss ZZZ" },
+  "text fr": {
+    moment: "ddd, DD MMM YYYY HH:mm:ss ZZ",
+    luxon: "EEE, dd LLL yyyy HH:mm:ss ZZZ",
+    locale: "fr",
+  },
 };
+
+/** The locale a format is rendered in — `LOCALE` unless the format names another. */
+export function localeFor(fmt: FormatKey): string {
+  return FORMATS[fmt].locale ?? LOCALE;
+}
 
 /**
  * The formats the ZONE benches compare, which is deliberately not "every format

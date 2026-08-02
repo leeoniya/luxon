@@ -49,15 +49,15 @@ is the size of the rest of the ladder on paths it was not written for.
 **F**, on `Info.months` and `Info.weekdays`, both of which build a `Locale` per
 call and now get an interned one.
 
-**G's non-formatting half**, which this is the only table that reaches at all. The
-relative-time table lands on `DateTime#toRelativeCalendar`; the reused `Date`
-inside `SystemZone` on `DateTime.now` — the default zone, and so the one
-configuration [`upstream`](upstream.md) never names; and the `Duration` unit table
-plus the `adjustTime` fast path on `DateTime#add`. That last one is the largest by
-a wide margin, and the ladder's [`other` band](coverage.md) is where its reach is
+**H**, which this is the only table that reaches at all. Its relative-time table
+lands on `DateTime#toRelativeCalendar`; the reused `Date` inside `SystemZone` on
+`DateTime.now` — the default zone, and so the one configuration
+[`upstream`](upstream.md) never names; and the `Duration` unit table plus the
+`adjustTime` fast path on `DateTime#add`. That last one is the largest by a wide
+margin, and the ladder's [`other` table](coverage.md) is where its reach is
 visible rather than here.
 
-**I**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
+**K**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
 bulk.
 
 ## The two cases that reset the caches

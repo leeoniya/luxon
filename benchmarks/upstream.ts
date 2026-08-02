@@ -31,10 +31,11 @@
 //
 // And a third band beyond both, `other`: arithmetic, Duration, Interval and Info
 // — everything that neither writes a string nor reads one. Those were a table of
-// their own until the patch set outgrew the two directions. G replaces the
-// Duration round trip inside adjustTime and H trims three allocations from under
-// the setters, and neither is reachable from a format string or a parse; they
-// were found by profiling rather than by any column here. The cases are in
+// their own until the patch set outgrew the two directions. H replaces the
+// Duration round trip inside adjustTime, I stops toRelative asking for diffs it
+// can already answer, and J trims three allocations from under the setters; none
+// of the three is reachable from a format string or a parse, and all were found
+// by profiling rather than by any column here. The cases are in
 // lib/api-cases.ts and the reading of them is in benchmarks/docs/coverage.md.
 //
 // Each build is also reported by what it costs to ship: the minified bytes of
@@ -78,10 +79,11 @@ import {
   type ParseCase,
   type ParseCaseKey,
 } from "./lib/build.ts";
-import { LOCALE, patternFor, zoneFormatKeys, type FormatKey } from "./lib/format-paths.ts";
+import { LOCALE, localeFor, patternFor, zoneFormatKeys, type FormatKey } from "./lib/format-paths.ts";
 import {
   LEAN_BUDGET,
   LEAN_BUDGET_MS,
+  cooldown,
   measureRows,
   pkgVersion,
   runtime,
@@ -150,10 +152,10 @@ const DOCS = "benchmarks/docs";
 // rather than silently measuring a smaller set.
 //
 // A and the first of G's six were found by profiling stock luxon, the rest of
-// G's by re-profiling that build, and H by profiling the build with all of them
-// in. A, F, G and H are caches or short-circuits; I is the structural one, and it
-// makes two of G's six redundant by construction (it parses each pattern once and
-// folds punctuation into literal runs).
+// G's by re-profiling that build, and H, I and J by profiling the build with all
+// of them in. A, F and G through J are caches or short-circuits; K is the
+// structural one, and it makes two of G's six redundant by construction (it
+// parses each pattern once and folds punctuation into literal runs).
 //
 // Named through `inPlay` rather than `patchKey` directly because `--drop` can
 // take any of them out from under this file, and a group that threw on a patch
@@ -161,7 +163,7 @@ const DOCS = "benchmarks/docs";
 // most useful on.
 const inPlay = (names: string[]) => names.filter(hasPatch).map(patchKey);
 
-const CACHES = inPlay(["zoneInfoCache", "localeIntern", "hotPath", "trimAllocs"]);
+const CACHES = inPlay(["zoneInfoCache", "localeIntern", "numericPath", "arithDirect", "relativeSkip", "trimAllocs"]);
 const ALL_PATCHES = [...CACHES, ...inPlay(["compileFormat"])];
 // B is the zone lookup rather than the formatter.
 const OFFSET = inPlay(["offsetScan"]);
@@ -189,7 +191,7 @@ const contiguous = (letters: readonly string[]) =>
  * Ranges and an "all but X" for the rung one short of the set both read shorter,
  * and both were here. Together they put three notations in one column, so a
  * reader working out what "A-D" held had to first notice it was not "A+B+C" or
- * "all but I" — and the only thing this column exists to say is which patches a
+ * "all but K" — and the only thing this column exists to say is which patches a
  * row carries. Spelling them out is longer and cannot be misread, and the widest
  * label is the second-to-last row, which is not wide.
  */
@@ -209,38 +211,41 @@ if (UPSTREAM.length !== patchKeys.length) {
 // Ordered by how easy each is to argue for upstream rather than by size: A and F
 // are caches, B and D are self-contained rewrites of one method each, C is a
 // memoization of an object luxon already hands out through buildFormatParser, E
-// needs the tzdata-gap argument accepted, and G and H are sets of leaf
+// needs the tzdata-gap argument accepted, and G through J are sets of leaf
 // short-circuits. D lands after C only because A and B were written first and the
 // rungs are cumulative — the two Intl calls are independent of each other. The
 // patch files are lettered and numbered in this order, so a rung's label reads in
 // the order it built and the letter of the patch without a rung is the last one.
 //
-// I is deliberately absent, and is what the final row adds.
+// K is deliberately absent, and is what the final row adds.
 //
 // Exactly one patch can be in that position, because the rungs are cumulative:
 // every other patch is priced by what it ADDS to a partial tree, and whichever
 // one goes last is priced by what the COMPLETE tree LOSES without it. Those are
 // different questions, and for most patches the first is the one worth asking —
-// it is the "should this land" question. I is the exception. It overlaps G,
-// which is the last rung, so an I measured before G would be credited with
-// savings G would also have found, and a reader comparing an I-shaped rung
-// against a G-shaped one further down would be comparing two prices for some of
-// the same work. Putting I last removes the double count: the last two rows
-// differ by I alone, so the step between them is what I is worth with everything
-// else already in, which is the only form of the question a shipping decision
-// turns on.
+// it is the "should this land" question. K is the exception. It overlaps G,
+// which is a rung, so a K measured before G would be credited with savings G
+// would also have found, and a reader comparing a K-shaped rung against a
+// G-shaped one further down would be comparing two prices for some of the same
+// work. Putting K last removes the double count: the last two rows differ by K
+// alone, so the step between them is what K is worth with everything else
+// already in, which is the only form of the question a shipping decision turns
+// on.
 //
-// The cost of that choice is G's rung, which is now measured in I's absence and
+// The cost of that choice is G's rung, which is now measured in K's absence and
 // so reads larger than the G in the shipped tree. See "What the merge cost".
 //
 // F's rung is the one to read across the whole width rather than off the
 // formatting columns alone: it interns Locales, which every direction builds one
 // of, but what it was written for is Info, and only the `other` band has any.
 //
-// H's rung is the same kind of row and more so. The formatting and parsing
-// columns are on neither of its routes — it is under the setters, so the only
-// part of it they touch is the one clone that fromMillis does. The `other` band
-// is where it is priced: plus, set, startOf, endOf and Duration#as.
+// H, I and J are all rows the `other` band exists for, and each was split out of
+// what used to be one patch because each owns a column there that the other two
+// do not. H is under plus, minus, diff, endOf and every Interval method; I is
+// under toRelative and nothing else; J is under the setters, so the only part of
+// it the formatting and parsing columns touch is the one clone that fromMillis
+// does. Removing any one of them from the complete tree costs at least 1.9x on
+// some column of that band, against a control that reaches 1.4x.
 const RUNG_ORDER = [
   "zoneInfoCache", // A
   "offsetScan", // B
@@ -248,8 +253,10 @@ const RUNG_ORDER = [
   "zoneNameScan", // D
   "transitionInterval", // E
   "localeIntern", // F
-  "hotPath", // G
-  "trimAllocs", // H, and last of the rungs because I is not one
+  "numericPath", // G
+  "arithDirect", // H
+  "relativeSkip", // I
+  "trimAllocs", // J, and last of the rungs because K is not one
 ];
 
 /** each rung is the one above it plus one patch, so the list above is the table */
@@ -264,7 +271,7 @@ const RUNGS: string[][] = RUNG_ORDER.map((_, i) => RUNG_ORDER.slice(0, i + 1));
 const LADDER: { id: string; keys: PatchKey[] }[] = [...RUNGS.map(inPlay), UPSTREAM]
   // each row has to hold something the row above it did not. the everything row
   // is in the same filter as the rungs because it is the one that collapses when
-  // I is dropped: I is the only patch with no rung of its own, so without it the
+  // K is dropped: K is the only patch with no rung of its own, so without it the
   // last rung already is the everything build
   .filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length))
   .map((keys, i, all) => ({
@@ -314,7 +321,7 @@ function luxonPath(id: string, patches: readonly PatchKey[], easyZone: boolean):
     luxonEntry: (await patchedEntry(patches)).pathname,
     easyZone,
     zone: ZONE,
-    locale: LOCALE,
+    locale: localeFor(fmt),
     pattern: patternFor("luxon", fmt),
   });
 
@@ -378,7 +385,7 @@ const momentSpec = (fmt: FormatKey): Promise<BuildSpec> =>
     luxonEntry: null,
     easyZone: false,
     zone: ZONE,
-    locale: LOCALE,
+    locale: localeFor(fmt),
     pattern: patternFor("moment", fmt),
   });
 
@@ -424,8 +431,6 @@ const pathById = (id: string): Path => {
 // ---- measurement ------------------------------------------------------------
 
 let sink = 0;
-
-const passCounts = new Set<number>();
 
 // The baseline is moment-timezone, not moment: a named zone needs its packed
 // offset table, and only its `z` token renders an abbreviation. moment core is
@@ -521,12 +526,12 @@ if (tables.has("patches")) {
  * table varies and not the thing that one does. The ladder walks patch sets over
  * a fixed zone, and its other two writing columns are both all-numeric en-US
  * gregorian patterns — the one input for which G's numeric fast paths cover most
- * of what I's compiled program covers, so a ladder made only of those is the
- * place most likely to understate I. format.ts walks zones over a fixed patch
+ * of what K's compiled program covers, so a ladder made only of those is the
+ * place most likely to understate K. format.ts walks zones over a fixed patch
  * set, and a third pattern there would cost it a table, a correctness sweep and
  * an Intl-counting subprocess to answer a question it is not asking.
  */
-const ladderFormats: FormatKey[] = [...zoneFormatKeys, "text"];
+const ladderFormats: FormatKey[] = [...zoneFormatKeys, "text", "text fr"];
 
 const results = new Map<FormatKey, Map<string, number>>(ladderFormats.map((fmt) => [fmt, new Map()]));
 
@@ -606,7 +611,7 @@ if (rowPaths.length !== paths.length) {
 //
 // Worth its own columns because the patches split unevenly across the two
 // directions, and the split is not guessable from the patch descriptions. Some
-// are formatter-only by construction (I compiles a format string to handlers; A
+// are formatter-only by construction (K compiles a format string to handlers; A
 // and D cache and then cheaply read the zone-NAME lookup, which no parse
 // performs). One is parse-only for the mirror-image reason: C compiles a format
 // string for reading, which no format path walks. Some are shared machinery that
@@ -696,10 +701,6 @@ const workFor =
     : (ts) => parse(ts, pool[((ts - BASE_TS) / STEP_MS) % pool.length]!);
 
 const parseResults = new Map<ParseCaseKey, Map<string, number>>(parseCases.map((kase) => [kase.key, new Map()]));
-// this table's cells are all shorter than `N`, so the legend says what they
-// really ran rather than implying it
-const parseSizes: number[] = [];
-const parsePasses = new Set<number>();
 // instants whose parse is checked before anything is timed: a build that cannot
 // read one of these shapes would otherwise post the best number in its column,
 // and reading nothing is very fast. Every instant here is a whole minute, so all
@@ -721,11 +722,6 @@ type LadderKey = string;
 const apiCases: ApiCase[] = (["formatting", "parsing", "other"] as ApiBand[]).flatMap((band) =>
   API_CASES.filter((kase) => kase.band === band)
 );
-
-// like the parse columns, these run fewer than `N` values and are scaled, so the
-// legend says what they really ran
-const apiSizes: number[] = [];
-const apiPasses = new Set<number>();
 
 /**
  * The moment instance a case is timed on: one per shape of Moment built, not one
@@ -845,19 +841,7 @@ if (tables.has("ladder")) {
     )
   );
 
-  console.log(`the ladder in the middle adds one patch per rung to the one above it\n`);
-
   const heldHeaders = withFootprint ? ["rss MB", "intl instances"] : [];
-  // Grouped by band rather than by where a column came from, so the header band
-  // over a column is the one that describes it: the format and parse columns
-  // built into this file lead their bands, and the API cases follow in the band
-  // each declares.
-  const inBand = (band: ApiBand) => apiCases.filter((kase) => kase.band === band).map((kase) => kase.key);
-  const formatting: LadderKey[] = [...ladderFormats, ...inBand("formatting")];
-  const parsing: LadderKey[] = [...parseCases.map((kase) => kase.key), ...inBand("parsing")];
-  const other: LadderKey[] = inBand("other");
-  const columns: LadderKey[] = [...formatting, ...parsing, ...other];
-  const headers = ["build", ...columns.map((key) => `${key} ms`), ...heldHeaders, "bytes"];
   // The bytes column is the one whose values are reliably wider than its header
   // — six-digit figures with separators under a five-letter word — and a column
   // narrower than its contents does not right-align, it just runs over. Sized
@@ -867,165 +851,124 @@ if (tables.has("ladder")) {
   // same reason: these are ms figures on whatever host runs them, and a
   // throttled machine reads several times a quiet one.
   const bytesWidth = Math.max(...[...bytesFor.values()].map((v) => v.length));
-  // Three questions in one table, and at this width which one a column belongs to
-  // stopped being obvious from its name — `tokens` parses a pattern, `text`
-  // formats one, and `set` does neither.
-  //
-  // Two columns their band does not describe, both of them deliberate. `millis`
-  // parses nothing, being the same construction with the string taken away, and
-  // sits in `parsing` as that band's floor; `fromMillis` and `now` are there for
-  // the same reason. `other` is defined by exclusion rather than by a subject:
-  // arithmetic, Duration, Interval and Info, which is everything that neither
-  // writes a string nor reads one. The footnotes say so, which is the right place
-  // for it — a band is a signpost and reads worse for every caveat put in it.
-  const bandAt = (from: number, span: number) => ({ from, to: from + span - 1 });
-  const bands = [
-    { label: "formatting", ...bandAt(1, formatting.length) },
-    { label: "parsing", ...bandAt(1 + formatting.length, parsing.length) },
-    { label: "other", ...bandAt(1 + formatting.length + parsing.length, other.length) },
-  ];
-  const table = streamTable(headers, {
-    groups: bands,
-    minWidths: Object.fromEntries([
-      [0, 22],
-      ...columns.map((_, i) => [i + 1, 10]),
-      [headers.length - 1, bytesWidth],
-    ]),
-  });
-
-  /** where the rules between groups go, by index into rowPaths */
-  const ruleAt = new Set<number>();
-  let at = 0;
-
-  for (const group of groups.slice(0, -1)) {
-    at += group.length;
-    ruleAt.add(at);
-  }
 
   const label = new Map(groups.flat().map(({ id, label }) => [id, label]));
+  /** which of the three blocks — baselines, ladder, easy-tz — a build sits in */
+  const groupOf = new Map<string, number>();
+
+  groups.forEach((group, i) => group.forEach(({ id }) => groupOf.set(id, i)));
+
+  /** builds whose writing cells were shortened, which the legend has to admit to */
+  const shortened = new Set<string>();
+
+  // ---- the three tables -----------------------------------------------------
+  //
+  // One table per question, rather than one table with a band over each third.
+  // The banded version held every column a build can answer on one line, which is
+  // the right shape for the argument — a patch is made by reading one row against
+  // the one above it — and the wrong shape for a terminal. At 38 columns it ran
+  // to ~550 characters, so every row arrived wrapped into four fragments
+  // interleaved with its neighbours', which is not a table. Turning the
+  // terminal's wrapping off instead only traded that for silently losing two
+  // thirds of the columns.
+  //
+  // Split, each table is a width a terminal can hold, and the rows are the same
+  // rows in the same order, so a patch still reads down a column and the three
+  // tables still stack into one argument.
+  //
+  // A segment is a calibration, not a band. The format-string columns run the
+  // full N and take as many passes as their budget allows; the API cases cost
+  // little enough per value that a pass is sized by time and scaled. Two of the
+  // tables hold both kinds, so they are timed in two segments and printed as one.
+  interface Segment {
+    /** what this segment's columns are, for the line that states its pass settings */
+    label: string;
+    keys: LadderKey[];
+    passBudget: SampleBudget;
+    budgetMs: number;
+    /** timed over fewer than N values and scaled up, rather than running the full count */
+    scaled: boolean;
+  }
+
+  interface Band {
+    label: string;
+    /** what the table is asking, printed above it */
+    what: string;
+    segments: Segment[];
+    /** the column legend printed under it, for columns whose names are not the whole story */
+    legend: string;
+  }
+
+  const inBand = (band: ApiBand) => apiCases.filter((kase) => kase.band === band).map((kase) => kase.key);
+  const lean = (label: string, keys: LadderKey[]): Segment => ({
+    label,
+    keys,
+    passBudget: LEAN_BUDGET,
+    budgetMs: LEAN_BUDGET_MS,
+    scaled: true,
+  });
+
+  const BANDS: Band[] = [
+    {
+      label: "formatting",
+      what: "writing a date",
+      segments: [
+        {
+          label: "the three format strings",
+          keys: [...ladderFormats],
+          passBudget: PASSES,
+          budgetMs: PASS_BUDGET_MS,
+          scaled: false,
+        },
+        lean("the toFormat and ISO calls", inBand("formatting")),
+      ],
+      // a format that only varies the locale points at the twin it shares a
+      // pattern with, rather than printing the same string twice
+      legend: ladderFormats
+        .map((fmt, i) => {
+          const pattern = patternFor("moment", fmt);
+          const twin = ladderFormats.slice(0, i).find((seen) => patternFor("moment", seen) === pattern);
+
+          return `${fmt}: ${twin === undefined ? pattern : `${twin}'s pattern, in ${localeFor(fmt)}`}`;
+        })
+        .join("   "),
+    },
+    {
+      label: "parsing",
+      what: "reading one, and the two constructors that read no string at all",
+      segments: [
+        {
+          label: "the five input shapes",
+          keys: parseCases.map((kase) => kase.key),
+          passBudget: PARSE_PASSES,
+          budgetMs: PARSE_BUDGET_MS,
+          scaled: true,
+        },
+        lean(inBand("parsing").join(" and "), inBand("parsing")),
+      ],
+      legend: parseCases.map((kase) => `${kase.key}: ${kase.what}`).join("\n"),
+    },
+    {
+      label: "other",
+      what: "everything that neither writes a string nor reads one",
+      segments: [lean("every column", inBand("other"))],
+      legend: "",
+    },
+  ];
+
   // Each column's own resolution, gathered as the rows land: how far apart two
   // readings of that cell fell. Kept per column rather than per table because
   // the columns differ by an order of magnitude in cost and so in steadiness,
   // and the ladder's smaller steps are small enough that the difference between
   // a real step and a coincidence turns on which column it is in.
-  const floors = new Map<LadderKey, number[]>(columns.map((key) => [key, []]));
-  /** builds whose writing cells were shortened, which the legend has to admit to */
-  const shortened = new Set<string>();
+  const floors = new Map<LadderKey, number[]>(
+    BANDS.flatMap((band) => band.segments.flatMap((seg) => seg.keys)).map((key) => [key, []])
+  );
   // What every other row is shaded against, filled by the row that supplies it.
   // moment is rowPaths[0], so it is in hand before anything needs it — but read
   // off the row rather than assumed, since a table whose colours silently
   // inverted if the rows were reordered would be worse than one with no colours.
   const anchor = new Map<LadderKey, number>();
-  let index = 0;
-
-  // A row is one build across all seven columns, and a row is what this table
-  // compares — so the builds are separated by a cooldown while each row's cells
-  // stay inside one interleaved window. Nothing compares a writing column
-  // against a reading one, which is what makes that the right way round.
-  //
-  // The two halves are timed as separate segments because they were calibrated
-  // separately and still need to be: writing runs the full `N` values and takes
-  // as many passes as its budget allows, while reading costs enough per value
-  // that a pass is sized by time and then scaled. Merging the tables merged the
-  // printing, not the timing.
-  const run = await measureRows(
-    rowPaths,
-    (path) => [
-      {
-        entries: ladderFormats.map((fmt) => ({ key: fmt as LadderKey, work: built.get(path.id)!.get(fmt)! })),
-        passBudget: PASSES,
-        budgetMs: PASS_BUDGET_MS,
-      },
-      {
-        entries: parseCases.map((kase) => ({ key: kase.key as LadderKey, work: built.get(path.id)!.get(kase.key)! })),
-        passBudget: PARSE_PASSES,
-        budgetMs: PARSE_BUDGET_MS,
-      },
-      {
-        // only the cases this build has an answer for, so a row with no easy-tz
-        // equivalent or no moment one costs nothing to skip rather than being
-        // timed against a stub
-        entries: apiCases.flatMap((kase) => {
-          const work = built.get(path.id)!.get(kase.key);
-
-          return work === undefined ? [] : [{ key: kase.key as LadderKey, work }];
-        }),
-        passBudget: LEAN_BUDGET,
-        budgetMs: LEAN_BUDGET_MS,
-      },
-    ],
-    { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
-    (path, measured) => {
-      if (ruleAt.has(index)) table.rule();
-      index++;
-
-      for (const key of columns) {
-        const s = measured.spread.get(key);
-
-        if (s !== undefined && Number.isFinite(s)) floors.get(key)!.push(s * 100);
-      }
-
-      for (const fmt of ladderFormats) {
-        results.get(fmt)!.set(path.id, measured.best.get(fmt)!);
-
-        if (measured.sizes.get(fmt)! < N) shortened.add(path.id);
-      }
-
-      for (const kase of parseCases) {
-        parseResults.get(kase.key)!.set(path.id, measured.best.get(kase.key)!);
-        parseSizes.push(measured.sizes.get(kase.key)!);
-      }
-
-      const [writing, reading, api] = measured.passes;
-
-      passCounts.add(writing!);
-      parsePasses.add(reading!);
-      // a row with no API cells (the easy-tz rows) reports no pass count for the
-      // segment, which is not the same as reporting zero passes
-      if (api !== undefined) apiPasses.add(api);
-
-      for (const kase of apiCases) {
-        const size = measured.sizes.get(kase.key);
-
-        if (size !== undefined) apiSizes.push(size);
-      }
-
-      if (path.id === "moment") {
-        for (const key of columns) {
-          const v = measured.best.get(key);
-
-          // Interval and Duration#shiftTo have no moment equivalent, so those
-          // columns have no anchor and print unshaded. Better than shading them
-          // against something moment did not do.
-          if (v !== undefined) anchor.set(key, v);
-        }
-      }
-
-      const fp = profiled.get(path.id) ?? null;
-      // a row whose subprocess failed says so, rather than taking the timings
-      // and everything below them down with it
-      const held = !withFootprint ? [] : fp === null ? ["err", "err"] : [fp.rssMB.toFixed(1), fp.intl.toLocaleString("en-US")];
-
-      table.row([
-        label.get(path.id)!,
-        ...columns.map((key) => {
-          const v = measured.best.get(key);
-
-          return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(key));
-        }),
-        ...held,
-        bytesFor.get(path.id)!,
-      ]);
-    }
-  );
-
-  // NaN here would mean a parse failed inside a timed loop, which the checks
-  // above only sample for
-  if (!Number.isFinite(run.checksum)) {
-    throw new Error(`a parse checksum is not finite — a timed parse returned NaN`);
-  }
-
-  sink += run.checksum % 1_000;
 
   /** the worse half of a column's cells, so one steady cell cannot speak for it */
   const columnFloor = (key: LadderKey) => {
@@ -1034,7 +977,7 @@ if (tables.has("ladder")) {
     return seen.length === 0 ? NaN : seen[Math.min(seen.length - 1, Math.floor(seen.length * 0.75))]!;
   };
 
-  /** the floors list is 40-odd entries long, and one line of it is not a list */
+  /** a floors list runs to seventeen entries, and one line of it is not a list */
   const wrap = (parts: string[], width = 110) => {
     const lines = [""];
 
@@ -1048,53 +991,219 @@ if (tables.has("ladder")) {
     return lines.map((l) => `  ${l}`).join("\n");
   };
 
-  // The columns are keys, so they need a legend; and each carries its OWN
-  // resolution rather than the table carrying one, which is not guessable.
-  //
-  // Only the first two bands are spelled out. The API columns are named after
-  // the call they make, which is the whole description — `Interval splitBy` does
-  // not read better for a line saying it splits an Interval — and 33 of those
-  // lines would bury the five above them that do carry information.
+  /** cases whose shading is a library comparison rather than a like-for-like one */
+  const approxKeys = new Set<string>([
+    ...apiCases.filter((kase) => kase.approx === true).map((kase) => kase.key),
+    // a format column rendered in another locale is the same comparison the
+    // localized API cases are, and is a FormatKey rather than a case, so it is
+    // derived here rather than flagged there
+    ...ladderFormats.filter((fmt) => localeFor(fmt) !== LOCALE),
+  ]);
+
+  // Said once rather than over each table: the three carry the same rows in the
+  // same order, which is the property that lets them be read as one.
   console.log(
-    `\n${ladderFormats.map((fmt) => `${fmt}: ${patternFor("moment", fmt)}`).join("   ")}\n` +
-      `${parseCases.map((kase) => `${kase.key}: ${kase.what}`).join("\n")}\n\n` +
-      `Every other column is the named call, on a DateTime built beforehand rather than per value.\n` +
-      `--: the build has no equivalent — moment ships no Interval, and the easy-tz rows are\n` +
-      `formatting and parsing only, since the API cases name their zone as a string.\n\n` +
-      `Read each column no finer than its own floor — how far apart two readings of the same cell fell:\n\n` +
-      `${wrap(columns.map((key) => `${key} ${columnFloor(key).toFixed(1)}%`))}\n`
+    `three questions, the same builds in the same order.\n` +
+      `the ladder in the middle of each adds one patch per rung to the one above it\n`
   );
 
-  // Only when something was actually shaded, so a redirected run does not
-  // explain an encoding it did not use.
+  // Once, above all three, rather than under each. The tables are far enough
+  // apart that repeating it would read as three different legends.
   if (colorEnabled) console.log(`${colorLegend("moment-timezone")}\n`);
 
-  // The two halves ran on different pass settings, so one sentence covering both
-  // would have to round something away.
-  console.log(
-    `formatting: ms per ${N}, fastest of ${[...passCounts].sort((a, b) => a - b).join("/")} passes.` +
-      (shortened.size === 0
-        ? ``
-        : ` ${shortened.size} of the ${rowPaths.length} builds cost enough per value to run fewer than ${N} and be scaled up.`)
-  );
-  console.log(
-    `parsing: ms per ${N}, scaled from ${Math.min(...parseSizes).toLocaleString("en-US")}-` +
-      `${Math.max(...parseSizes).toLocaleString("en-US")} values in a ${PARSE_BUDGET_MS}ms pass, fastest of ` +
-      `${[...parsePasses].sort((a, b) => a - b).join("/")}.`
-  );
-  console.log(
-    `API columns: ms per ${N}, scaled from ${Math.min(...apiSizes).toLocaleString("en-US")}-` +
-      `${Math.max(...apiSizes).toLocaleString("en-US")} values in a ${LEAN_BUDGET_MS}ms pass, fastest of ` +
-      `${[...apiPasses].sort((a, b) => a - b).join("/")}.`
-  );
+  for (const band of BANDS) {
+    const columns = band.segments.flatMap((seg) => seg.keys);
+    // Builds with nothing to say here are left out rather than printed as a row
+    // of dashes. It is the two easy-tz rows in the `other` table: they exist to
+    // ask whether binding easy-tz's zone is worth it, and arithmetic, Duration,
+    // Interval and Info never touch a zone.
+    const rows = rowPaths.filter((path) => columns.some((key) => built.get(path.id)!.has(key)));
+    /** rules go where the block changes, which moves when rows are left out */
+    const ruleAt = new Set(
+      rows.flatMap((path, i) => (i > 0 && groupOf.get(path.id) !== groupOf.get(rows[i - 1]!.id) ? [i] : []))
+    );
+    // No unit on the timing headers: it was on every one of them, which spent
+    // three characters per column repeating one fact that does not vary. The
+    // heading above the table carries it instead, once.
+    const headers = ["build", ...columns, ...heldHeaders, "bytes"];
+    console.log(`${band.label} (ms) — ${band.what}\n`);
 
-  // Where the shading is a library comparison rather than a like-for-like one.
-  const approx = apiCases.filter((kase) => kase.approx === true).map((kase) => kase.key);
+    // bytes on every table rather than only the first. It is a property of the
+    // build, not of the question, and a table whose rows cannot be priced is a
+    // table you have to scroll back from to finish reading.
+    const table = streamTable(headers, {
+      minWidths: Object.fromEntries([
+        [0, 22],
+        ...columns.map((_, i) => [i + 1, 10]),
+        [headers.length - 1, bytesWidth],
+      ]),
+    });
 
-  console.log(
-    `${approx.join(", ")}: luxon calls into ICU where moment expands its own tables, so these\n` +
-      `reach the same user-visible answer by different means and the shading is not like-for-like.`
-  );
+    /** per segment, since each is calibrated separately and quotes its own range */
+    const sizesPer = band.segments.map(() => [] as number[]);
+    const passesPer = band.segments.map(() => new Set<number>());
+    /** builds that printed a dash, so the note explains the reasons this table actually has */
+    const dashed = new Set<string>();
+    let index = 0;
+
+    // A row is one build across this table's columns, and a row is what the
+    // table compares — so the builds are separated by a cooldown while each
+    // row's cells stay inside one interleaved window.
+    const run = await measureRows(
+      rows,
+      (path) =>
+        band.segments.map((seg) => ({
+          // only the cases this build has an answer for, so a row with no easy-tz
+          // equivalent or no moment one costs nothing to skip rather than being
+          // timed against a stub
+          entries: seg.keys.flatMap((key) => {
+            const work = built.get(path.id)!.get(key);
+
+            return work === undefined ? [] : [{ key, work }];
+          }),
+          passBudget: seg.passBudget,
+          budgetMs: seg.budgetMs,
+        })),
+      { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
+      (path, measured) => {
+        if (ruleAt.has(index)) table.rule();
+        index++;
+
+        for (const key of columns) {
+          const s = measured.spread.get(key);
+
+          if (s !== undefined && Number.isFinite(s)) floors.get(key)!.push(s * 100);
+        }
+
+        band.segments.forEach((seg, i) => {
+          for (const key of seg.keys) {
+            const size = measured.sizes.get(key);
+
+            if (size !== undefined) sizesPer[i]!.push(size);
+          }
+        });
+
+        // a segment a build has no cells for (the easy-tz rows, in the API
+        // columns) reports no pass count, which is not the same as reporting zero
+        measured.passes.forEach((n, i) => passesPer[i]!.add(n));
+
+        // The two sets cross-engine.ts reads. Recorded here rather than derived
+        // afterwards, since only the table that measured a column knows it.
+        for (const fmt of ladderFormats) {
+          if (!columns.includes(fmt)) continue;
+
+          results.get(fmt)!.set(path.id, measured.best.get(fmt)!);
+
+          if (measured.sizes.get(fmt)! < N) shortened.add(path.id);
+        }
+
+        for (const kase of parseCases) {
+          if (!columns.includes(kase.key)) continue;
+
+          parseResults.get(kase.key)!.set(path.id, measured.best.get(kase.key)!);
+        }
+
+        if (path.id === "moment") {
+          for (const key of columns) {
+            const v = measured.best.get(key);
+
+            // Interval and Duration#shiftTo have no moment equivalent, so those
+            // columns have no anchor and print unshaded. Better than shading them
+            // against something moment did not do.
+            if (v !== undefined) anchor.set(key, v);
+          }
+        }
+
+        const fp = profiled.get(path.id) ?? null;
+        // a row whose subprocess failed says so, rather than taking the timings
+        // and everything below them down with it
+        const held = !withFootprint
+          ? []
+          : fp === null
+            ? ["err", "err"]
+            : [fp.rssMB.toFixed(1), fp.intl.toLocaleString("en-US")];
+
+        table.row([
+          label.get(path.id)!,
+          ...columns.map((key) => {
+            const v = measured.best.get(key);
+
+            if (v === undefined) dashed.add(path.id);
+
+            return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(key));
+          }),
+          ...held,
+          bytesFor.get(path.id)!,
+        ]);
+      }
+    );
+
+    // NaN here would mean a parse failed inside a timed loop, which the checks
+    // above only sample for
+    if (!Number.isFinite(run.checksum)) {
+      throw new Error(`a ${band.label} checksum is not finite — a timed cell returned NaN`);
+    }
+
+    sink += run.checksum % 1_000;
+
+    // The columns are keys, so the ones whose names are not self-explanatory need
+    // a legend; and each carries its OWN resolution rather than the table
+    // carrying one, which is not guessable.
+    //
+    // The API columns get no legend line. They are named after the call they
+    // make, which is the whole description — `Interval splitBy` does not read
+    // better for a line saying it splits an Interval — and thirty of those lines
+    // would bury the ones above them that do carry information.
+    const approx = columns.filter((key) => approxKeys.has(key));
+    // Both reasons a cell can be empty, but only the ones this table has. In the
+    // formatting table it is the easy-tz rows; in `other` it is moment as well.
+    const why = [
+      dashed.has("moment") ? "moment ships no Interval and no Duration#shiftTo" : "",
+      [...dashed].some((id) => id !== "moment")
+        ? "the easy-tz rows answer only the columns built on a zone, and the rest name theirs as a string"
+        : "",
+    ].filter((s) => s !== "");
+    const notes = [
+      band.legend,
+      approx.length === 0
+        ? ""
+        : `${approx.join(", ")}: luxon gets its month, weekday and day-period names from ICU where\n` +
+          `moment expands tables it bundles — the same user-visible answer out of a different source,\n` +
+          `and part of what the bytes column charges moment for.`,
+      why.length === 0 ? "" : `--: the build has no equivalent.\n${why.join(". ")}.`,
+    ].filter((s) => s !== "");
+
+    console.log(
+      `\n${notes.join("\n")}\n\n` +
+        `Read each column no finer than its own floor — how far apart two readings of the same cell fell:\n\n` +
+        `${wrap(columns.map((key) => `${key} ${columnFloor(key).toFixed(1)}%`))}\n`
+    );
+
+    // Each segment ran on its own pass settings, so one sentence covering both
+    // would have to round something away.
+    band.segments.forEach((seg, i) => {
+      const sizes = sizesPer[i]!;
+
+      if (sizes.length === 0) return;
+
+      const passes = [...passesPer[i]!].sort((a, b) => a - b).join("/");
+      const span = `${Math.min(...sizes).toLocaleString("en-US")}-${Math.max(...sizes).toLocaleString("en-US")}`;
+
+      console.log(
+        seg.scaled
+          ? `${seg.label}: ms per ${N}, scaled from ${span} values in a ${seg.budgetMs}ms pass, fastest of ${passes}.`
+          : `${seg.label}: ms per ${N}, fastest of ${passes} passes.` +
+            (shortened.size === 0
+              ? ``
+              : ` ${shortened.size} of the ${rows.length} builds cost enough per value to run fewer than ${N} and be scaled up.`)
+      );
+    });
+
+    console.log();
+    // between tables as well as between their rows: the next one otherwise opens
+    // with the row measured straight after a table's worth of load
+    if (band !== BANDS.at(-1)) await cooldown(cooldownMs);
+  }
 
   // moment core sized on its own, so the baseline row can report how much of
   // itself is the dependency rather than leaving the reader to wonder whether it
@@ -1134,7 +1243,7 @@ if (parseBroken.length > 0) {
 // one — so stock is already several times cheaper there, and the Intl-removing
 // patches have correspondingly less to remove. This table is here so that gap is
 // a measured number rather than an assumption, and so the rungs that do reach
-// the default path (C, F, G) are visible somewhere.
+// the default path (C, F, G, H) are visible somewhere.
 //
 // It shares the ladder's kernel and reads its own cases: these are whole
 // operations rather than formatter closures, since the point is the API a caller
@@ -1194,7 +1303,7 @@ const DEFAULT_CASES: DefaultCase[] = [
   },
   {
     key: "plus",
-    what: "plus({ days: 1 }), G's unit tables and its adjustTime fast path",
+    what: "plus({ days: 1 }), H's unit tables and its adjustTime fast path",
     system: (m) => (ts) => m.DateTime.fromMillis(ts).plus({ days: 1 }).valueOf(),
     named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).plus({ days: 1 }).valueOf(),
   },
@@ -1254,7 +1363,9 @@ if (tables.has("default")) {
 
   console.log(`the default zone: the same cases with no zone named at all\n`);
 
-  const table = streamTable(["case", "stock ms", `${patchedId} ms`, "d", `stock, ${ZONE} ms`], {
+  // Unitless headers, as in the ladder; the footnote under this table gives the
+  // ms, and `d` is a percentage rather than a time either way.
+  const table = streamTable(["case", "stock", patchedId, "d", `stock, ${ZONE}`], {
     minWidths: { 0: 12, 1: 9, 3: 7 },
   });
 
@@ -1316,7 +1427,7 @@ if (tables.has("default")) {
 // informational rather than pass/fail.
 //
 // Opt-in (--verify): 20k values per path per format, which the timings do not
-// need. It is still the only check that covers all nine patches — the tests in
+// need. It is still the only check that covers all eleven patches — the tests in
 // benchmarks/test/ cover the offset, zone-name and parser-cache ones — so it has
 // to pass before any is argued for upstream.
 //

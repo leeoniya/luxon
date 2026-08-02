@@ -98,13 +98,41 @@ export interface BuildSpec {
 }
 
 export async function formatterFor(spec: BuildSpec): Promise<(ts: number) => string> {
-  const { luxonEntry, zone, pattern } = spec;
+  const { luxonEntry, zone, pattern, locale } = spec;
 
   if (luxonEntry === null) {
     // a named zone needs moment-timezone's offset table; moment core has none
-    const moment = momentFor(momentRole((m) => m.tz(0, zone)));
+    //
+    // moment ships English built in and lazily requires everything else, so an
+    // English tag is the path every cell took before locales entered this file
+    // and anything else is the one that needs telling.
+    //
+    // A localized cell gets its own instance, appended to the role rather than
+    // probed into it: setting a locale changes no own property of a Moment, so
+    // the shape probe cannot see it, and sharing would leave the English columns
+    // formatting through call sites a French one had already made polymorphic.
+    // Their role string is untouched, so they read what they read before this
+    // existed.
+    const localized = !/^en\b/i.test(locale);
+    const role = momentRole((m) => m.tz(0, zone)) + (localized ? `|${locale}` : "");
+    const moment = momentFor(role);
 
-    return (ts) => moment.tz(ts, zone).format(pattern);
+    if (localized) {
+      // moment falls back to its default silently for a tag it does not ship,
+      // which would put an English string in a column headed otherwise. Asked of
+      // the instance that will do the work rather than a shared probe: a lazily
+      // loaded locale is defined on whichever instance the module cache holds at
+      // the time, so an older one answers "en" for a locale it never received.
+      const resolved = moment().locale(locale).locale();
+
+      if (resolved === moment.locale()) {
+        throw new Error(`moment-timezone has no locale data for "${locale}"; it would format in "${resolved}"`);
+      }
+    }
+
+    return localized
+      ? (ts) => moment.tz(ts, zone).locale(locale).format(pattern)
+      : (ts) => moment.tz(ts, zone).format(pattern);
   }
 
   const { lux, opts } = await luxonBuild(spec);

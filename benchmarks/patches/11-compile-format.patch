@@ -1,8 +1,8 @@
 Patch: compileFormat
-Letter: I
+Letter: K
 Requires: none
 Files: src/impl/formatter.js
-Summary: Formatter: compile a format string to handlers once, instead of a switch per token per value
+Summary: Formatter: compile a format string to handlers once, and memoize the name each token resolves to
 
 I: compile the format instead of interpreting it
 
@@ -29,14 +29,67 @@ Implemented by delegating from the original method and leaving its body in
 place as formatDateTimeFromStringInterpreted: it keeps the patch readable and
 the two implementations diffable. A real PR would delete it.
 
+The second half: the name a token resolves to
+
+Compiling gets the dispatch out of the per-value path but leaves the most
+expensive thing in it. A name token — month, weekday, era, day period — has an
+English fast path that reads a constant array, and no fast path at all for
+anything else: it calls loc.extract(), which builds an
+Intl.DateTimeFormat.formatToParts() and searches its parts, once per token per
+value. Formatting "cccc, LLLL d, yyyy 'at' h:mm a" is three of those per value
+in fr and none in en, which is the whole of why the two are ~20x apart and why
+the rest of this patch set — all of it aimed at zone lookups and the numeric
+token path — never moved the non-English case.
+
+What makes it a defect rather than a cost is that Locale has already computed
+these. monthsCache, weekdaysCache and meridiemCache hold exactly these lists,
+built once per Locale, and Info.months reads them while the formatter does not.
+The same table shows both: Info.months in fr against a pattern naming a month
+in fr, ~1ms per 20k against ~150ms.
+
+The fix that suggests itself — have the formatter read Locale's lists — is
+wrong, and quietly. Locale asks Intl for a format-context weekday with
+year: "numeric" in the options and the formatter asks without it, which is
+enough to change which form ICU returns: swapping them re-renders fi and fa
+weekdays. So this memoizes the formatter's own extract() call instead, keyed by
+the field the answer depends on — the month for a month, the weekday for a
+weekday, the hour for a day period. Same options and same call as before, so
+the string cannot change; just not recomputed for every value that shares a
+field value with one already rendered.
+
+Two things bound it, both found by sweeping locales rather than by reading:
+
+  * Month and era names are only a function of dt.month and dt.year when the
+    resolved calendar is Gregorian. "fa" resolves to the persian calendar with
+    no outputCalendar named, and a slot keyed by the Gregorian month returns a
+    neighbouring Persian one. Those two consult the resolved calendar first and
+    fall back to extract() when it is not Gregorian, which keeps fa correct and
+    still lets its weekday and day period memoize.
+  * Day periods are keyed by hour across 24 slots rather than by hour < 12
+    across two. No locale on the ICU this was written against renders more than
+    AM/PM under h12, so the extra slots buy nothing measurable today; they are
+    there because the opts name only the hour, which makes the hour the whole of
+    what the answer can depend on, and keying on it directly assumes nothing.
+    Two slots would import Locale#meridiems' assumption that a locale has
+    exactly two day periods, which its own comment calls "probably wrong".
+
+Verified byte-identical against the unpatched formatter over 39,600 renders:
+33 locales, 24 patterns covering every name token at every width, timestamps
+spanning all twelve months, all seven weekdays, all 24 hours, and a BC year.
+
+One pre-existing inconsistency is left alone. toFormat("LLLL") in ja renders
+"4" where Info.months and toLocaleString both render "4月": Locale#months
+carries a ja workaround the formatter has never had. Memoizing does not change
+it, since it memoizes what the formatter already returns.
+
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -14,6 +14,210 @@ function stringifyTokens(splits, tokenToString) {
+@@ -14,6 +14,281 @@ function stringifyTokens(splits, tokenToString) {
    return s;
  }
  
-+// ---- UPSTREAM-I: compiled format programs ----------------------------------
++// ---- UPSTREAM-K: compiled format programs ----------------------------------
 +// A format string compiles to alternating literal/handler runs. Handlers take
 +// (formatter, dateTime, knownEnglish, useDateTimeFormatter) so that a program
 +// depends on the pattern alone and can be shared across locales and formatters.
@@ -45,6 +98,59 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +const CF_CACHE_MAX = 1000;
 +
 +const cfExtract = (f, dt, opts, field) => f.loc.extract(dt, opts, field);
++
++// Name tokens, memoized per locale.
++//
++// A name token — a month, a weekday, an era, a day period — has no fast path the
++// way a numeric one does. English reads a constant array; every other locale
++// calls loc.extract(), which is an Intl.DateTimeFormat.formatToParts() plus a
++// find() over its parts, once per token per value. "cccc, LLLL d, yyyy 'at'
++// h:mm a" in fr is three of those per value and ~20x the same pattern in en.
++//
++// Locale already caches these lists — monthsCache, weekdaysCache, meridiemCache
++// — but only Info.months and its neighbours read them; the formatter has always
++// gone straight to extract(). Which is how Info.months in fr costs ~1ms per 20k
++// while formatting a pattern that names a month costs ~150ms.
++//
++// Reading Locale's lists from here is the obvious fix and the wrong one: it does
++// not pass the Intl options the formatter passes — a format-context weekday
++// there carries year: "numeric", here it does not — and swapping them silently
++// changes what fi and fa render. So this memoizes the formatter's OWN extract
++// call, keyed by the field the answer depends on: same options, same call, same
++// string, once per distinct field value instead of once per value.
++const cfNames = new WeakMap();
++const cfCalendars = new WeakMap();
++
++function cfMemo(f, dt, opts, field, key, size, at) {
++  let per = cfNames.get(f.loc);
++
++  if (per === undefined) cfNames.set(f.loc, (per = new Map()));
++
++  let slots = per.get(key);
++
++  if (slots === undefined) per.set(key, (slots = new Array(size)));
++
++  const hit = slots[at];
++
++  return hit !== undefined ? hit : (slots[at] = f.loc.extract(dt, opts, field));
++}
++
++// Whether the calendar these names come out of is the one dt's fields are in. A
++// month name is a function of dt.month only when it is: "fa" resolves to the
++// persian calendar with no outputCalendar named, where the rendered month tracks
++// the Persian one and a slot keyed by the Gregorian month would hand back a
++// neighbour's. The RESOLVED calendar is what decides that, not loc.outputCalendar,
++// which is null in exactly that case. Weekdays and day periods do not depend on
++// the calendar and so never ask.
++function cfGregorian(loc) {
++  let ok = cfCalendars.get(loc);
++
++  if (ok === undefined) {
++    cfCalendars.set(loc, (ok = new Intl.DateTimeFormat(loc.intl).resolvedOptions().calendar === "gregory"));
++  }
++
++  return ok;
++}
 +
 +function cfOffset(format) {
 +  return (f, dt) => {
@@ -59,22 +165,36 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +function cfMonth(length, standalone) {
 +  // hoisted: the interpreter rebuilt this literal on every value
 +  const opts = standalone ? { month: length } : { month: length, day: "numeric" };
++  const key = (standalone ? "L" : "M") + length;
 +
-+  return (f, dt, en) => (en ? English.monthForDateTime(dt, length) : cfExtract(f, dt, opts, "month"));
++  return (f, dt, en) =>
++    en
++      ? English.monthForDateTime(dt, length)
++      : cfGregorian(f.loc)
++        ? cfMemo(f, dt, opts, "month", key, 12, dt.month - 1)
++        : cfExtract(f, dt, opts, "month");
 +}
 +
 +function cfWeekday(length, standalone) {
 +  const opts = standalone
 +    ? { weekday: length }
 +    : { weekday: length, month: "long", day: "numeric" };
++  const key = (standalone ? "c" : "E") + length;
 +
-+  return (f, dt, en) => (en ? English.weekdayForDateTime(dt, length) : cfExtract(f, dt, opts, "weekday"));
++  return (f, dt, en) =>
++    en ? English.weekdayForDateTime(dt, length) : cfMemo(f, dt, opts, "weekday", key, 7, dt.weekday - 1);
 +}
 +
 +function cfEra(length) {
 +  const opts = { era: length };
++  const key = "G" + length;
 +
-+  return (f, dt, en) => (en ? English.eraForDateTime(dt, length) : cfExtract(f, dt, opts, "era"));
++  return (f, dt, en) =>
++    en
++      ? English.eraForDateTime(dt, length)
++      : cfGregorian(f.loc)
++        ? cfMemo(f, dt, opts, "era", key, 2, dt.year < 0 ? 0 : 1)
++        : cfExtract(f, dt, opts, "era");
 +}
 +
 +const CF_DAY_NUM = { day: "numeric" };
@@ -117,8 +237,14 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +  // zone
 +  z: (f, dt) => dt.zoneName,
 +  // meridiems
++  // Keyed by hour across 24 slots rather than by hour < 12 across two. The opts
++  // name only the hour, so the hour is the whole of what the answer can depend
++  // on, and keying on it directly costs 22 array slots and assumes nothing. Two
++  // slots would instead bake in Locale#meridiems' assumption that a locale has
++  // exactly two day periods — which its own comment calls "probably wrong", and
++  // which is not this code's assumption to make.
 +  a: (f, dt, en) =>
-+    en ? English.meridiemForDateTime(dt) : cfExtract(f, dt, CF_DAYPERIOD, "dayperiod"),
++    en ? English.meridiemForDateTime(dt) : cfMemo(f, dt, CF_DAYPERIOD, "dayperiod", "a", 24, dt.hour),
 +  // dates
 +  d: (f, dt, en, useDTF) => (useDTF ? cfExtract(f, dt, CF_DAY_NUM, "day") : f.num(dt.day)),
 +  dd: (f, dt, en, useDTF) => (useDTF ? cfExtract(f, dt, CF_DAY_2D, "day") : f.num(dt.day, 2)),
@@ -247,7 +373,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
    }
  
    formatDateTimeFromString(dt, fmt) {
-+    // UPSTREAM-I: see benchmarks/patches/
++    // UPSTREAM-K: see benchmarks/patches/
 +    return cfRun(this, dt, fmt);
 +  }
 +

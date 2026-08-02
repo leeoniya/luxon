@@ -1,5 +1,5 @@
 Patch: trimAllocs
-Letter: H
+Letter: J
 Requires: none
 Files: src/datetime.js, src/duration.js
 Summary: three objects built to be read once and dropped: clone's second config, as()'s intermediate Duration, endOf's per-call unit literal
@@ -105,7 +105,7 @@ diff --git a/src/datetime.js b/src/datetime.js
  const INVALID = "Invalid DateTime";
  const MAX_DATE = 8.64e15;
 +
-+// UPSTREAM-H: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
++// UPSTREAM-J: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
 +// A Map rather than an object because the key is whatever the caller passed:
 +// oneOf["__proto__"] on an object finds Object.prototype, which is truthy, and
 +// endOf("__proto__") would then behave like startOf instead of throwing.
@@ -128,7 +128,7 @@ diff --git a/src/datetime.js b/src/datetime.js
      wasHole: inst.wasHole,
    };
 -  return new DateTime({ ...current, ...alts, old: current });
-+  // UPSTREAM-H: was `new DateTime({ ...current, ...alts, old: current })`, a
++  // UPSTREAM-J: was `new DateTime({ ...current, ...alts, old: current })`, a
 +  // second object merged out of the first. `alts` is a different set of keys at
 +  // each call site, so the config the constructor reads was a different shape on
 +  // every path into it; naming the fields gives it one. `o` and `invalid` are
@@ -151,7 +151,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 @@ -1807,7 +1839,8 @@ export default class DateTime {
     */
    endOf(unit, opts) {
-+    // UPSTREAM-H: was this.plus({ [unit]: 1 }); see oneOf() at the top of the file
++    // UPSTREAM-J: was this.plus({ [unit]: 1 }); see oneOf() at the top of the file
      return this.isValid
 -      ? this.plus({ [unit]: 1 })
 +      ? this.plus(oneOf(unit))
@@ -169,7 +169,7 @@ diff --git a/src/duration.js b/src/duration.js
 -    return this.isValid ? this.shiftTo(unit).get(unit) : NaN;
 +    if (!this.isValid) return NaN;
 +
-+    // UPSTREAM-H: was this.shiftTo(unit).get(unit) — a Duration built, walked,
++    // UPSTREAM-J: was this.shiftTo(unit).get(unit) — a Duration built, walked,
 +    // normalized and cloned so that one number could be read back off it. With a
 +    // single target unit shiftTo's loop is the sum below: everything ordered
 +    // above the target converted up into it, everything below divided into it.
