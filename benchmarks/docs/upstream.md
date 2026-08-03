@@ -392,7 +392,7 @@ memory. Cap each run's wall time and heap.
 The four constants are moves rather than rewrites — none captures anything — so
 the same file checks every key of both unit tables in both spellings and mixed
 case, and interleaves zones across DST so a stale `SystemZone` probe would show
-up as one zone reading another's answer. The engine split runs through all seven
+up as one zone reading another's answer. The engine split runs through all eight
 changes: V8 escape-analyzes some of these allocations away and JavaScriptCore
 does not.
 

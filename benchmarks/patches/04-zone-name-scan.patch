@@ -3,32 +3,7 @@ Letter: D
 Requires: A (zoneInfoCache)
 Files: src/impl/locale.js, src/impl/util.js
 Summary: parseZoneInfo: read the name from dtf.format() instead of formatToParts + find
-
-D: the zone name is read the expensive way
-
-Requires A (it anchors on A's parseZoneInfo). What A fixed was constructing a
-formatter per value; what is left is how the name is got out of one, and that
-is now ~74% of the cost of formatting a column that carries an abbreviation.
-
-Two wastes, both in one expression. formatToParts() allocates a part object
-per field — the formatter asks for six — and .find() then walks them running
-toLowerCase() per part, to pull out one string. And the formatter it walks is
-asking ICU to render a full date and time when the caller wants none of it.
-
-So: one formatter carrying the name and nothing else but an h23 2-digit hour,
-and plain format() on it. That leaves the name at a fixed position in a
-fixed-width string, which is B's trick applied to the other Intl call — and
-like B it establishes the layout with formatToParts once, at construction,
-rather than assuming one. Three probes have to agree on where the name sits
-(either side of a DST boundary, and one that would render a one-digit hour if
-the locale ignored 2-digit); any disagreement, or a locale whose format()
-output is not its parts joined, returns null and takes the stock path.
-
-Measured at 7.39µs -> 1.56µs per lookup on node 26 (V8 14.6), and verified
-against the stock expression over 2,049,840 instant/zone/locale/style
-combinations: 13 zones including three with sub-hour offsets, 6 locales
-including non-latn digits and a non-gregory calendar, all 6 timeZoneName
-styles, zero mismatches and zero locales taking the fallback.
+Description: benchmarks/docs/pr/04-zone-name-scan.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
 --- a/src/impl/locale.js

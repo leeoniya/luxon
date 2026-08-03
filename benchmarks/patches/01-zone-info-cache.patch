@@ -3,23 +3,7 @@ Letter: A
 Requires: none
 Files: src/impl/locale.js, src/impl/util.js
 Summary: parseZoneInfo: reuse the existing DTF cache instead of building one per call
-
-A: parseZoneInfo builds a new Intl.DateTimeFormat per call
-
-Nothing caches it, so any format carrying a zone name (ZZZZ/ZZZZZ, or the
-offsetNameShort/offsetNameLong getters) pays a formatter construction per
-value. Profiling puts this at ~73% of the total cost of formatting a column
-with an abbreviation. The formatter depends only on (locale, offsetFormat,
-timeZone), and luxon already has a DTF cache with exactly those semantics —
-getCachedDTF, which Locale.resetCache() clears.
-
-Upstream caveat: parseZoneInfo lives in impl/util.js while getCachedDTF lives
-in impl/locale.js, and locale.js already imports util.js — so the import this
-patch adds closes a cycle. It resolves correctly, because getCachedDTF is a
-hoisted function declaration and its binding is live before either module body
-runs, and the benchmarks confirm it loads and formats under both node and bun.
-A PR would still more likely move parseZoneInfo down into locale.js, or the DTF
-cache up into util.js, rather than ask a reviewer to accept the cycle.
+Description: benchmarks/docs/pr/01-zone-info-cache.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
 --- a/src/impl/locale.js
@@ -36,19 +20,15 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
 diff --git a/src/impl/util.js b/src/impl/util.js
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
-@@ -7,6 +7,11 @@
+@@ -7,6 +7,7 @@
  import { InvalidArgumentError } from "../errors.js";
  import Settings from "../settings.js";
  import { dayOfWeek, isoWeekdayToLocal } from "./conversions.js";
-+// UPSTREAM-A: locale.js imports this module, so this is a cycle. It is safe as
-+// written — getCachedDTF is a hoisted function declaration, so its binding is
-+// live before either module body runs — but an upstream PR would more likely
-+// move parseZoneInfo down into locale.js, or the DTF cache up into this file.
 +import { getCachedDTF } from "./locale.js";
  
  /**
   * @private
-@@ -260,7 +265,10 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
+@@ -260,7 +261,10 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
  
    const modified = { timeZoneName: offsetFormat, ...intlOpts };
  

@@ -3,92 +3,12 @@ Letter: K
 Requires: none
 Files: src/impl/formatter.js
 Summary: Formatter: compile a format string to handlers once, and memoize the name each token resolves to
-
-I: compile the format instead of interpreting it
-
-The structural one, and the only patch here that is not a cache or a
-short-circuit. Everything else leaves the shape of formatDateTimeFromString
-alone: per formatted value it builds eight closures over `dt`, then walks the
-token list calling a ~70-case string switch per token, and re-allocates the
-Intl options object literals inside the branches it happens to take.
-
-None of that depends on the value being formatted. Resolving each token to a
-handler once per pattern turns formatting into a walk over a prebuilt array.
-The representation is alternating literal/handler runs —
-  lits[0] + fns[0]() + lits[1] + fns[1]() + ... + lits[n]
-so literal text is concatenated rather than dispatched, and adjacent literals
-collapse at compile time. That subsumes two of G's six: parseFormat now runs
-once per pattern rather than once per value, and punctuation and unknown tokens
-fold into the literal runs, which is what the interpreter's default branch
-effectively did anyway.
-
-The two locale-derived flags stay per call, passed as arguments rather than
-baked into the program, so the cache can be keyed on the format string alone.
-
-The interpreter this replaces is deleted rather than kept alongside. An earlier
-draft left its body in place under a second name so the two implementations
-stayed diffable, which cost 3,451 minified bytes — a third of everything the
-whole patch set adds — for a method nothing calls, and which a minifier cannot
-drop because it is a class method. Reviewing the two side by side is what the
-diff below is for; keeping both in the shipped file is not the way to get it.
-
-The second half: the name a token resolves to
-
-Compiling gets the dispatch out of the per-value path but leaves the most
-expensive thing in it. A name token — month, weekday, era, day period — has an
-English fast path that reads a constant array, and no fast path at all for
-anything else: it calls loc.extract(), which builds an
-Intl.DateTimeFormat.formatToParts() and searches its parts, once per token per
-value. Formatting "cccc, LLLL d, yyyy 'at' h:mm a" is three of those per value
-in fr and none in en, which is the whole of why the two are ~20x apart and why
-the rest of this patch set — all of it aimed at zone lookups and the numeric
-token path — never moved the non-English case.
-
-What makes it a defect rather than a cost is that Locale has already computed
-these. monthsCache, weekdaysCache and meridiemCache hold exactly these lists,
-built once per Locale, and Info.months reads them while the formatter does not.
-The same table shows both: Info.months in fr against a pattern naming a month
-in fr, ~1ms per 20k against ~150ms.
-
-The fix that suggests itself — have the formatter read Locale's lists — is
-wrong, and quietly. Locale asks Intl for a format-context weekday with
-year: "numeric" in the options and the formatter asks without it, which is
-enough to change which form ICU returns: swapping them re-renders fi and fa
-weekdays. So this memoizes the formatter's own extract() call instead, keyed by
-the field the answer depends on — the month for a month, the weekday for a
-weekday, the hour for a day period. Same options and same call as before, so
-the string cannot change; just not recomputed for every value that shares a
-field value with one already rendered.
-
-Two things bound it, both found by sweeping locales rather than by reading:
-
-  * Month and era names are only a function of dt.month and dt.year when the
-    resolved calendar is Gregorian. "fa" resolves to the persian calendar with
-    no outputCalendar named, and a slot keyed by the Gregorian month returns a
-    neighbouring Persian one. Those two consult the resolved calendar first and
-    fall back to extract() when it is not Gregorian, which keeps fa correct and
-    still lets its weekday and day period memoize.
-  * Day periods are keyed by hour across 24 slots rather than by hour < 12
-    across two. No locale on the ICU this was written against renders more than
-    AM/PM under h12, so the extra slots buy nothing measurable today; they are
-    there because the opts name only the hour, which makes the hour the whole of
-    what the answer can depend on, and keying on it directly assumes nothing.
-    Two slots would import Locale#meridiems' assumption that a locale has
-    exactly two day periods, which its own comment calls "probably wrong".
-
-Verified byte-identical against the unpatched formatter over 39,600 renders:
-33 locales, 24 patterns covering every name token at every width, timestamps
-spanning all twelve months, all seven weekdays, all 24 hours, and a BC year.
-
-One pre-existing inconsistency is left alone. toFormat("LLLL") in ja renders
-"4" where Info.months and toLocaleString both render "4月": Locale#months
-carries a ja workaround the formatter has never had. Memoizing does not change
-it, since it memoizes what the formatter already returns.
+Description: benchmarks/docs/pr/11-compile-format.md
 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -14,6 +14,281 @@ function stringifyTokens(splits, tokenToString) {
+@@ -14,6 +14,284 @@ function stringifyTokens(splits, tokenToString) {
    return s;
  }
  
@@ -191,12 +111,15 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +function cfEra(length) {
 +  const opts = { era: length };
 +  const key = "G" + length;
++  // <= 0, not < 0: luxon's year 0 is the proleptic one, which every locale
++  // renders as 1 BC. Filing it under AD is only visible once two DateTimes share
++  // a Locale, which they do not until locales are interned.
 +
 +  return (f, dt, en) =>
 +    en
 +      ? English.eraForDateTime(dt, length)
 +      : cfGregorian(f.loc)
-+        ? cfMemo(f, dt, opts, "era", key, 2, dt.year < 0 ? 0 : 1)
++        ? cfMemo(f, dt, opts, "era", key, 2, dt.year <= 0 ? 0 : 1)
 +        : cfExtract(f, dt, opts, "era");
 +}
 +

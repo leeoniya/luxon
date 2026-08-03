@@ -1454,9 +1454,11 @@ if (tables.has("default")) {
 // informational rather than pass/fail.
 //
 // Opt-in (--verify): 20k values per path per format, which the timings do not
-// need. It is still the only check that covers all eleven patches — the tests in
-// benchmarks/test/ cover the offset, zone-name and parser-cache ones — so it has
-// to pass before any is argued for upstream.
+// need. benchmarks/test/ has a file per patch and is the finer-grained check of
+// the two; what this one adds is that it runs against the exact builds the
+// tables are about to time, so no cell can report a number from a path that
+// answers differently. The offset and zone-name files also stop at two and three
+// patches rather than the full stack, which the stacked paths here do cover.
 //
 // Every hour is compared here, unlike the agreement scan in benchmarks/format.ts
 // which samples runs of constant offset and abbreviation. That shortcut is sound

@@ -3,75 +3,7 @@ Letter: G
 Requires: none
 Files: src/datetime.js, src/impl/formatter.js, src/impl/util.js
 Summary: six fast paths along the route a numeric token takes
-
-G: six fast paths along the route a numeric token takes
-
-One idea applied six times, in order along a single route: each takes work out of
-a step without changing what the step means. Rendering `yyyy-MM-dd HH:mm:ss`
-walks all six per value, and none of them is worth filing alone — two clear the
-noise floor on V8 only, one on JavaScriptCore only, one on neither. Together they
-clear it on both by a wide margin, which is the case for one patch rather than
-six.
-
-  formatter.js  num()        a formatter whose numbering system is latn can pad
-                             digits itself; PolyNumberFormatter's Intl branch is
-                             only needed by the ones that cannot.
-  formatter.js  parseFormat  splitting a format string into tokens is pure, and
-                             the same few strings recur, so the split is cached
-                             rather than redone per value.
-  formatter.js  token loop   the loop rebuilt its own state per token; hoisting
-                             what does not vary keeps the switch monomorphic.
-  util.js       roundTo      every rounding mode is the identity on an integer
-                             once digits is non-negative, and an integer is what
-                             every numeric token arrives as.
-  util.js       padStart     month, day, hour, minute and second all pad to two
-                             digits, so a "00".."99" table covers the common
-                             case without building either string.
-  datetime.js   tsToObj      integer civil math in place of a wrapper Date and
-                             seven getter calls. TimeClip is written out here
-                             because the Date constructor used to run it: without
-                             the truncation a fractional timestamp rendered as
-                             "00:00:01.0.5", and without the range check a plus
-                             that overflowed answered +287168-08-24 where luxon
-                             says invalid. Both are reachable from ordinary
-                             calls; see the note at the end.
-
-Two of the six are engine-specific, and they are the weakest part of this patch:
-the token loop pays off on V8 and gives a little back on JSC, and the padStart
-table is the reverse. They are in because the other four carry the change, and
-splitting by engine would mean filing six patches to land four.
-
-K subsumes two of them by construction — parseFormat and the punctuation half of
-the token loop — so a tree that already has K gets less from that half of this
-patch than the list above suggests.
-
-Only tsToObj is off the formatter, and it is the one that reaches furthest:
-every DateTime that reads a calendar field goes through it, so it is under
-construction as well as formatting. That is why this patch moves a column like
-`millis`, which formats nothing at all.
-
-One correction, not an optimization. Writing the verification sweep turned up two
-bugs in the tsToObj rewrite, both from the same cause: replacing new Date(ts)
-with civil math also dropped the TimeClip the Date constructor was running on the
-way in, which used to truncate the timestamp toward zero and return NaN outside
-+/-MAX_DATE. Without the truncation,
-DateTime.fromSeconds(1.0005).toISO() rendered "1970-01-01T00:00:01.0.5Z", a
-malformed string rather than a merely different one, and fromMillis(-0.5) moved a
-whole day, because Date rounds toward zero and Math.floor does not. Without the
-range check, fromMillis(0).plus({ milliseconds: 9e15 }).toISO() answered
-"+287168-08-24T16:00:00.000Z" where luxon says null — calendar-unit overflow is
-caught by the Date.UTC inside objToLocalTS, but the milliseconds H adds are added
-to the timestamp after that, so nothing was checking it.
-
-Neither was reachable from any benchmark, which is why both survived: every
-timestamp a benchmark builds is a whole number well inside the range. Both are
-reachable from ordinary calls. TimeClip is now written out at the top of tsToObj,
-and both cases are in the test sweep.
-
-Verification is in benchmarks/test/numeric-path-patch.test.ts, which checks
-tsToObj against Date's own getters over 200k random instants across the full
-range, and in the --verify pass of benchmarks/format.ts and
-benchmarks/upstream.ts, which compares every rendered string against stock.
+Description: benchmarks/docs/pr/07-numeric-path.md
 
 diff --git a/src/datetime.js b/src/datetime.js
 --- a/src/datetime.js
@@ -200,19 +132,19 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
        return padStart(n, p);
      }
  
-+    // UPSTREAM-G: when the locale renders latn digits and this formatter carries
-+    // no number-affecting options, PolyNumberFormatter provably falls through to
-+    // padStart. Do that directly rather than allocating an options object, a
-+    // formatter, a rest object and a key array for every numeric token.
++    // UPSTREAM-G: the one caller that reaches here is DateTime#toFormat, whose
++    // Formatter carries no options at all -- a duration token always arrives with
++    // a signDisplay, and toISO's formatter sets forceSimple, so both return above
++    // this. With no options PolyNumberFormatter reduces to padStart(roundTo(n, 3),
++    // p), so do that directly rather than allocating an options object, a
++    // formatter and a key array for every numeric token.
 +    if (signDisplay === undefined) {
 +      if (this.simpleNumsCached === undefined) {
-+        const { padTo: _padTo, floor: _floor, ...otherOpts } = this.opts;
-+        this.simpleNumsCached = Object.keys(otherOpts).length === 0 && this.loc.fastNumbers;
++        this.simpleNumsCached = this.loc.fastNumbers && Object.keys(this.opts).length === 0;
 +      }
 +
 +      if (this.simpleNumsCached) {
-+        const fixed = this.opts.floor ? Math.floor(n) : roundTo(n, 3);
-+        return padStart(fixed, p > 0 ? p : this.opts.padTo || 0);
++        return padStart(roundTo(n, 3), p);
 +      }
 +    }
 +

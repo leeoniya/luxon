@@ -3,21 +3,7 @@ Letter: B
 Requires: none
 Files: src/zones/IANAZone.js
 Summary: IANAZone.offset: read dtf.format() digits instead of formatToParts + parseInt
-
-B: IANAZone.offset decodes Intl output the expensive way
-
-With A and the formatter work in G done, this is essentially all that is left
-between luxon and moment on a zone-less pattern: every formatted value calls
-offset(), and offset() costs a formatToParts (an array of seven {type, value}
-objects), six parseInt calls on those strings, a wrapper Date and a second Date
-inside objToLocalTS.
-
-dtf.format() hands back the same six numbers in one string. Reading them with
-charCodeAt and converting with integer civil math produces a bit-identical
-answer while allocating nothing but that string. The field layout is read
-once per zone from formatToParts rather than assumed, and any zone that does
-not come back in the expected order keeps the original path, so a different
-ICU layout degrades instead of decoding fields into the wrong slots.
+Description: benchmarks/docs/pr/02-offset-scan.md
 
 diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
 --- a/src/zones/IANAZone.js

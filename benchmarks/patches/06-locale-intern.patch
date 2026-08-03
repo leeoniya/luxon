@@ -3,63 +3,7 @@ Letter: F
 Requires: none
 Files: src/impl/locale.js, src/duration.js
 Summary: Locale: intern Locales, and memoize the three things rebuilt per value off them — redefaultToEN and the two formatters toHuman asks for
-
-F: the Locale is rebuilt twice per formatted value
-
-Two separate wastes, which only pay off fixed together:
-
-  * datetime.js calls Locale.fromObject on each fromMillis/fromObject/setZone,
-    so every DateTime allocates a Locale — parseLocaleString and
-    intlConfigString re-run, four cache objects are allocated, and the
-    fastNumbers memo starts empty again. That last part is self-defeating:
-    weekdaysCache/monthsCache/eraCache/fastNumbersCached exist precisely to be
-    reused, and a per-DateTime Locale guarantees they never are.
-
-  * toFormat() then calls loc.redefaultToEN(), and clone()'s "return this"
-    fast path can never fire there because the spread always adds
-    defaultToEN. Profiling the patched build attributes ~7% of a numeric
-    format to that one call.
-
-Locales are immutable value objects apart from those memo fields, so identical
-ones can be shared. Both the intern and the redefaultToEN memo have to notice
-mutations to the Settings fields that create() falls back to, so both go
-through one generation check — four identity compares, which is what makes
-this cheaper than the work it replaces. An earlier attempt that built a string
-cache key covering every field measured slower than no cache at all.
-
-Which shapes get interned is not a detail: a caller outside the interned set
-pays the generation check and gets nothing back. Info.months and
-Info.monthsFormat pass outputCalendar: "gregory" explicitly, so with only the
-no-outputCalendar shape interned they came out 12-17% SLOWER than stock while
-Info.weekdays (which passes null) came out 45% faster — a split with no reason
-behind it, found by benchmarks/suite.ts. Hence the second map: the "gregory"
-shape is interned separately, keyed the same way, and neither path pays a
-compound key to get there.
-
-Once the Locale is a shared object with a generation counter on it, it is the
-right place for the third memo, which is Duration#toHuman's. toHuman builds one
-number formatter per unit it prints and one list formatter, and a fresh options
-object to ask for each — so a two-unit duration pays three JSON.stringify cache
-keys, two PolyNumberFormatters and five spreads per call. Profiled, only about a
-third of the method is the Intl.NumberFormat#format calls it exists to make;
-getCachedINF is 17%, the PolyNumberFormatter constructor 10%, getCachedLF 6%,
-and most of toHuman's own 20% is building the options to ask with. Called with
-no options every one of those is determined by the locale and the unit alone,
-which is what makes it memoizable at all — and the memo takes about 40% off the
-method.
-
-Any option at all is spread into both formatters' options, including ones Intl
-ignores, so the memo is only taken when the caller passed none. That is the call
-toHuman() makes, and it keeps the semantics for a caller who reuses and mutates
-an options object between calls.
-
-The reason this belongs on the Locale rather than in duration.js is the same
-generation counter. A Duration built before Settings.resetCaches() still holds
-the Locale instance it was built with, and nothing looks that instance up again
-— so a memo hanging off it would go on rendering through the Intl objects the
-reset was meant to drop. resetCaches() exists so a caller can swap Intl out, so
-this is the case it has to get right rather than an edge one, and
-benchmarks/test/locale-intern-patch.test.ts checks it by doing exactly that.
+Description: benchmarks/docs/pr/06-locale-intern.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
 --- a/src/impl/locale.js

@@ -3,81 +3,38 @@ Letter: I
 Requires: none
 Files: src/datetime.js
 Summary: two calls toRelative makes that cannot affect its answer
-
-I: two calls toRelative makes that cannot affect its answer
-
-  toRelative    padding    the padding option is rarely passed, and when it is
-                           not, padding is 0 and the method still calls
-                           this.plus(0) — a clone whose offset is re-derived to
-                           produce a copy of the receiver.
-  diffRelative  unit loop  the loop asks diff() for years, then months, then
-                           days, and so on until one comes back at 1 or more, so
-                           a "3 months ago" answer pays for a full calendar-year
-                           diff first. A unit cannot reach 1 unless the two
-                           instants are at least one of it apart, and the
-                           shortest each unit can be in local time is a
-                           constant, so the diffs that can only return 0 are
-                           skippable without being run.
-
-The floors are the shortest that unit can be anywhere, rounded down again: a
-month is 28 days in February, a day is 23 hours where the clocks go forward, a
-quarter is 90. The margin is not there because the number is uncertain; it is
-there so that a zone with a rule nobody here anticipated still lands above the
-floor rather than under it.
-
-Two things bound this, both of which the tests turn on:
-
-  * The skip is off for the calendary path. toRelativeCalendar counts boundary
-    crossings rather than elapsed time, where 23:00 and 01:00 are two hours
-    apart and one day apart, so no spread implies anything about its answer.
-  * A unit the table does not name has no floor and is always asked, which is
-    what keeps an unknown one throwing InvalidUnitError where it threw before.
-    The table is null-prototype for that: a numeric "floor" reaching it by
-    inheritance would skip the diff that was going to throw and answer instead.
-
-What makes this worth more than the calls it removes is what those calls were
-doing to E. Each plus() walks E's transition-free interval cache, which has two
-slots, so the unnecessary lookups were evicting the working set and making the
-necessary ones miss as well. Measured on the complete build, fastest of three,
-per 20,000: a base 90 days out goes 749.6ms to 79.0ms and 15.2 ICU calls per
-value to zero, one three hours out 241.4 to 57.3 at zero either way, one two
-years out 432.5 to 61.7 and 9.0 calls to zero. The corollary is that this is
-worth little without E, and E is worth more once this is in.
-
-That is also why it is a patch rather than two lines folded into H. Removing it
-alone from the complete tree costs 7.80x on node and 3.93x on bun on the
-toRelative column, against a control — the same tree built twice and timed
-against itself — that reaches 1.35x and 1.42x. H, which is under the same
-method through adjustTime, costs 1.70x there. The two are on the same column for
-different reasons and at different sizes, and only one of them is on any other
-column.
-
-Verified against stock over 194,400 calls: six zones including Lord Howe's
-half-hour DST and Chatham's 45-minute offset, both toRelative and
-toRelativeCalendar, spreads either side of every floor and of each unit's true
-minimum, both signs, and the round, rounding, unit, array-unit and padding
-options. Zero differ. The sweep is in
-benchmarks/test/relative-skip-patch.test.ts.
+Description: benchmarks/docs/pr/09-relative-skip.md
 
 diff --git a/src/datetime.js b/src/datetime.js
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -470,6 +540,32 @@ function normalizeUnit(unit) {
+@@ -470,6 +540,42 @@ function normalizeUnit(unit) {
  
-+// UPSTREAM-I: the shortest each unit can be in local time, rounded down again.
-+// A month is 28 days in February; a day is 23 hours where the clocks go forward.
-+// Two instants closer together than this cannot be one of that unit apart, so
-+// the diff below is one whose answer is already known.
++// UPSTREAM-I: the least real time one step of each unit can span, so that two
++// instants closer together than this cannot be one of that unit apart and the
++// diff below is one whose answer is already known.
++//
++// A step of one unit keeps the wall time and advances the local calendar by at
++// least N days -- 365 for a year (Feb 29 to Feb 28), 89 for a quarter (Jan 31 to
++// Apr 30), 28 for a month, 7 for a week -- and lands on an offset at most 26
++// hours from the one it left, since IANA offsets run from -12:00 to +14:00. So
++// the step covers at least N days less 26 hours of real time. Deriving it that
++// way rather than measuring tzdata matters: the shortest week on record is six
++// days, because Pacific/Apia deleted 2011-12-30 outright, and a floor fitted to
++// the ordinary one-hour spring forward would have skipped it.
++//
++// A day is not on the list because a day less 26 hours is negative -- and it is
++// not an idle margin, Antarctica/Macquarie moved ten hours in 1948, making a
++// local day fourteen hours long.
 +//
 +// Null-prototype: opts.units comes from the caller, and an inherited property
 +// must not be read as a floor. A unit not listed here has no floor and is always
 +// asked, which is what keeps an unknown one throwing where it threw before.
 +const relativeFloor = Object.assign(Object.create(null), {
-+  years: 364 * 86400000,
-+  quarters: 89 * 86400000,
-+  months: 27 * 86400000,
-+  weeks: 6.9 * 86400000,
-+  days: 22 * 3600000,
++  years: 365 * 86400000 - 26 * 3600000,
++  quarters: 89 * 86400000 - 26 * 3600000,
++  months: 28 * 86400000 - 26 * 3600000,
++  weeks: 7 * 86400000 - 26 * 3600000,
 +  hours: 3600000,
 +  minutes: 60000,
 +  seconds: 1000,

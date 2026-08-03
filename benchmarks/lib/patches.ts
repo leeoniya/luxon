@@ -37,14 +37,19 @@ export type PatchKey = string;
 
 export interface Patch {
   key: PatchKey;
-  /** A-I, its position in apply order; what the report tables label it */
+  /** A-K, its position in apply order; what the report tables label it */
   letter: string;
   /** one-line summary for report tables */
   what: string;
   /** patches whose text this one's diff is written against */
   needs: PatchKey[];
-  /** the reasoning, as it appears above the diff in the patch file */
-  prose: string;
+  /**
+   * Where the reasoning lives. A patch file used to carry it above the diff as
+   * well, which meant two copies of the same argument drifting apart — the
+   * letters in one set were three re-letterings out of date before anyone
+   * noticed. Read here so that a file missing the header fails on load.
+   */
+  doc: string;
   file: string;
   diffs: FileDiff[];
 }
@@ -74,7 +79,7 @@ function parseHeader(text: string, file: string) {
     what: field("Summary"),
     // "B (offsetScan), D (zoneNameScan)" -> the keys in the parens
     needs: requires === "none" ? [] : [...requires.matchAll(/\((\w+)\)/g)].map((m) => m[1]!),
-    prose: head.slice(head.indexOf("Summary:")).split("\n").slice(2).join("\n").trim(),
+    doc: field("Description"),
   };
 }
 
@@ -166,7 +171,6 @@ export const patchKeys: readonly PatchKey[] = PATCHES.map((p) => p.key);
 
 export const patchLetter = new Map(PATCHES.map((p) => [p.key, p.letter]));
 export const patchWhat = new Map(PATCHES.map((p) => [p.key, p.what]));
-export const patchProse = new Map(PATCHES.map((p) => [p.key, p.prose]));
 
 /**
  * Patches that have to be applied before this one, because its diff is written
