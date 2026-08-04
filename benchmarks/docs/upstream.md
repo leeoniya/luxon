@@ -74,10 +74,16 @@ Nothing compares a column in one table against a column in another, which is wha
 makes that free.
 
 A `--` is a build with no equivalent to run: moment ships no `Interval` and no
-`Duration#shiftTo`, and the easy-tz rows answer only the columns built on a zone,
-since the rest name theirs as a string rather than taking one. A build with
-*nothing* to say in a table is left out of it rather than printed as a row of
-dashes, which is the two easy-tz rows under `other`.
+`Duration#shiftTo`, and the easy-tz rows answer only the columns that ask a zone
+for something while they are timed. That last one is measured rather than
+declared — `--verify` counts the `offset()` and `offsetName()` calls each case
+makes and fails if a column is annotated as one thing and behaves as another —
+because the columns it excludes are the ones where an easy-tz cell would be the
+luxon row's number printed a second time. `toISO` reads the offset already on the
+instance, `toHTTP` swaps in a fixed-offset zone before formatting, and
+`toLocaleString` hands Intl the zone's name rather than asking it anything. A
+build with *nothing* to say in a table is left out of it rather than printed as a
+row of dashes.
 
 [coverage.md](coverage.md) reads the API columns; the rest of this file reads the
 patches.
@@ -714,6 +720,32 @@ kind of pattern.
 Skipping the `Formatter` entirely for the patterns a value formatter emits in
 bulk — easy-tz's own fast path — is a further large multiple beyond even that,
 and is where the remaining case for easy-tz lives.
+
+### If none of this is accepted
+
+The `easytz zone` row answers the other question, and it is the one that matters
+if the patches go nowhere: how much of the gap a consumer stuck on stock luxon
+can close by binding easy-tz's zone and changing nothing else. It closes most of
+it, and where it does not is predictable from what it replaces.
+
+The abbreviation case is the extreme. Stock luxon spends two orders of magnitude
+more than moment-timezone on `toFormat abbr` because every value is an Intl name
+lookup, and easy-tz reads it from a table instead — enough to bring a column that
+was ~200x moment to low single digits. The offset-bearing patterns behave the
+same way for the same reason: `toFormat wide` and the ISO and token parses go
+from behind moment to ahead of it, and `fromObject` with them, since placing a
+local time is three offset lookups and easy-tz answers all three from rules.
+
+What it cannot close is the part that was never the zone. `hasSame day`,
+`endOf month` and `Interval splitBy` each ask for many offsets per call, so
+easy-tz moves them several-fold and they stay well behind moment, which is doing
+different arithmetic rather than cheaper lookups — that gap is H's and J's, not a
+zone's. `toRelative` is the same story with a `diff` under it. And the columns
+that never touch a zone do not move at all, which is why they have no cell.
+
+So: binding easy-tz is worth roughly the whole of luxon's Intl zone cost and
+nothing else. That is most of what separates stock luxon from moment on formatting
+and parsing, and about half of what separates it on date arithmetic.
 
 That one is no longer measured. It had a build here for a while that was timed
 and never printed, and it went with the rest of the untabulated set. The path

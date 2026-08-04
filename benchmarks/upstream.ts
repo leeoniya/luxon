@@ -67,7 +67,8 @@
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { bakedRules, tablesHost, yearStart } from "./lib/easy-tz.ts";
+import { bakedRules, canResolve, getTimeZoneAt, tablesHost, yearStart } from "./lib/easy-tz.ts";
+import { makeEasyZoneClass } from "./lib/easy-zone.ts";
 import { API_CASES, defaultMomentShape, type ApiBand, type ApiCase } from "./lib/api-cases.ts";
 import {
   momentFor,
@@ -92,6 +93,7 @@ import {
   type Work,
 } from "./lib/kernel.ts";
 import type { LuxonModule } from "./lib/luxon-types.ts";
+import type { IANAZone } from "luxon";
 import { allTables, cooldownMs, tables, withFootprint, withVerify } from "./lib/opts.ts";
 import {
   droppedPatches,
@@ -732,6 +734,63 @@ const apiCases: ApiCase[] = (["formatting", "parsing", "other"] as ApiBand[]).fl
  */
 const momentInstanceFor = (kase: ApiCase) => momentFor(momentRole(kase.momentShape ?? defaultMomentShape));
 
+const easyModules = new Map<string, Promise<LuxonModule>>();
+
+/**
+ * A build's luxon, with easy-tz's zone bound to it on the rows that bind one.
+ *
+ * The API cases name their zones as strings, so the binding goes where a string
+ * becomes a Zone: `IANAZone.create`, which is what `normalizeZone` calls and so
+ * where every `{ zone: "..." }` in lib/api-cases.ts arrives. That covers the
+ * second zone `setZone` moves to as well, which an argument threaded through the
+ * cases would have had to name separately. What it measures is what a consumer
+ * passing easy-tz zone objects everywhere would get, which is how the format
+ * columns above bind theirs.
+ *
+ * On its own module instance, because the stock row and the `easytz zone` row
+ * are the same patch set and would otherwise share one — the override would then
+ * follow the stock row into its own cells. That is what loadLuxon's `copy` is.
+ *
+ * A zone easy-tz cannot resolve exactly keeps luxon's own lookup, so a row that
+ * reached one would report Intl's cost honestly rather than a wrong offset
+ * cheaply. None of the cases name one; the check is here because the cost of
+ * being wrong about that is a plausible-looking number.
+ */
+function luxonFor(path: Path): Promise<LuxonModule> {
+  if (!path.easyZone) return loadLuxon(path.patches);
+
+  const id = setId(path.patches);
+  let mod = easyModules.get(id);
+
+  if (mod === undefined) {
+    easyModules.set(
+      id,
+      (mod = loadLuxon(path.patches, 1).then((m) => {
+        const Easy = makeEasyZoneClass(m.IANAZone, getTimeZoneAt);
+        const create = m.IANAZone.create.bind(m.IANAZone);
+        const zones = new Map<string, IANAZone>();
+
+        // create() is luxon's own zone cache, so the override keeps one too:
+        // a fresh zone per call would hand every lookup an empty memo and
+        // measure easy-tz without the single-slot cache it ships with.
+        (m.IANAZone as { create: (name: string) => IANAZone }).create = (name) => {
+          let zone = zones.get(name);
+
+          if (zone === undefined) {
+            zones.set(name, (zone = canResolve(name) ? (new Easy(name) as IANAZone) : create(name)));
+          }
+
+          return zone;
+        };
+
+        return m;
+      }))
+    );
+  }
+
+  return mod;
+}
+
 if (tables.has("ladder")) {
   // Everything a row needs is built before the first row is timed: the
   // formatters, the parsers, the input pools, the parse checks, the byte counts,
@@ -778,23 +837,19 @@ if (tables.has("ladder")) {
     // The API cases, where a build that has no answer for one leaves the cell
     // empty rather than filling it with a number from something else.
     //
-    // The two easy-tz rows are the whole band's worth of that. They exist to ask
-    // whether binding easy-tz's zone is still worth it, and the API cases name
-    // their zone as a string, so running them here would resolve it through Intl
-    // and print a plain-luxon number under a row that claims otherwise. Passing
-    // the zone down instead would work, and would also mean every Duration, Info
-    // and Interval cell — none of which touch a zone at all — got measured twice
-    // to say the same thing. The format and parse columns already answer the
-    // question those rows are there for.
-    if (!path.easyZone) {
-      for (const kase of apiCases) {
-        const work =
-          path.ships === "moment-timezone"
-            ? kase.moment?.(momentInstanceFor(kase))
-            : kase.luxon(await loadLuxon(path.patches));
+    // The easy-tz rows answer the `zoned` ones only. The rest never ask a zone
+    // anything while they are timed, so an easy-tz cell under them would be the
+    // luxon row's number measured a second time — see ApiCase#zoned, and the
+    // --verify check that keeps the annotation honest.
+    for (const kase of apiCases) {
+      if (path.easyZone && kase.zoned !== true) continue;
 
-        if (work !== undefined) perKey.set(kase.key, work);
-      }
+      const work =
+        path.ships === "moment-timezone"
+          ? kase.moment?.(momentInstanceFor(kase))
+          : kase.luxon(await luxonFor(path));
+
+      if (work !== undefined) perKey.set(kase.key, work);
     }
 
     built.set(path.id, perKey);
@@ -823,21 +878,74 @@ if (tables.has("ladder")) {
   if (withVerify) {
     const CHECK_N = 256;
     const checked = rowPaths.filter((p) => p.ships === "luxon" && !p.easyZone);
+    const easyRows = rowPaths.filter((p) => p.easyZone);
     const disagree: string[] = [];
 
     for (const kase of apiCases) {
       if (kase.live === true) continue;
 
-      const sums = checked.map((p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum);
+      // The easy-tz rows join the comparison on the cases they answer, which
+      // makes this an agreement check on baked offsets against Intl's. All but
+      // the abbreviation, which easy-tz supplies in tzdata style where ICU
+      // returns a GMT offset for some zones — the same carve-out the format
+      // columns make.
+      const rows =
+        kase.zoned === true && kase.key !== "toFormat abbr" ? [...checked, ...easyRows] : checked;
+      const sums = rows.map((p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum);
 
       if (sums.some((s) => s !== sums[0]!)) {
-        disagree.push(`${kase.key}: ${checked.map((p, i) => `${p.id}=${sums[i]!}`).join(" ")}`);
+        disagree.push(`${kase.key}: ${rows.map((p, i) => `${p.id}=${sums[i]!}`).join(" ")}`);
       }
     }
 
     if (disagree.length > 0) {
       throw new Error(
         `builds disagree on ${disagree.length} API case(s), so the table below is not comparable:\n${disagree.join("\n")}`
+      );
+    }
+
+    // Which cells the easy-tz rows fill is decided by ApiCase#zoned, so the
+    // annotation is measured rather than trusted: a case that gained a zone
+    // lookup would leave an empty cell where there is now something to say, and
+    // one that lost its last lookup would leave a cell measuring stock twice.
+    //
+    // On a module instance of its own, so the wrapping cannot follow a case into
+    // the timings, and unwrapped again either way.
+    const probe = await loadLuxon([], 2);
+    const proto = probe.IANAZone.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const stockZoneCalls = { offset: proto["offset"]!, offsetName: proto["offsetName"]! };
+    const misannotated: string[] = [];
+    let zoneCalls = 0;
+
+    for (const name of ["offset", "offsetName"] as const) {
+      proto[name] = function (this: unknown, ...args: unknown[]) {
+        zoneCalls++;
+        return stockZoneCalls[name].apply(this, args);
+      };
+    }
+
+    try {
+      for (const kase of apiCases) {
+        // built here rather than reused, so that the pools a case fills on the
+        // way in — which do ask a zone, and are not what it is being timed on —
+        // are outside the count
+        const work = kase.luxon(probe);
+
+        zoneCalls = 0;
+
+        for (let i = 0; i < 8; i++) work(BASE_TS + i * STEP_MS);
+
+        if (zoneCalls > 0 !== (kase.zoned === true)) {
+          misannotated.push(`${kase.key}: ${zoneCalls} zone call(s) in 8, marked zoned=${kase.zoned === true}`);
+        }
+      }
+    } finally {
+      for (const name of ["offset", "offsetName"] as const) proto[name] = stockZoneCalls[name];
+    }
+
+    if (misannotated.length > 0) {
+      throw new Error(
+        `ApiCase#zoned disagrees with what ${misannotated.length} case(s) ask their zone:\n${misannotated.join("\n")}`
       );
     }
 
@@ -1036,9 +1144,7 @@ if (tables.has("ladder")) {
   for (const band of BANDS) {
     const columns = band.segments.flatMap((seg) => seg.keys);
     // Builds with nothing to say here are left out rather than printed as a row
-    // of dashes. It is the two easy-tz rows in the `other` table: they exist to
-    // ask whether binding easy-tz's zone is worth it, and arithmetic, Duration,
-    // Interval and Info never touch a zone.
+    // of dashes.
     const rows = rowPaths.filter((path) => columns.some((key) => built.get(path.id)!.has(key)));
     /** rules go where the block changes, which moves when rows are left out */
     const ruleAt = new Set(
@@ -1187,7 +1293,7 @@ if (tables.has("ladder")) {
     const why = [
       dashed.has("moment") ? "moment ships no Interval and no Duration#shiftTo" : "",
       [...dashed].some((id) => id !== "moment")
-        ? "the easy-tz rows answer only the columns built on a zone, and the rest name theirs as a string"
+        ? "the easy-tz rows answer only the columns that ask a zone for something while they are timed"
         : "",
     ].filter((s) => s !== "");
     const notes = [

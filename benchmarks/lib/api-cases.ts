@@ -101,6 +101,19 @@ export interface ApiCase {
   approx?: true;
   /** reads the clock, so its output cannot be checked across builds */
   live?: true;
+  /**
+   * Asks its zone for an offset or a name while it is being timed, so an
+   * easy-tz row has something of its own to report here. The cases without it
+   * either never touch a zone (Duration, Info) or read one that has already
+   * answered — toISO reads the cached offset off the instance, toHTTP swaps in
+   * a fixed-offset zone first, toLocaleString hands Intl the zone's NAME — and
+   * an easy-tz cell under those would be stock's number printed twice.
+   *
+   * Checked rather than trusted: --verify counts the calls each case makes and
+   * fails if the annotation and the count disagree, so a case that grows or
+   * loses a zone lookup cannot leave a misattributed cell behind.
+   */
+  zoned?: true;
 }
 
 /**
@@ -155,6 +168,7 @@ export const API_CASES: ApiCase[] = [
     // hop between months exists, and pays what the old shape measured.
     key: "fromObject",
     band: "parsing",
+    zoned: true,
     luxon: (m) => (ts) => {
       const i = idx(ts);
       return m.DateTime.fromObject(
@@ -173,6 +187,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "now",
     band: "parsing",
+    zoned: true,
     live: true,
     luxon: (m) => () => m.DateTime.now().setZone(ZONE).valueOf(),
     moment: (mo) => () => mo.tz(ZONE).valueOf(),
@@ -189,6 +204,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "plus",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.plus({ days: 1 }).valueOf();
@@ -201,6 +217,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "minus",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.minus({ months: 1 }).valueOf();
@@ -213,6 +230,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "startOf day",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.startOf("day").valueOf();
@@ -225,6 +243,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "endOf month",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.endOf("month").valueOf();
@@ -237,6 +256,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "set",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.set({ hour: 9, minute: 30 }).valueOf();
@@ -249,6 +269,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "diff",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.diff(p[(idx(ts) + 137) % POOL]!, ["days", "hours"]).hours;
@@ -261,6 +282,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "hasSame day",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => +p[idx(ts)]!.hasSame(p[(idx(ts) + 137) % POOL]!, "day");
@@ -273,6 +295,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "setZone",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.setZone(OTHER_ZONE).valueOf();
@@ -304,6 +327,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "toFormat abbr",
     band: "formatting",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toFormat("ZZZZ").length;
@@ -341,6 +365,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "toFormat wide",
     band: "formatting",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toFormat(LUX_WIDE).length;
@@ -357,6 +382,7 @@ export const API_CASES: ApiCase[] = [
     // request path rather than in a rendered table
     key: "toRFC2822",
     band: "formatting",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toRFC2822()!.length;
@@ -424,6 +450,7 @@ export const API_CASES: ApiCase[] = [
     // relative-time formatting: the zone rungs move it before G is on at all
     key: "toRelative",
     band: "formatting",
+    zoned: true,
     approx: true,
     luxon: (m) => {
       const p = pool(m);
@@ -461,6 +488,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "Interval length",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => m.Interval.fromDateTimes(p[idx(ts)]!, p[idx(ts)]!.plus({ months: 2 })).length("days");
@@ -469,6 +497,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "Interval contains",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => {
@@ -480,6 +509,7 @@ export const API_CASES: ApiCase[] = [
   {
     key: "Interval splitBy",
     band: "other",
+    zoned: true,
     luxon: (m) => {
       const p = pool(m);
       return (ts) => {
