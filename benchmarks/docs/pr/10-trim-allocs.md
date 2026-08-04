@@ -57,13 +57,3 @@ same number as `shiftTo(unit).get(unit)`. It can be written into the higher-orde
 result before constructing the return value, avoiding the final
 `Duration#plus`, its nine-unit walk and its clone. Multiple lower-order units
 keep the general path.
-
-The fixtures check `as` against the `shiftTo(unit).get(unit)` it replaced, which
-is still in the tree as its fallback, and `endOf` against the
-`plus({ [unit]: 1 }).startOf(unit).minus(1)` it replaced, with `Object.is` so that
-a negative zero has to agree too. The one-lower-unit `diff` path is compared
-against stock in both directions, across offset changes, zones and conversion
-matrices. `clone` has no expression left to compare against and is checked
-through the methods that call it, including a count of what the zone is asked —
-dropping `old` changes no answer and only costs the constructor the calendar and
-offset it was handed.

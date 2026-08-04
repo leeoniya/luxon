@@ -17,10 +17,5 @@ check because a name is variable-width. Three probes have to agree on where the
 name sits: two either side of a DST boundary, and one that would render a
 one-digit hour if the locale ignored the 2-digit request. Any disagreement, or a
 locale whose `format()` output is not simply its parts joined, returns null and
-takes the stock path.
-
-The `formatToParts` expression this replaces is the fixtures' oracle, so the
-expected names come from ICU. Alongside the comparisons there is a case per probe
-that moves the layout under exactly that probe and asserts the scanner refuses it,
-and a check that locales which put the zone name somewhere other than last are
-served rather than rejected.
+takes the stock path. The name may appear anywhere in the formatted string; only
+agreement across the probes is required.

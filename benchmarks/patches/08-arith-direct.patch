@@ -2,7 +2,7 @@ Patch: arithDirect
 Letter: H
 Requires: none
 Files: src/datetime.js, src/duration.js, src/impl/diff.js, src/impl/english.js, src/zones/systemZone.js
-Summary: eight places on the arithmetic path that built something per call to reach a number: three object round trips, one offset round trip and four constants
+Summary: arithmetic paths that built or normalized temporary objects per call to reach values already available directly
 Description: benchmarks/docs/pr/08-arith-direct.md
 
 diff --git a/src/datetime.js b/src/datetime.js
@@ -396,6 +396,49 @@ diff --git a/src/duration.js b/src/duration.js
  
      if (!normalized) throw new InvalidUnitError(unit);
  
+@@ -671,12 +675,15 @@ export default class Duration {
+   plus(duration) {
+     if (!this.isValid) return this;
+ 
+-    const dur = Duration.fromDurationLike(duration),
++    const dur = Duration.fromDurationLike(duration),
++      mine = this.values,
++      theirs = dur.values,
+       result = {};
+ 
+     for (const k of orderedUnits) {
+-      if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
+-        result[k] = dur.get(k) + this.get(k);
++      if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
++        // UPSTREAM-H: get() normalizes a known constant before this same read.
++        result[k] = (theirs[k] || 0) + (mine[k] || 0);
+       }
+     }
+ 
+@@ -691,8 +698,22 @@ export default class Duration {
+   minus(duration) {
+     if (!this.isValid) return this;
+ 
+-    const dur = Duration.fromDurationLike(duration);
+-    return this.plus(dur.negate());
++    // UPSTREAM-H: negate() cloned the addend, then plus() normalized that
++    // Duration again and cloned the receiver. Subtract the same fixed unit
++    // values into the one result object directly.
++    const dur = Duration.fromDurationLike(duration),
++      mine = this.values,
++      theirs = dur.values,
++      result = {};
++
++    for (const k of orderedUnits) {
++      if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
++        result[k] = (mine[k] || 0) - (theirs[k] || 0);
++      }
++    }
++
++    return clone(this, { values: result }, true);
+   }
+ 
+   /**
 diff --git a/src/impl/diff.js b/src/impl/diff.js
 --- a/src/impl/diff.js
 +++ b/src/impl/diff.js
@@ -439,6 +482,19 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
  }
  
  function highOrderDiffs(cursor, later, units) {
+@@ -67,6 +93,12 @@ function highOrderDiffs(cursor, later, units) {
+ }
+ 
+ export default function (earlier, later, units, opts) {
++  // UPSTREAM-H: milliseconds are already the representation of both endpoints;
++  // no calendar walk or unit shifting can contribute to this exact result.
++  if (units.length === 1 && units[0] === "milliseconds") {
++    return Duration.fromMillis(later - earlier, opts);
++  }
++
+   let [cursor, results, highWater, lowestOrder] = highOrderDiffs(earlier, later, units);
+ 
+   const remainingMillis = later - cursor;
 diff --git a/src/impl/english.js b/src/impl/english.js
 --- a/src/impl/english.js
 +++ b/src/impl/english.js

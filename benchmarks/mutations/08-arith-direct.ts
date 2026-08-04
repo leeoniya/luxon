@@ -73,6 +73,18 @@ const set: MutationSet = {
       replace: "",
     },
 
+    // ---- Duration arithmetic: direct values ----
+    {
+      name: "Duration plus leaves the addend out",
+      find: "+        result[k] = (theirs[k] || 0) + (mine[k] || 0);",
+      replace: "+        result[k] = mine[k] || 0;",
+    },
+    {
+      name: "Duration minus adds the addend",
+      find: "+        result[k] = (mine[k] || 0) - (theirs[k] || 0);",
+      replace: "+        result[k] = (mine[k] || 0) + (theirs[k] || 0);",
+    },
+
     // ---- adjustTime: the whole-value guard ----
     {
       name: "sums fractional days as though they were whole",
@@ -190,6 +202,16 @@ const set: MutationSet = {
         "backtracks — onto the value this mutation produces directly. Checked " +
         "over 2,880 diffs across three zones, both directions and six unit " +
         "lists. The zeroing stays because it is what startOf('day') did.",
+    },
+    {
+      name: "exact millisecond diff is one millisecond long",
+      find: "+    return Duration.fromMillis(later - earlier, opts);",
+      replace: "+    return Duration.fromMillis(later - earlier + 1, opts);",
+    },
+    {
+      name: "millisecond shortcut takes mixed-unit diffs",
+      find: '+  if (units.length === 1 && units[0] === "milliseconds") {',
+      replace: '+  if (units[0] === "milliseconds" || units.includes("milliseconds")) {',
     },
   ],
 };

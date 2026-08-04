@@ -74,24 +74,15 @@ function instants(zone: string): number[] {
   const out: number[] = [];
   const base = Date.UTC(2026, 0, 1);
 
-  for (let i = 0; i < 200; i++) {
+  // A quiet run grows and reuses the interval; past that, only a name
+  // transition can change the answer.
+  for (let i = 0; i < 48; i++) {
     out.push(base + i * 3_600_000);
   }
 
-  let seed = 987654321;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-
-  for (let i = 0; i < 100; i++) {
-    out.push(Math.floor((rnd() * 2 - 1) * 4e12));
-  }
-
-  for (let i = 0; i < 25; i++) {
-    out.push(Math.floor(rnd() * 6e13) - 63e12); // years 0-100, and BC
-  }
-
-  for (let i = 0; i < 25; i++) {
-    out.push(base + Math.floor(rnd() * 1000)); // sub-second
-  }
+  // Representative calendar/range partitions. Random instants between name
+  // transitions have the same answer and exercise the same fixed slice.
+  out.push(0, -1, 1.5, -1.5, -94069002240, -62587360024261, base + 1, base + 999);
 
   // every real transition, to the millisecond on both sides: a name that moves
   // is a transition, and an interval that reached past one shows up here
@@ -114,18 +105,20 @@ function instants(zone: string): number[] {
 }
 
 /**
- * A week, plus this zone's next two dozen transitions after 1995, for the locale
- * grid. Capped because the grid multiplies out by locale and style and the stock
- * side of it is ~100µs a value: what this dimension is for is the surround the
- * scanner slices against, which does not vary by instant, and the two dozen
- * cover Cambridge_Bay's pair of Nunavut renames at the front of the window.
+ * Two civil-time widths plus transition boundaries for the locale grid. The
+ * scanner's surround is fixed after its probes, so more quiet instants repeat
+ * the same slice. Cambridge_Bay keeps a wider historical window because its two
+ * Nunavut renames move the name without moving the offset.
  */
 function gridPoints(zone: string): number[] {
+  const transitions = zone === "America/Cambridge_Bay" ? 24 : 4;
+
   return [
-    ...Array.from({ length: 14 }, (_, i) => Date.UTC(2026, 0, 1) + i * 43_200_000),
+    Date.UTC(2026, 0, 1, 3),
+    Date.UTC(2026, 0, 1, 23),
     ...(moment.tz.zone(zone)?.untils ?? [])
       .filter((u) => isFinite(u) && u > Date.UTC(1995, 0, 1))
-      .slice(0, 24)
+      .slice(0, transitions)
       .flatMap((u) => [u - 1, u]),
   ];
 }

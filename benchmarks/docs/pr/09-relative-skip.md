@@ -19,32 +19,19 @@ and lands on an offset at most 26 hours from the one it left, because IANA
 offsets run from `-12:00` to `+14:00`. So one step covers at least N days less 26
 hours of real time, and that is the floor.
 
-Deriving it rather than measuring tzdata is the whole of it, and an earlier draft
-of this patch is the argument for why. Floors fitted to the ordinary one-hour
-spring forward were wrong for three of five units, because the real extremes are
-not DST at all:
+The bound is deliberately derived rather than fitted to ordinary DST. Offset
+changes include `Pacific/Apia` deleting a whole day and
+`Antarctica/Macquarie` moving ten hours. A day therefore has no positive floor:
+one day less the 26-hour offset bound is negative, so day diffs are never
+skipped.
 
-| | shortest in tzdata | why |
-| --- | --- | --- |
-| week | 6 days | `Pacific/Apia` deleted 2011-12-30 outright |
-| quarter | 88d 17h | `Antarctica/Davis` was abolished in 1969 and jumped 7 hours |
-| day | 14 hours | `Antarctica/Macquarie` moved 10 hours in 1948 |
-
-The fitted week floor of 6.9 days skipped the Apia week and answered "in 7 days"
-where the answer was "in 1 week". A day has no floor at all under the derivation,
-since a day less 26 hours is negative — and the Macquarie figure says that is not
-an idle margin. Dropping it costs less than it looks: with the rest of the series
-applied, `toRelative` over a three-minute span is still about 6× stock.
-
-Two things bound this, and both are what the tests turn on:
+Two compatibility constraints bound the skip:
 
 - The skip is off for `toRelativeCalendar`, whose units count boundary crossings
   rather than elapsed time — 23:00 and 01:00 are two hours apart and one day
   apart, so no spread implies anything about its answer.
-- A unit the table does not name has no floor and is always asked, which is what
-  keeps an unknown one throwing `InvalidUnitError` where it threw before. The
-  table is null-prototype for that reason.
+- A unit without a numeric floor is always asked, which keeps ordinary unknown
+  units throwing `InvalidUnitError` where they threw before.
 
-The fixtures check each unit against `toRelative({ unit })`, which takes the
-single-unit branch above the loop and is untouched here, so the expectation
-follows tzdata rather than being recorded against it.
+The single-unit `toRelative({ unit })` branch is unchanged and remains the
+equivalent operation without the skip.

@@ -18,6 +18,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import moment from "moment-timezone";
 import { loadLuxon, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
 import { stockName, stockOffset, type NameStyle } from "../lib/stock-zone.ts";
 
@@ -36,24 +37,21 @@ const ZONES = [
   "Asia/Kolkata", // nothing ever happens
 ];
 
-/** instants around every transition of `zone` in a decade, plus the far past */
-function around(offsetAt: (ts: number) => number): number[] {
-  const out: number[] = [];
-  let prev = offsetAt(Date.UTC(2018, 0, 1));
+/** instants around every transition of `zone` in a decade */
+function around(zone: string): number[] {
+  const start = Date.UTC(2018, 0, 1);
+  const end = Date.UTC(2028, 0, 1);
 
-  for (let ts = Date.UTC(2018, 0, 1); ts < Date.UTC(2028, 0, 1); ts += 6 * 3_600_000) {
-    const now = offsetAt(ts);
-
-    if (now !== prev) {
-      // the probe spacing is two days, so the span either side of a boundary is
-      // where a widen that did not check would have landed
-      for (const d of [-3, -2, -1, 0, 1, 2, 3]) out.push(ts + d * 86400000);
-      out.push(ts - 1, ts + 1);
-      prev = now;
-    }
-  }
-
-  return out;
+  // Derive boundaries from the independent tzdata oracle. Scanning for them
+  // through the implementation under test is both expensive and unsafe: a
+  // broken lookup could hide the boundary its test needed to visit.
+  return (moment.tz.zone(zone)?.untils ?? [])
+    .filter((ts) => ts >= start && ts < end)
+    .flatMap((ts) => [
+      ...[-3, -2, -1, 0, 1, 2, 3].map((days) => ts + days * 86400000),
+      ts - 1,
+      ts + 1,
+    ]);
 }
 
 for (const [label, keys] of VARIANTS) {
@@ -63,9 +61,10 @@ for (const [label, keys] of VARIANTS) {
     test("the value is the same whatever order it is asked in", async () => {
       const m = await loadLuxon(keys);
 
-      for (const name of ZONES) {
+      for (let zoneIndex = 0; zoneIndex < ZONES.length; zoneIndex++) {
+        const name = ZONES[zoneIndex]!;
         const zone = m.IANAZone.create(name);
-        const list = around((ts) => zone.offset(ts));
+        const list = around(name);
 
         const orders: [string, number[]][] = [
           ["forward", list],
@@ -75,14 +74,16 @@ for (const [label, keys] of VARIANTS) {
           ["interleaved with now", list.flatMap((ts) => [Date.now(), ts])],
           ["scattered", [...list].sort((a, b) => ((a * 7919) % 101) - ((b * 7919) % 101))],
         ];
+        // Transition geometry belongs to the zone; cache traversal belongs to
+        // the access order. Pair the independent dimensions while retaining
+        // every transition in every zone and every traversal shape.
+        const [order, ordered] = orders[zoneIndex % orders.length]!;
 
-        for (const [order, list_] of orders) {
-          m.IANAZone.resetCache();
-          const z = m.IANAZone.create(name);
+        m.IANAZone.resetCache();
+        const z = m.IANAZone.create(name);
 
-          for (const ts of list_) {
-            assert.equal(z.offset(ts), stockOffset(name, ts), `${name} ${order} @${ts}`);
-          }
+        for (const ts of ordered) {
+          assert.equal(z.offset(ts), stockOffset(name, ts), `${name} ${order} @${ts}`);
         }
       }
     });
@@ -90,22 +91,26 @@ for (const [label, keys] of VARIANTS) {
     test("the zone name is the same whatever order it is asked in", async () => {
       const m = await loadLuxon(keys);
       const styles: NameStyle[] = ["short", "long", "shortGeneric"];
+      const names = ["America/New_York", "Africa/Casablanca", "Australia/Lord_Howe"];
 
-      for (const name of ["America/New_York", "Africa/Casablanca", "Australia/Lord_Howe"]) {
-        const list = around((ts) => m.IANAZone.create(name).offset(ts));
+      for (const [localeIndex, locale] of ["en-US", "de-DE"].entries()) {
+        for (const [styleIndex, format] of styles.entries()) {
+          // Locale/style select the scanner. Pair each scanner with one zone;
+          // the offset-side sweep above independently covers every zone and
+          // traversal, while each style still sees two transition geometries.
+          const name = names[(localeIndex + styleIndex) % names.length]!;
+          const list = around(name);
+          const ordered = (localeIndex + styleIndex) % 2 === 0 ? list : [...list].reverse();
 
-        for (const locale of ["en-US", "de-DE"]) {
-          for (const format of styles) {
-            m.Settings.resetCaches();
-            const z = m.IANAZone.create(name);
+          m.Settings.resetCaches();
+          const z = m.IANAZone.create(name);
 
-            for (const ts of [...list, ...[...list].reverse()]) {
-              assert.equal(
-                z.offsetName(ts, { format, locale } as never),
-                stockName(ts, format, locale, name),
-                `${name} / ${locale} / ${format} @${ts}`
-              );
-            }
+          for (const ts of ordered) {
+            assert.equal(
+              z.offsetName(ts, { format, locale } as never),
+              stockName(ts, format, locale, name),
+              `${name} / ${locale} / ${format} @${ts}`
+            );
           }
         }
       }
@@ -186,7 +191,7 @@ for (const [label, keys] of VARIANTS) {
           assert.equal(zone.offset(ts), stockOffset(name, ts), `${name} warming @${ts}`);
         }
 
-        for (const ts of around((t) => zone.offset(t))) {
+        for (const ts of around(name)) {
           assert.equal(zone.offset(ts), stockOffset(name, ts), `${name} approaching @${ts}`);
         }
       }

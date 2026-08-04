@@ -99,6 +99,66 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    test("Duration arithmetic reads unit values directly", async () => {
+      const { m } = await load();
+      const a = m.Duration.fromObject({
+        years: 2,
+        quarters: 3,
+        months: 4,
+        weeks: 5,
+        days: 6,
+        hours: 7,
+        minutes: 8,
+        seconds: 9,
+        milliseconds: 10,
+      });
+      const b = m.Duration.fromObject({
+        years: 1,
+        quarters: 1,
+        months: 1,
+        weeks: 1,
+        days: 1,
+        hours: 1,
+        minutes: 1,
+        seconds: 1,
+        milliseconds: 1,
+      });
+
+      assert.deepEqual(a.plus(b).toObject(), {
+        years: 3,
+        quarters: 4,
+        months: 5,
+        weeks: 6,
+        days: 7,
+        hours: 8,
+        minutes: 9,
+        seconds: 10,
+        milliseconds: 11,
+      });
+      assert.deepEqual(a.minus(b).toObject(), {
+        years: 1,
+        quarters: 2,
+        months: 3,
+        weeks: 4,
+        days: 5,
+        hours: 6,
+        minutes: 7,
+        seconds: 8,
+        milliseconds: 9,
+      });
+      assert.deepEqual(a.minus({ years: 1, milliseconds: 10 }).toObject(), {
+        years: 1,
+        quarters: 3,
+        months: 4,
+        weeks: 5,
+        days: 6,
+        hours: 7,
+        minutes: 8,
+        seconds: 9,
+        milliseconds: 0,
+      });
+    });
+
     // the sum replaces a Duration round trip only when all nine values are whole
     // and the result stays finite, and both halves of that are load-bearing
     test("the whole-value guard", async () => {
@@ -189,6 +249,23 @@ for (const [label, keys] of VARIANTS) {
       // Date.UTC, which would map year 1 into the 1900s
       const y1 = m.DateTime.fromObject({ year: 1, month: 1, day: 1 }, { zone: ZONE });
       assert.equal(dt.diff(y1, "days").toISO(), "P738954.0869444445D");
+    });
+
+    test("exact millisecond diff", async () => {
+      const { m, dt } = await load();
+      const other = m.DateTime.fromMillis(TS + 123_456_789, { zone: "Europe/Paris" });
+
+      assert.deepEqual(other.diff(dt, "milliseconds").toObject(), { milliseconds: 123_456_789 });
+      assert.deepEqual(dt.diff(other, "milliseconds").toObject(), { milliseconds: -123_456_789 });
+      assert.deepEqual(dt.diff(dt, "milliseconds").toObject(), { milliseconds: 0 });
+      assert.deepEqual(other.diff(dt, ["seconds", "milliseconds"]).toObject(), {
+        seconds: 123_456,
+        milliseconds: 789,
+      });
+      assert.deepEqual(
+        m.Interval.fromDateTimes(dt, other).toDuration("milliseconds").toObject(),
+        { milliseconds: 123_456_789 }
+      );
     });
 
     // SystemZone#offset reuses one Date across calls, so the oracle is the

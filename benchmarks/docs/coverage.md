@@ -5,7 +5,7 @@
 > [`lib/api-cases.ts`](../lib/api-cases.ts).
 
 The other axis. Where the ladder's `formatting` and `parsing` tables go deep on
-writing a date and reading one, these go wide: 30 public API calls — construction,
+writing a date and reading one, these go wide: 45 public API calls — construction,
 arithmetic, writing, `Duration`, `Interval`, `Info` — on every build in the ladder
 and on moment.
 
@@ -48,9 +48,39 @@ answers is whether luxon is now something you would pick over the thing people
 already have. Stock luxon, the row under it, is the distance travelled rather
 than the target.
 
-A `--` is a build with no equivalent to run. moment ships no `Interval` and has no
-`Duration#shiftTo`, so those four columns are luxon-only and are left unshaded
-rather than shaded against something moment did not do.
+A `--` is a build with no equivalent to run. moment ships no `Interval`, compiled
+format-parser API, `Duration#shiftTo`, or `Duration#toFormat`, so those columns are
+luxon-only and are shaded against stock luxon rather than against something
+moment did not do.
+
+### Isolated and whole-operation columns
+
+The original `Duration as`, `Duration shiftTo`, and `Duration toHuman` columns
+construct a receiver inside every timed call. That is intentional historical
+coverage of the whole operation and their semantics have not changed. The
+columns ending in `pooled` build their receivers outside timing, isolating the
+named method so a constructor change cannot be mistaken for a method change.
+`Interval toDuration pooled` and `Interval count pooled` likewise reuse prebuilt
+intervals; the older `Interval length`, `contains`, and `splitBy` columns retain
+their original whole-operation shapes.
+
+The focused additions also cover the calendar-unit branches of `startOf` and
+`endOf`, fixed-base `toRelativeCalendar`, zone-name and possible-offset reads,
+and `fromFormatParser` with its parser compiled outside timing. Duration
+formatting has separate numeric and literal-heavy patterns. Every added column
+uses the ladder's existing per-column split-half floor, and runs under whichever
+engine executes `upstream.ts`; run the same ladder sequentially with Node and Bun
+when collecting promotion evidence.
+
+One exploratory Bun ladder run reported a `toRelativeCalendar` slowdown. It did
+not repeat in an isolated subtraction check: the complete stack was faster than
+the same stack without H, J, or E, both with this column's minute-spaced pool and
+with a day-spaced pool crossing calendar and DST boundaries. Fresh module
+instances varied more than the initial result while returning identical
+checksums. Treat the observation as JavaScriptCore tier/cache noise, amplified by
+E's interval-cache hit shape, not as evidence against a retained production
+change. It is not a promotion result unless it repeats in the interleaved full
+ladder above the column's own floor.
 
 The two easy-tz rows sit out these cases entirely — they are dropped from the
 `other` table rather than printed as a row of dashes, and the `formatting` and

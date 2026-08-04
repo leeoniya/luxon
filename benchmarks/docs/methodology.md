@@ -30,10 +30,11 @@ same cell every pass.
 
 **Between rows**, the machine idles. These benches are minutes of sustained load
 on hosts that throttle, so a row measured late would otherwise be measured on a
-hotter machine than a row measured early. `--cooldown <ms>` sets the idle, five
+hotter machine than a row measured early. `--cooldown <ms>` sets the idle, ten
 seconds by default; `--cooldown 0` turns it off, which is what to do when
 iterating on a patch and comparing a run against itself rather than reading rows
-against each other.
+against each other. `--verify` also defaults to zero because its result is the
+correctness checks, not the timing rows; an explicit cooldown still overrides it.
 
 Rows are printed as they finish rather than at the end, which is what makes a
 bench that runs for minutes watchable — and means a run stopped halfway has
@@ -47,12 +48,13 @@ stand-in for the noise floor, not a substitute for the measured per-column floor
 printed under each table, and a margin can clear the shading while still sitting
 inside its column's floor. Redirected output is never shaded.
 
-Four columns have no moment cell to shade against, because moment ships neither
-`Interval` nor `Duration#shiftTo`. Those take stock luxon as their baseline
-instead, so they are read as what the patches did to luxon rather than as a
-comparison between libraries — which is the question those columns can answer.
-The legend above the tables names both baselines; without it a coloured cell
-would not say which one it meant.
+Columns for Luxon-only operations have no moment cell to shade against: moment
+ships no `Interval`, compiled format-parser API, `Duration#shiftTo`, or
+`Duration#toFormat`. Those take stock luxon as their baseline instead, so they
+are read as what the patches did to luxon rather than as a comparison between
+libraries — which is the question those columns can answer. The legend above the
+tables names both baselines; without it a coloured cell would not say which one
+it meant.
 
 A row is usually one interleaved group, but it can be several: `upstream`'s
 ladder times its writing and its reading columns as two, because they need

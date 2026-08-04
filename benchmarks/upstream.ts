@@ -1239,9 +1239,10 @@ if (tables.has("ladder")) {
         }
 
         // moment is the baseline wherever moment has an answer. Where it does
-        // not — Interval and Duration#shiftTo, which it does not ship — stock
-        // luxon stands in, so those columns are shaded against what the patches
-        // started from rather than printing flat. Both rows are in `groups`
+        // not — including Interval and Luxon-specific compiled parsing and
+        // Duration operations — stock luxon stands in, so those columns are
+        // shaded against what the patches started from rather than printing
+        // flat. Both rows are in `groups`
         // ahead of every row that reads this, and in this order, but the fill
         // is written as "first row that has one wins" rather than assuming it:
         // colours that silently inverted if the rows were reordered would be
@@ -1311,7 +1312,9 @@ if (tables.has("ladder")) {
         : `the easy-tz rows carry every column so that configuration reads off one line, but easy-tz can only\n` +
           `move a column that asks a zone for an offset or a name. Under these it is the luxon row again:\n` +
           `${wrap(unmoved)}`,
-      dashed.has("moment") ? `--: the build has no equivalent. moment ships no Interval and no Duration#shiftTo.` : "",
+      dashed.has("moment")
+        ? `--: the build has no equivalent for that Luxon API operation.`
+        : "",
     ].filter((s) => s !== "");
 
     console.log(

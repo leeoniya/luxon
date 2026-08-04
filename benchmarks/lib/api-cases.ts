@@ -22,10 +22,10 @@
 // The prose — why each case is here, which still trail moment and what is left to
 // do about them — is in benchmarks/docs/coverage.md.
 
-import type { DateTime } from "luxon";
+import type { DateTime, Duration, Interval } from "luxon";
 import type moment from "moment-timezone";
 import type { Work } from "./kernel.ts";
-import type { LuxonModule } from "./luxon-types.ts";
+import type { DateTimeParserClass, LuxonModule } from "./luxon-types.ts";
 
 type MomentTz = typeof moment;
 
@@ -132,6 +132,30 @@ function pool(m: LuxonModule, locale = LOCALE): DateTime[] {
   );
 }
 
+/** Receivers for probes that need Duration construction outside the timed call. */
+function durationPool(m: LuxonModule): Duration[] {
+  return Array.from({ length: POOL }, (_, i) =>
+    m.Duration.fromObject(
+      {
+        days: 1 + (i % 27),
+        hours: i % 24,
+        minutes: (i * 7) % 60,
+        seconds: (i * 13) % 60,
+        milliseconds: (i * 17) % 1_000,
+      },
+      { locale: LOCALE }
+    )
+  );
+}
+
+/** Receivers for probes that need Interval construction outside the timed call. */
+function intervalPool(m: LuxonModule): Interval[] {
+  const starts = pool(m);
+  return starts.map((start, i) =>
+    m.Interval.fromDateTimes(start, start.plus({ months: 2, days: i % 7, minutes: i % 60 }))
+  );
+}
+
 // the locale is set when the pool is built rather than per call, because
 // moment's setter mutates the instance rather than returning a new one
 function momentPool(mo: MomentTz, locale?: string): moment.Moment[] {
@@ -139,6 +163,18 @@ function momentPool(mo: MomentTz, locale?: string): moment.Moment[] {
     const at = mo.tz(BASE_TS + i * STEP_MS, ZONE);
     return locale === undefined ? at : at.locale(locale);
   });
+}
+
+function momentDurationPool(mo: MomentTz): moment.Duration[] {
+  return Array.from({ length: POOL }, (_, i) =>
+    mo.duration({
+      days: 1 + (i % 27),
+      hours: i % 24,
+      minutes: (i * 7) % 60,
+      seconds: (i * 13) % 60,
+      milliseconds: (i * 17) % 1_000,
+    })
+  );
 }
 
 export const API_CASES: ApiCase[] = [
@@ -197,6 +233,24 @@ export const API_CASES: ApiCase[] = [
     moment: (mo) => () => mo.tz(ZONE).valueOf(),
     momentShape: (mo) => mo.tz(ZONE),
   },
+  {
+    // The parser is the reusable artifact this API exists to expose. Building it
+    // in the closure keeps parser compilation out of the timed parse.
+    key: "fromFormatParser",
+    band: "parsing",
+    zoned: true,
+    luxon: (m) => {
+      const DateTime = m.DateTime as DateTimeParserClass;
+      const parser = DateTime.buildFormatParser("yyyy-MM-dd HH:mm", { locale: LOCALE });
+      const inputs = Array.from({ length: POOL }, (_, i) => {
+        const hour = Math.floor(i / 60) % 24;
+        const minute = i % 60;
+        return `2024-01-01 ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+      });
+      return (ts) =>
+        DateTime.fromFormatParser(inputs[idx(ts)]!, parser, { locale: LOCALE, zone: ZONE }).valueOf();
+    },
+  },
 
   // ---- arithmetic ----
   //
@@ -242,6 +296,45 @@ export const API_CASES: ApiCase[] = [
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.clone().startOf("day").valueOf();
+    },
+  },
+  {
+    key: "startOf month",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.startOf("month").valueOf();
+    },
+    moment: (mo) => {
+      const p = momentPool(mo);
+      return (ts) => p[idx(ts)]!.clone().startOf("month").valueOf();
+    },
+  },
+  {
+    key: "endOf day",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.endOf("day").valueOf();
+    },
+    moment: (mo) => {
+      const p = momentPool(mo);
+      return (ts) => p[idx(ts)]!.clone().endOf("day").valueOf();
+    },
+  },
+  {
+    key: "endOf week",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.endOf("week").valueOf();
+    },
+    moment: (mo) => {
+      const p = momentPool(mo);
+      return (ts) => p[idx(ts)]!.clone().endOf("week").valueOf();
     },
   },
   {
@@ -307,6 +400,28 @@ export const API_CASES: ApiCase[] = [
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.clone().tz(OTHER_ZONE).valueOf();
+    },
+  },
+  {
+    key: "getPossibleOffsets",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.getPossibleOffsets().length;
+    },
+  },
+  {
+    key: "offsetNameShort",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = pool(m);
+      return (ts) => p[idx(ts)]!.offsetNameShort!.length;
+    },
+    moment: (mo) => {
+      const p = momentPool(mo);
+      return (ts) => p[idx(ts)]!.zoneAbbr().length;
     },
   },
 
@@ -467,8 +582,39 @@ export const API_CASES: ApiCase[] = [
       return (ts) => p[idx(ts)]!.from(base).length;
     },
   },
+  {
+    key: "toRelativeCalendar",
+    band: "formatting",
+    zoned: true,
+    approx: true,
+    luxon: (m) => {
+      const p = pool(m);
+      const base = m.DateTime.fromMillis(REL_BASE, { zone: ZONE, locale: LOCALE });
+      return (ts) => p[idx(ts)]!.toRelativeCalendar({ base })!.length;
+    },
+    moment: (mo) => {
+      const p = momentPool(mo);
+      const base = mo.tz(REL_BASE, ZONE);
+      return (ts) => p[idx(ts)]!.calendar(base).length;
+    },
+  },
 
   // ---- Duration ----
+  //
+  // The original three cases below construct their receiver in the timed call.
+  // They remain whole-operation columns for continuity. The explicitly pooled
+  // columns isolate the named method for patch experiments.
+  {
+    key: "Duration plus pooled",
+    band: "other",
+    luxon: (m) => {
+      const receivers = durationPool(m);
+      const addends = Array.from({ length: POOL }, (_, i) =>
+        m.Duration.fromObject({ hours: 1 + (i % 3), minutes: i % 60 })
+      );
+      return (ts) => receivers[idx(ts)]!.plus(addends[idx(ts)]!).minutes;
+    },
+  },
   {
     key: "Duration as",
     band: "other",
@@ -476,9 +622,29 @@ export const API_CASES: ApiCase[] = [
     moment: (mo) => (ts) => mo.duration(100 + idx(ts), "minutes").asHours(),
   },
   {
+    key: "Duration as pooled",
+    band: "other",
+    luxon: (m) => {
+      const p = durationPool(m);
+      return (ts) => p[idx(ts)]!.as("hours");
+    },
+    moment: (mo) => {
+      const p = momentDurationPool(mo);
+      return (ts) => p[idx(ts)]!.asHours();
+    },
+  },
+  {
     key: "Duration shiftTo",
     band: "other",
     luxon: (m) => (ts) => m.Duration.fromObject({ minutes: 100 + idx(ts) }).shiftTo("hours", "minutes").hours,
+  },
+  {
+    key: "Duration shiftTo pooled",
+    band: "other",
+    luxon: (m) => {
+      const p = durationPool(m);
+      return (ts) => p[idx(ts)]!.shiftTo("days", "hours", "minutes").minutes;
+    },
   },
   {
     key: "Duration toHuman",
@@ -486,6 +652,35 @@ export const API_CASES: ApiCase[] = [
     approx: true,
     luxon: (m) => (ts) => m.Duration.fromObject({ hours: 1 + (idx(ts) % 9), minutes: 30 }).toHuman().length,
     moment: (mo) => (ts) => mo.duration({ hours: 1 + (idx(ts) % 9), minutes: 30 }).humanize().length,
+  },
+  {
+    key: "Duration toHuman pooled",
+    band: "other",
+    approx: true,
+    luxon: (m) => {
+      const p = durationPool(m);
+      return (ts) => p[idx(ts)]!.toHuman().length;
+    },
+    moment: (mo) => {
+      const p = momentDurationPool(mo);
+      return (ts) => p[idx(ts)]!.humanize().length;
+    },
+  },
+  {
+    key: "Duration toFormat num",
+    band: "formatting",
+    luxon: (m) => {
+      const p = durationPool(m);
+      return (ts) => p[idx(ts)]!.toFormat("dd:hh:mm:ss.SSS").length;
+    },
+  },
+  {
+    key: "Duration toFormat text",
+    band: "formatting",
+    luxon: (m) => {
+      const p = durationPool(m);
+      return (ts) => p[idx(ts)]!.toFormat("d 'days' h 'hours' m 'minutes'").length;
+    },
   },
 
   // ---- Interval: no moment equivalent, the plugin that adds one is not here ----
@@ -520,6 +715,24 @@ export const API_CASES: ApiCase[] = [
         const start = p[idx(ts)]!;
         return m.Interval.fromDateTimes(start, start.plus({ days: 10 })).splitBy({ days: 1 }).length;
       };
+    },
+  },
+  {
+    key: "Interval toDuration pooled",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = intervalPool(m);
+      return (ts) => p[idx(ts)]!.toDuration(["days", "hours"]).hours;
+    },
+  },
+  {
+    key: "Interval count pooled",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = intervalPool(m);
+      return (ts) => p[idx(ts)]!.count("days");
     },
   },
 

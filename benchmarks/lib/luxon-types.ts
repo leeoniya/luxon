@@ -12,10 +12,22 @@
 // narrower than the library. None is a reason to hand-roll the whole surface,
 // which is what used to be in this file.
 
-import type { DateTime, Zone, ZoneOffsetOptions } from "luxon";
+import type { DateTime, DateTimeOptions, Zone, ZoneOffsetOptions } from "luxon";
 
 /** One loaded copy of luxon — the fork's own src/, or a patched build of it. */
 export type LuxonModule = typeof import("luxon");
+
+/** Opaque parser returned by the fork's newer compiled-format parsing API. */
+export interface TokenParser {}
+
+/**
+ * Static DateTime surface present in this checkout but not yet in the published
+ * @types/luxon version used by the benchmark package.
+ */
+export type DateTimeParserClass = typeof import("luxon").DateTime & {
+  buildFormatParser(fmt: string, options?: DateTimeOptions): TokenParser;
+  fromFormatParser(text: string, parser: TokenParser, options?: DateTimeOptions): DateTime;
+};
 
 declare module "luxon" {
   interface InfoOptions {
@@ -42,6 +54,12 @@ declare module "luxon" {
      * @types/luxon does not declare it.
      */
     readonly wasHole: boolean;
+
+    /**
+     * Return every instant that can represent this DateTime's local wall time.
+     * Present in this checkout but not yet in the benchmark's published types.
+     */
+    getPossibleOffsets(): DateTime[];
   }
 }
 

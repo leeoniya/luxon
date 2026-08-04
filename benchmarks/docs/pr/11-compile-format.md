@@ -1,9 +1,9 @@
-# K — compile the format instead of interpreting it, and memoize the names
+# K — compile DateTime and Duration formats, and memoize DateTime names
 
 `src/impl/formatter.js`
 
-Two changes to the same file. The first is structural and the second is where the
-non-English cost is.
+Three changes to the same file. DateTime and Duration patterns are compiled once;
+the third change memoizes the non-English names DateTime tokens resolve to.
 
 ## Compiling
 
@@ -24,11 +24,13 @@ If G lands as well, this subsumes two of its six: `parseFormat` runs once per
 pattern rather than once per value, and punctuation and unknown tokens fold into
 the literal runs, which is what the interpreter's default branch effectively did.
 
-The interpreter is deleted rather than kept alongside. An earlier draft left its
-body under a second name so the two implementations stayed diffable, which cost
-3,451 minified bytes for a method nothing calls and which a minifier cannot drop
-because it is a class method. Reading the two side by side is what the diff is
-for.
+### Duration formats
+
+`Duration#toFormat` had the same per-call shape at a smaller scale: it parsed the
+pattern, rebuilt three closures and four temporary arrays, then shifted the
+duration into the discovered fields. K now caches only the fields, widths and
+literal runs; shifting, sign mode, flooring and number formatting remain
+per-value.
 
 ## The name a token resolves to
 
@@ -78,9 +80,3 @@ Three boundaries, none of them visible from the code alone:
 renders `4` where `Info.months` and `toLocaleString` both render `4月`, because
 `Locale#months` carries a `ja` workaround the formatter has never had. Memoizing
 what the formatter already returns does not change what it returns.
-
-The fixtures check every name token against the `toLocaleParts` the memo stands
-in for, and the macro tokens against the `toLocaleString` preset each expands to,
-so the expected strings come from ICU rather than from this patch. Two of them
-count `Intl.DateTimeFormat` constructions instead of comparing output: one that a
-repeated format asks for a name once, one that English asks for none.

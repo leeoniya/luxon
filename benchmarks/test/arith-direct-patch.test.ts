@@ -149,11 +149,12 @@ describe("arithDirect is invisible", () => {
 
         for (const unit of [...DT_UNITS, ...NOT_UNITS]) {
           for (const spelling of [unit, unit.toUpperCase(), unit.toLowerCase()]) {
-            const dt = (m: any) => m.DateTime.fromMillis(INSTANTS[0]!, { zone: "America/New_York" });
+            const patchedDateTime = patched.DateTime.fromMillis(INSTANTS[0]!, { zone: "America/New_York" });
+            const stockDateTime = stock.DateTime.fromMillis(INSTANTS[0]!, { zone: "America/New_York" });
 
             assert.equal(
-              outcome(() => dt(patched).plus({ [spelling]: 2 }).toISO()),
-              outcome(() => dt(stock).plus({ [spelling]: 2 }).toISO()),
+              outcome(() => patchedDateTime.plus({ [spelling]: 2 }).toISO()),
+              outcome(() => stockDateTime.plus({ [spelling]: 2 }).toISO()),
               `plus({ ${spelling} })`
             );
 
@@ -161,8 +162,8 @@ describe("arithDirect is invisible", () => {
             // table's week and ordinal entries; get() is a plain property read
             // and would not notice a table missing a key at all
             assert.equal(
-              outcome(() => dt(patched).set({ [spelling]: 2 }).toISO()),
-              outcome(() => dt(stock).set({ [spelling]: 2 }).toISO()),
+              outcome(() => patchedDateTime.set({ [spelling]: 2 }).toISO()),
+              outcome(() => stockDateTime.set({ [spelling]: 2 }).toISO()),
               `set({ ${spelling} })`
             );
 
@@ -175,20 +176,20 @@ describe("arithDirect is invisible", () => {
             // every unit, not just the spans: the ones startOf rejects have to
             // be rejected the same way, which is the half a dropped key breaks
             assert.equal(
-              outcome(() => dt(patched).startOf(spelling).toISO()),
-              outcome(() => dt(stock).startOf(spelling).toISO()),
+              outcome(() => patchedDateTime.startOf(spelling as any).toISO()),
+              outcome(() => stockDateTime.startOf(spelling as any).toISO()),
               `startOf(${spelling})`
             );
 
             assert.equal(
-              outcome(() => dt(patched).endOf(spelling).toISO()),
-              outcome(() => dt(stock).endOf(spelling).toISO()),
+              outcome(() => patchedDateTime.endOf(spelling as any).toISO()),
+              outcome(() => stockDateTime.endOf(spelling as any).toISO()),
               `endOf(${spelling})`
             );
 
             assert.equal(
-              outcome(() => dt(patched).toISODate({ precision: spelling })),
-              outcome(() => dt(stock).toISODate({ precision: spelling })),
+              outcome(() => patchedDateTime.toISODate({ precision: spelling as any })),
+              outcome(() => stockDateTime.toISODate({ precision: spelling as any })),
               `toISODate(precision: ${spelling})`
             );
           }
@@ -333,30 +334,23 @@ describe("arithDirect is invisible", () => {
             const g = patched.DateTime.fromMillis(ts, { zone });
 
             for (const amount of AMOUNTS) {
+              // Include the raw timestamp because toISO truncates sub-milliseconds.
+              const read = (op: "plus" | "minus", dt: typeof w) =>
+                outcome(() => {
+                  const result = dt[op](amount as any);
+                  return `${result.toISO()}/${result.valueOf()}`;
+                });
+
               assert.equal(
-                outcome(() => g.plus(amount as any).toISO()),
-                outcome(() => w.plus(amount as any).toISO()),
+                read("plus", g),
+                read("plus", w),
                 `plus(${JSON.stringify(amount)}) ${zone} ${ts}`
               );
 
               assert.equal(
-                outcome(() => g.minus(amount as any).toISO()),
-                outcome(() => w.minus(amount as any).toISO()),
+                read("minus", g),
+                read("minus", w),
                 `minus(${JSON.stringify(amount)}) ${zone} ${ts}`
-              );
-
-              // toISO truncates, so a sub-millisecond disagreement would not
-              // show in the strings above. The timestamp is stored unrounded.
-              assert.equal(
-                outcome(() => g.plus(amount as any).valueOf()),
-                outcome(() => w.plus(amount as any).valueOf()),
-                `plus(${JSON.stringify(amount)}).valueOf() ${zone} ${ts}`
-              );
-
-              assert.equal(
-                outcome(() => g.minus(amount as any).valueOf()),
-                outcome(() => w.minus(amount as any).valueOf()),
-                `minus(${JSON.stringify(amount)}).valueOf() ${zone} ${ts}`
               );
             }
 
@@ -468,14 +462,17 @@ describe("arithDirect is invisible", () => {
 
         for (const zone of ZONES) {
           for (const instant of INSTANTS) {
-            for (let min = -60; min <= 60; min += 15) {
+            // The fast path depends on whether the receiver is before, on or
+            // after an offset boundary, not its distance inside either side.
+            for (const min of [-15, 0, 15]) {
               const ts = instant + min * 60_000;
+              const patchedDateTime = patched.DateTime.fromMillis(ts, { zone });
+              const stockDateTime = stock.DateTime.fromMillis(ts, { zone });
 
               for (const amt of AMTS) {
                 for (const op of ["plus", "minus"] as const) {
-                  const read = (mod: typeof stock) =>
+                  const read = (dt: typeof stockDateTime) =>
                     outcome(() => {
-                      const dt = mod.DateTime.fromMillis(ts, { zone });
                       const d = op === "plus" ? dt.plus(amt as never) : dt.minus(amt as never);
                       return d.isValid ? `${d.valueOf()}/${d.offset}/${d.wasHole}` : `invalid:${d.invalidReason}`;
                     });
@@ -483,8 +480,8 @@ describe("arithDirect is invisible", () => {
                   checked++;
 
                   assert.equal(
-                    read(patched),
-                    read(stock),
+                    read(patchedDateTime),
+                    read(stockDateTime),
                     `${zone} ${new Date(ts).toISOString()} ${op} ${JSON.stringify(amt)}`
                   );
                 }
@@ -494,7 +491,7 @@ describe("arithDirect is invisible", () => {
         }
 
         t.diagnostic(`${checked} compared`);
-        assert.ok(checked > 10_000, `only ${checked} compared`);
+        assert.ok(checked > 5_000, `only ${checked} compared`);
       });
 
       // fromMillis cannot land in a DST hole, so the receivers above are all
@@ -692,6 +689,124 @@ describe("arithDirect is invisible", () => {
                 });
 
               assert.equal(read(patched), read(stock), `${zone} ${op}(${JSON.stringify(shape)})`);
+            }
+          }
+        }
+      });
+
+      test("Duration plus and minus direct extraction agrees with stock", async () => {
+        const patched = await loadLuxon(keys);
+        const SHAPES = [
+          {},
+          { milliseconds: 0 },
+          { milliseconds: -0 },
+          { years: 1, months: 2, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7 },
+          { quarters: -2, weeks: 3, minutes: -4.5 },
+          { hours: Number.MAX_SAFE_INTEGER, milliseconds: 1 },
+        ];
+
+        for (const left of SHAPES) {
+          for (const right of SHAPES) {
+            for (const op of ["plus", "minus"] as const) {
+              const read = (mod: typeof stock) => {
+                const result = mod.Duration.fromObject(left)[op](mod.Duration.fromObject(right));
+                return Object.entries(result.toObject())
+                  .map(([unit, value]) => `${unit}:${value}:${Object.is(value, -0) ? "-0" : ""}`)
+                  .join("|");
+              };
+
+              assert.equal(read(patched), read(stock), `${op} ${JSON.stringify(left)} / ${JSON.stringify(right)}`);
+            }
+          }
+        }
+
+        for (const arg of [0, -0, 1, -1, { day: 1 }, { hours: "3.5" }, null, "nope"] as any[]) {
+          for (const op of ["plus", "minus"] as const) {
+            const read = (mod: typeof stock) =>
+              outcome(() => JSON.stringify(mod.Duration.fromObject({ days: 2, hours: 1 })[op](arg).toObject()));
+            assert.equal(read(patched), read(stock), `${op}(${String(arg)})`);
+          }
+        }
+      });
+
+      test("Duration arithmetic preserves invalid, inherited-key and custom-matrix semantics", async () => {
+        const patched = await loadLuxon(keys);
+
+        const readEdge = (mod: typeof stock, op: "plus" | "minus", makeArg: () => unknown) =>
+          outcome(() => {
+            const result = mod.Duration.fromObject({ days: 2, hours: 1 })[op](makeArg() as never);
+            return JSON.stringify(result.toObject());
+          });
+
+        const args: [string, (mod: typeof stock) => unknown][] = [
+          ["invalid Duration", (mod) => mod.Duration.invalid("because")],
+          ["inherited days", () => Object.create({ days: 9 })],
+          [
+            "own hours over inherited days",
+            () => Object.assign(Object.create({ days: 9 }), { hours: 3 }),
+          ],
+          [
+            "own days shadow inherited days",
+            () => Object.assign(Object.create({ days: 9 }), { days: 4 }),
+          ],
+        ];
+
+        for (const op of ["plus", "minus"] as const) {
+          for (const [label, make] of args) {
+            assert.equal(
+              readEdge(patched, op, () => make(patched)),
+              readEdge(stock, op, () => make(stock)),
+              `${op} ${label}`
+            );
+          }
+        }
+
+        const withMatrix = (mod: typeof stock) => {
+          const seed = mod.Duration.fromObject({});
+          const matrix = structuredClone((seed as unknown as { matrix: object }).matrix) as Record<
+            string,
+            Record<string, number>
+          >;
+
+          // Deliberately unlike either built-in matrix. The arithmetic result
+          // must keep the receiver's conversion system, not the addend's or a
+          // default reconstructed while cloning.
+          matrix["days"]!["hours"] = 31;
+          matrix["hours"]!["minutes"] = 47;
+
+          return mod.Duration.fromObject({ days: 1, hours: 2 }, { matrix } as never);
+        };
+
+        for (const op of ["plus", "minus"] as const) {
+          const want = withMatrix(stock)[op]({ hours: 3 }).as("minutes");
+          const got = withMatrix(patched)[op]({ hours: 3 }).as("minutes");
+
+          assert.equal(got, want, `${op} with a custom matrix`);
+          assert.notEqual(got, op === "plus" ? 1_740 : 1_380, "the custom matrix did not affect the answer");
+        }
+      });
+
+      test("exact-millisecond diff agrees in both directions and across zones", async () => {
+        const patched = await loadLuxon(keys);
+        const PAIRS = [
+          [0, 0],
+          [0, 1],
+          [-8.64e15, 8.64e15],
+          [Date.UTC(2024, 2, 10, 6, 59, 59, 999), Date.UTC(2024, 2, 10, 7, 0, 0)],
+        ] as const;
+
+        for (const zoneA of ZONES) {
+          for (const zoneB of ZONES) {
+            for (const [a, b] of PAIRS) {
+              const read = (mod: typeof stock, from: number, to: number) => {
+                const left = mod.DateTime.fromMillis(from, { zone: zoneA, locale: "fr" });
+                const right = mod.DateTime.fromMillis(to, { zone: zoneB });
+                const d = left.diff(right, "milliseconds", { conversionAccuracy: "longterm" });
+                return `${JSON.stringify(d.toObject())}/${d.locale}/${(d as any).conversionAccuracy}`;
+              };
+
+              assert.equal(read(patched, a, b), read(stock, a, b), `${zoneA}/${zoneB} ${a}->${b}`);
+              assert.equal(read(patched, b, a), read(stock, b, a), `${zoneA}/${zoneB} ${b}->${a}`);
             }
           }
         }

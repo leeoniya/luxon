@@ -20,8 +20,5 @@ zone that does not come back in the expected order keeps the original path, so a
 ICU that lays fields out differently degrades to stock instead of decoding them
 into the wrong slots.
 
-The expression this replaces is kept in the fixtures as the oracle, so the
-expected offsets are computed rather than written down: both sides are compared on
-each side of every transition the sampled zones have, on the sub-hour and
-negative-year cases where the arithmetic is easiest to get wrong, and on a zone
-whose field layout is deliberately bent to force the fallback.
+The scanner preserves offsets across transitions, sub-hour offsets and negative
+years. Unexpected field layouts use the original `formatToParts()` path.

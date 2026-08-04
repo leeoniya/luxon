@@ -122,8 +122,8 @@ const set: MutationSet = {
     },
     {
       name: "starts the output after the first literal run",
-      find: "+  let s = lits[0];",
-      replace: '+  let s = "";',
+      find: "+  let s = lits[0];\n+\n+  for (let i = 0; i < fns.length; i++) {",
+      replace: '+  let s = "";\n+\n+  for (let i = 0; i < fns.length; i++) {',
     },
     {
       name: "reads the literal runs one behind the handlers",
@@ -134,6 +134,37 @@ const set: MutationSet = {
       name: "leaves a macro token where it was found",
       find: "+      fns.push((f, dt) => f.formatWithSystemDefault(dt, macroOpts));",
       replace: "+      fns.push(() => macroOpts);",
+    },
+    // ---- the Duration program ----
+    {
+      name: "maps Duration seconds to minutes",
+      find: '+  s: "seconds",',
+      replace: '+  s: "minutes",',
+    },
+    {
+      name: "forgets each Duration token's width",
+      find: "+      widths.push(token.val.length);",
+      replace: "+      widths.push(1);",
+    },
+    {
+      name: "drops Duration literal runs",
+      find: "+    if (field === undefined) {\n+      lit += token.val;\n+    } else {",
+      replace: "+    if (field === undefined) {\n+    } else {",
+    },
+    {
+      name: "leaves secondary negative Duration fields negative",
+      find: '+    const secondaryNegative = signMode === "negativeLargestOnly" && negative && field !== largest;',
+      replace: "+    const secondaryNegative = false;",
+    },
+    {
+      name: "compiles the Duration pattern again on every call",
+      find: "+  let program = cfDurationPrograms.get(fmt);",
+      replace: "+  let program = undefined;",
+    },
+    {
+      name: "lets the Duration program cache grow without a ceiling",
+      find: "+    if (cfDurationPrograms.size < CF_CACHE_MAX) {\n+      cfDurationPrograms.set(fmt, program);\n+    }",
+      replace: "+    cfDurationPrograms.set(fmt, program);",
     },
     // ---- the program cache ----
     {

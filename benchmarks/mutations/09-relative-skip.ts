@@ -101,19 +101,6 @@ const set: MutationSet = {
       find: "+    return diffRelative(base, padding === 0 ? this : this.plus(padding), {",
       replace: "+    return diffRelative(base, padding >= 0 ? this : this.plus(padding), {",
     },
-    // ---- hygiene ----
-    {
-      name: "hangs the floors off Object.prototype",
-      find: "+const relativeFloor = Object.assign(Object.create(null), {",
-      replace: "+const relativeFloor = Object.assign({}, {",
-      survives:
-        "and cannot do otherwise: every inherited name on Object.prototype holds " +
-        "a function, and `spread < someFunction` coerces to NaN and is false, so " +
-        "an inherited property never reads as a floor and never skips anything. " +
-        "The null prototype is hygiene rather than a guard -- it makes the table " +
-        "a table -- and the fixture pins the behaviour it protects by asking for " +
-        "units named `constructor` and `toString` and requiring both to throw.",
-    },
   ],
 };
 

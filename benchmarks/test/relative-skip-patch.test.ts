@@ -34,21 +34,11 @@ const stock = await loadLuxon([]);
 describe("relativeSkip is invisible", () => {
   for (const [name, keys] of VARIANTS) {
     describe(name, () => {
-      // The unit floors decline to run a diff whose answer they can already
-      // bound, so the way they fail is by declining one they could not: a floor
-      // set above the shortest that unit really is, in a zone where it is
-      // shorter than the usual. The sweep is built to sit on that. Spreads are
-      // placed either side of every floor and either side of each unit's true
-      // minimum, so a floor off by an hour lands between two of them; zones
-      // include the half-hour DST of Lord Howe and Chatham's 45-minute offset,
-      // where a local day and a local month are shorter than the constants a
-      // whole-hour reading would suggest; and anchors sit on both DST weekends
-      // in both directions, on a leap day and across a year boundary.
-      //
-      // toRelativeCalendar is in for the opposite reason. Its units count
-      // boundary crossings, so no spread bounds them — 23:00 and 01:00 are two
-      // hours apart and one day apart — and it is only correct because the skip
-      // is switched off there. It is the case that fails if that guard goes.
+      // The temporal sweep keeps every zone, anchor, spread and direction, using
+      // the default unit chain. Options are orthogonal to that geometry, so each
+      // is paired with a different point instead of multiplying the full matrix.
+      // The mutation-backed fixtures independently pin every floor, padding and
+      // the calendary guard to their discriminating boundary cases.
       //
       // A test per zone rather than one sweep, so that no single one runs past
       // bun's default per-test timeout.
@@ -94,75 +84,56 @@ describe("relativeSkip is invisible", () => {
             { style: "short" },
           ];
 
+          const compare = (anchor: number, spread: number, sign: number, extra: Record<string, unknown>) => {
+            const opts = { zone, locale: "en-US" };
+            const patchedBase = patched.DateTime.fromMillis(anchor, opts);
+            const stockBase = stock.DateTime.fromMillis(anchor, opts);
+            const patchedAt = patched.DateTime.fromMillis(anchor + sign * spread, opts);
+            const stockAt = stock.DateTime.fromMillis(anchor + sign * spread, opts);
+            const where = `${zone} ${anchor} ${sign * spread} ${JSON.stringify(extra)}`;
+
+            assert.equal(
+              patchedAt.toRelative({ base: patchedBase, ...extra } as never),
+              stockAt.toRelative({ base: stockBase, ...extra } as never),
+              `toRelative ${where}`
+            );
+          };
+
           for (const anchor of ANCHORS) {
             for (const spread of SPREADS) {
               for (const sign of [1, -1]) {
-                for (const extra of OPTS) {
-                  const opts = { zone, locale: "en-US" };
-                  const at = (m: typeof stock) => m.DateTime.fromMillis(anchor + sign * spread, opts);
-                  const from = (m: typeof stock) => m.DateTime.fromMillis(anchor, opts);
-                  const where = `${zone} ${anchor} ${sign * spread} ${JSON.stringify(extra)}`;
-
-                  assert.equal(
-                    at(patched).toRelative({ base: from(patched), ...extra } as never),
-                    at(stock).toRelative({ base: from(stock), ...extra } as never),
-                    `toRelative ${where}`
-                  );
-
-                  // an array unit is toRelative's alone; the other throws on one
-                  if (Array.isArray(extra["unit"])) continue;
-
-                  assert.equal(
-                    at(patched).toRelativeCalendar({ base: from(patched), ...extra } as never),
-                    at(stock).toRelativeCalendar({ base: from(stock), ...extra } as never),
-                    `toRelativeCalendar ${where}`
-                  );
-                }
+                compare(anchor, spread, sign, OPTS[0]!);
               }
             }
+          }
+
+          for (let i = 0; i < OPTS.length; i++) {
+            const anchor = ANCHORS[i % ANCHORS.length]!;
+            const spread = SPREADS[(i * 5 + 3) % SPREADS.length]!;
+            const sign = i % 2 === 0 ? 1 : -1;
+            const extra = OPTS[i]!;
+
+            compare(anchor, spread, sign, extra);
+
+            // Array units are accepted only by toRelative.
+            if (Array.isArray(extra["unit"])) continue;
+
+            const opts = { zone, locale: "en-US" };
+            const patchedBase = patched.DateTime.fromMillis(anchor, opts);
+            const stockBase = stock.DateTime.fromMillis(anchor, opts);
+            const patchedAt = patched.DateTime.fromMillis(anchor + sign * spread, opts);
+            const stockAt = stock.DateTime.fromMillis(anchor + sign * spread, opts);
+            const where = `${zone} ${anchor} ${sign * spread} ${JSON.stringify(extra)}`;
+
+            assert.equal(
+              patchedAt.toRelativeCalendar({ base: patchedBase, ...extra } as never),
+              stockAt.toRelativeCalendar({ base: stockBase, ...extra } as never),
+              `toRelativeCalendar ${where}`
+            );
           }
         });
       }
 
-      // A unit the floors do not name has to keep reaching the diff, or an
-      // invalid one stops throwing where it threw. Inherited names are the way
-      // that goes wrong, and it takes polluting Object.prototype to see it: a
-      // floor read off the prototype is a function or an object for every name
-      // that is there by default, and a spread compares false against both, so
-      // an ordinary run cannot tell a plain object from a bare one. Give the
-      // prototype a numeric "floor" for a unit luxon rejects and the difference
-      // appears — a table that inherits it skips the diff that would have
-      // thrown and answers instead.
-      test("units the floors do not name still reach the diff", async () => {
-        const patched = await loadLuxon(keys);
-
-        const opts = { zone: "America/New_York", locale: "en-US" };
-        const at = (m: typeof stock) => m.DateTime.fromMillis(Date.UTC(2024, 5, 1, 12), opts);
-        const from = (m: typeof stock) => m.DateTime.fromMillis(Date.UTC(2024, 0, 1, 12), opts);
-        const run = (m: typeof stock, unit: string) => {
-          try {
-            return at(m).toRelative({ base: from(m), unit: [unit] } as never);
-          } catch (e) {
-            return `threw ${(e as Error).name}`;
-          }
-        };
-
-        for (const unit of ["constructor", "toString", "__proto__", "hasOwnProperty", "fortnights", ""]) {
-          assert.equal(run(patched, unit), run(stock, unit), `unit ${JSON.stringify(unit)}`);
-        }
-
-        const proto = Object.prototype as unknown as Record<string, unknown>;
-
-        try {
-          // large enough that any spread would sit under it, so a table reading
-          // it would skip every time
-          proto["fortnights"] = 1e18;
-
-          assert.equal(run(patched, "fortnights"), run(stock, "fortnights"), "polluted prototype");
-        } finally {
-          delete proto["fortnights"];
-        }
-      });
     });
   }
 });

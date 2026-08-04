@@ -87,14 +87,19 @@ export const withFootprint: boolean = process.argv.includes("--footprint");
  * same problem by adding to it — a control is a whole extra row of load, spent
  * establishing how much the load was distorting things.
  *
- * `--cooldown 0` turns it off, which is what to do when iterating on a patch and
- * comparing a run against itself rather than reading rows against each other.
+ * `--verify` turns it off by default: that run is for correctness, not for
+ * comparing timing rows, and idling cannot strengthen its assertions. An
+ * explicit `--cooldown` still wins when verified timings are wanted.
+ *
+ * `--cooldown 0` also turns it off directly, which is what to do when iterating
+ * on a patch and comparing a run against itself rather than reading rows against
+ * each other.
  */
 export const cooldownMs: number = (() => {
   const at = process.argv.indexOf("--cooldown");
 
   if (at < 0) {
-    return 10_000;
+    return withVerify ? 0 : 10_000;
   }
 
   const given = Number(process.argv[at + 1]);

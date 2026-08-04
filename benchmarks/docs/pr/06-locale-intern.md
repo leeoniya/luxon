@@ -12,8 +12,7 @@ never fire because the spread always adds `defaultToEN`.
 `Locale`s are immutable value objects apart from those memo fields, so identical
 ones can be shared. The intern and the `redefaultToEN` memo both have to notice
 mutation of the `Settings` fields `create()` falls back to, so both go through
-one generation check — four identity compares. An earlier attempt that built a
-string cache key covering every field measured slower than no cache at all.
+one generation check — four identity compares.
 
 **Which shapes get interned is not a detail.** A caller outside the interned set
 pays the generation check and gets nothing back. `Info.months` and
@@ -37,5 +36,5 @@ It has to hang off the `Locale` rather than off the `Duration` for
 `Settings.resetCaches()` to reach it: a `Duration` built before the reset still
 holds its `Locale` instance and nothing looks that instance up again, so a memo
 there would go on rendering through the `Intl` objects the reset was meant to
-drop. That is the case `resetCaches()` exists for, and the test swaps
-`Intl.NumberFormat` out from under a `Duration` that has already rendered.
+drop. `Settings.resetCaches()` therefore invalidates formatters even for a
+`Duration` that has already rendered.

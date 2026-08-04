@@ -63,14 +63,16 @@ bulk.
 ## The two cases that reset the caches
 
 The most expensive cases in the table are the two that call
-`Settings.resetCaches()` every iteration, and they sit within the noise floor of
-stock in every column.
+`Settings.resetCaches()` every iteration. The German formatting case is a known
+exception to the otherwise flat reset rows: it can report a substantial slowdown
+on both engines because every iteration deliberately defeats the locale and
+formatter caches.
 
-That is the intended reading rather than a null result. Each patch's cache is
-cleared where luxon clears the cache it stands in for, so a caller who resets pays
-what stock pays, and none of the speedups elsewhere in the table is a cache
-quietly outliving its reset. Those two rows are how the reset hooks in B, C, D and
-E came to be written.
+That is a reset-path cost, not a regression introduced by this audit's retained
+H arithmetic or K Duration-format changes: the case formats DateTimes and reaches
+neither path. Each patch's cache is cleared where luxon clears the cache it stands
+in for, so none of the speedups elsewhere is a cache quietly outliving its reset.
+These rows are how the reset hooks in B, C, D and E came to be written.
 
 ## The case nothing moves
 

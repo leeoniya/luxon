@@ -38,6 +38,7 @@ const VARIANTS: [string, PatchKey[]][] = [
   ["every patch", [...patchKeys]],
 ];
 
+const stock = await loadLuxon([]);
 const ZONE = "America/New_York";
 
 type Part = { type: string; value: string };
@@ -55,6 +56,84 @@ const partOf = (dt: DT, opts: object, type: string) =>
 
 for (const [label, keys] of VARIANTS) {
   describe(`compileFormat fixtures > ${label}`, () => {
+    test("compiled Duration programs preserve fields, widths, literals and sign modes", async () => {
+      const m = await loadLuxon(keys);
+      const shapes = [
+        { years: 3, months: 2, weeks: 1, days: 4, hours: 5, minutes: 6, seconds: 7, milliseconds: 8 },
+        { years: -3, months: -2, days: -4, seconds: -7, milliseconds: -8 },
+        { days: -1.75, hours: -2.5, minutes: -3.125, seconds: -4.875 },
+        { weeks: 1.5, seconds: 59.75 },
+        { milliseconds: 5 },
+      ];
+      const formats = [
+        "y M w d h m s S",
+        "yyyy-MM-www-dd-hh-mm-ss-SSS",
+        "'before' yy 'between' ss 'after'",
+        "hh 'o''clock' mm",
+        "ssyy",
+        "d 'days' h 'hours' m 'minutes'",
+        "Q [ ] d",
+        "",
+      ];
+      const options: (Record<string, unknown> | undefined)[] = [
+        undefined,
+        { floor: true },
+        { floor: false },
+        { round: false },
+        { signMode: "all" },
+        { signMode: "negativeLargestOnly" },
+      ];
+
+      for (const locale of ["en-US", "bn"]) {
+        for (const shape of shapes) {
+          const a = stock.Duration.fromObject(shape, { locale });
+          const b = m.Duration.fromObject(shape, { locale });
+
+          for (const fmt of formats) {
+            for (const opts of options) {
+              const want = opts === undefined ? a.toFormat(fmt) : a.toFormat(fmt, opts as never);
+              const got = opts === undefined ? b.toFormat(fmt) : b.toFormat(fmt, opts as never);
+
+              assert.equal(got, want, `${locale} ${JSON.stringify(shape)} "${fmt}" ${JSON.stringify(opts)}`);
+            }
+          }
+        }
+      }
+    });
+
+    test("compiled Duration programs use the Duration's custom matrix", async () => {
+      const m = await loadLuxon(keys);
+      const make = (mod: typeof stock) => {
+        const matrix = structuredClone(
+          (mod.Duration.fromObject({}) as unknown as { matrix: object }).matrix
+        ) as Record<string, Record<string, number>>;
+
+        matrix["days"]!["hours"] = 31;
+        matrix["hours"]!["minutes"] = 47;
+        matrix["minutes"]!["seconds"] = 53;
+
+        return mod.Duration.fromObject(
+          { days: -1.25, hours: -2.5, minutes: -3.75, seconds: -4.125 },
+          { locale: "bn", matrix } as never
+        );
+      };
+
+      for (const fmt of ["dd:hh:mm:ss", "'left' d 'middle' mm 'right'", "ssdd"]) {
+        for (const opts of [
+          { floor: true },
+          { floor: false },
+          { signMode: "all", floor: false },
+          { signMode: "negativeLargestOnly", floor: false },
+        ] as const) {
+          assert.equal(
+            make(m).toFormat(fmt, opts as never),
+            make(stock).toFormat(fmt, opts as never),
+            `${fmt} ${JSON.stringify(opts)}`
+          );
+        }
+      }
+    });
+
     // ---- the memo, one entry per distinct field value ----
 
     test("every month, weekday, era and hour of a non-English locale renders unmemoized", async () => {
@@ -376,6 +455,16 @@ for (const [label, keys] of VARIANTS) {
 
         assert.equal(compiles, 0, `50 repeats of one pattern compiled it ${compiles} times`);
 
+        const dur = m.Duration.fromObject({ days: 2, hours: 3, minutes: 4, seconds: 5 });
+        const durFmt = "dd 'days' hh:mm:ss";
+
+        dur.toFormat(durFmt);
+        compiles = 0;
+
+        for (let i = 0; i < 50; i++) dur.toFormat(durFmt);
+
+        assert.equal(compiles, 0, `50 repeats of one Duration pattern compiled it ${compiles} times`);
+
         // and the cache is bounded: past the ceiling a new pattern is compiled
         // every time rather than remembered
         for (let i = 0; i < 1200; i++) dt.toFormat(`'p${i}' HH`);
@@ -385,6 +474,14 @@ for (const [label, keys] of VARIANTS) {
         dt.toFormat("'overflow' HH");
 
         assert.equal(compiles, 2, "a pattern past the ceiling was remembered anyway");
+
+        for (let i = 0; i < 1200; i++) dur.toFormat(`'duration-${i}' ss`);
+
+        compiles = 0;
+        dur.toFormat("'duration-overflow' ss");
+        dur.toFormat("'duration-overflow' ss");
+
+        assert.equal(compiles, 2, "a Duration pattern past the ceiling was remembered anyway");
       } finally {
         Object.defineProperty(F, "parseFormat", { configurable: true, writable: true, value: real });
       }

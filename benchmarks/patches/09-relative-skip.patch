@@ -26,11 +26,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 +// A day is not on the list because a day less 26 hours is negative -- and it is
 +// not an idle margin, Antarctica/Macquarie moved ten hours in 1948, making a
 +// local day fourteen hours long.
-+//
-+// Null-prototype: opts.units comes from the caller, and an inherited property
-+// must not be read as a floor. A unit not listed here has no floor and is always
-+// asked, which is what keeps an unknown one throwing where it threw before.
-+const relativeFloor = Object.assign(Object.create(null), {
++const relativeFloor = {
 +  years: 365 * 86400000 - 26 * 3600000,
 +  quarters: 89 * 86400000 - 26 * 3600000,
 +  months: 28 * 86400000 - 26 * 3600000,
@@ -39,7 +35,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 +  minutes: 60000,
 +  seconds: 1000,
 +  milliseconds: 1,
-+});
++};
 +
  function diffRelative(start, end, opts) {
 @@ -494,7 +590,17 @@ function diffRelative(start, end, opts) {

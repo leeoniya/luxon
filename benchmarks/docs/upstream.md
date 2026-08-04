@@ -4,7 +4,7 @@
 > [methodology.md](methodology.md); the patches themselves are in
 > [`../patches/`](../patches), each with its reasoning in its header.
 
-What can be removed from *inside* luxon, patch by patch. Eight candidate patches,
+What can be removed from *inside* luxon, patch by patch. Eleven candidate patches,
 lettered A through K, all of them memoization or provable short-circuits: no API
 changes, no output changes.
 
@@ -25,7 +25,9 @@ Any combination can be run alone, which is the loop for iterating on one patch:
 `--patches` (~1s), `--ladder` (~80s), `--default` (~13s). `--verify` turns on
 every correctness check, including the output-parity table and the two that run
 during setup — see [methodology.md](methodology.md#correctness-before-speed) for
-why they are off by default. `--footprint` adds rss and Intl-formatter counts.
+why they are off by default. Verification also disables row cooldowns unless an
+explicit `--cooldown` is supplied. `--footprint` adds rss and Intl-formatter
+counts.
 
 The ladder is three tables of the same shape — the same builds, in the same
 order, with a row per build and the shipped bytes at the end — one per question
@@ -47,8 +49,8 @@ a pattern, `tokens` parses one, and `set` does neither.
   a subject, which is why it is named that way.
 
 Each heading carries the unit — `formatting (ms)` — because no column does. The
-unit does not vary anywhere, and saying it under all 38 columns spent three
-characters apiece repeating one fact.
+unit does not vary anywhere, and repeating it under every column would spend
+three characters apiece on one fact.
 
 Two columns are not what their table describes, both deliberately: `millis`
 parses nothing, being the same construction with the string taken away, and sits
@@ -333,9 +335,9 @@ also checks `tsToObj` against `Date`'s own getters over 200k random instants.
 
 ### H — `arithDirect`
 
-Three objects built, converted and dropped to reach a number plain arithmetic
-already has, one offset round trip that re-derives what the receiver is already
-carrying, plus the four constants above.
+Temporary objects built, converted or normalized to reach values plain
+arithmetic already has, one offset round trip that re-derives what the receiver
+is already carrying, one exact-unit shortcut, plus the four constants above.
 
 `adjustTime` was building a nine-key `Duration` and converting it to milliseconds
 on every `plus` and `minus`, where an integer sum will do; `impl/diff.js`'s
@@ -382,8 +384,8 @@ Neither of the first two replacements is unconditional, because `as()` is not th
 plain sum it looks like: the fast path holds only when every field is an integer
 and only while the sum stays finite, and `dayDiff`'s conversion has to be the one
 that does not read years under 100 as 19xx. The guards are the correctness
-argument and the sweep is built to break them — 85,806 comparisons over five
-zones, 32 duration shapes and both DST directions, in
+argument and the sweep is built to break them over five zones, 32 duration
+shapes and both DST directions, in
 [`test/arith-direct-patch.test.ts`](../test/arith-direct-patch.test.ts). Finding
 the finite-range guard took 1,200 parity failures.
 
@@ -398,10 +400,16 @@ guards only the `Duration` it was handed, so a mutation that stops `plus`
 advancing does not fail the suite — it appends until the machine is out of
 memory. Cap each run's wall time and heap.
 
+`Duration#plus` and `minus` already hold canonical unit names, so they read the
+two value records directly and write one result, without `get()` normalization
+or a cloned negated addend. An exact
+`diff(..., "milliseconds")` now returns the endpoint subtraction directly,
+which also reaches `Interval#toDuration("milliseconds")`.
+
 The four constants are moves rather than rewrites — none captures anything — so
 the same file checks every key of both unit tables in both spellings and mixed
 case, and interleaves zones across DST so a stale `SystemZone` probe would show
-up as one zone reading another's answer. The engine split runs through all eight
+up as one zone reading another's answer. The engine split runs through all eleven
 changes: V8 escape-analyzes some of these allocations away and JavaScriptCore
 does not.
 
@@ -429,10 +437,11 @@ is the thing to look for elsewhere; [coverage.md](coverage.md) reads it against
 It is also why this is a patch and not two lines in H. H is under the same method
 through `adjustTime` and costs 1.70x on that column; this costs 7.80x. They are
 on the same column for different reasons and at different sizes, and only one of
-them is on any other column. Verified over 194,400 calls against stock in
-[`test/relative-skip-patch.test.ts`](../test/relative-skip-patch.test.ts), with
-spreads either side of every floor and of each unit's true minimum, in zones
-including Lord Howe's half-hour DST and Chatham's 45-minute offset.
+them is on any other column. Verified against stock in
+[`test/relative-skip-patch.test.ts`](../test/relative-skip-patch.test.ts), across
+every zone, anchor, spread and direction in the temporal matrix, with each option
+paired separately rather than multiplied through it. The zones include Lord
+Howe's half-hour DST and Chatham's 45-minute offset.
 
 ### J — `trimAllocs`
 
@@ -493,11 +502,11 @@ it is priced: `plus`, `set`, `startOf`, `endOf`, `diff` and `Duration#as`.
 
 ### K — `compileFormat`
 
-The structural one, and it does two things. Compiling a pattern to handlers once
-removes three costs together: the ~70-case switch per token per value, the eight
-closures `formatDateTimeFromString` built per call, and the Intl options object
-literals its branches allocated. It also folds punctuation into literal runs, so
-separators cost a concat.
+The structural one, and it does three things. Compiling a DateTime pattern to
+handlers once removes three costs together: the ~70-case switch per token per
+value, the eight closures `formatDateTimeFromString` built per call, and the Intl
+options object literals its branches allocated. It also folds punctuation into
+literal runs, so separators cost a concat.
 
 It is the largest patch here in shipped bytes, and it was larger still while it
 kept the interpreter it replaces beside the compiler under a second name. That
@@ -506,7 +515,7 @@ was a third of everything the whole patch set adds to the bundle, nothing called
 it, and being a class method meant no minifier would drop it. It is deleted, and
 the two implementations are read side by side in the patch's own diff.
 
-The second is the name memo, and it is a bigger number than the compile step for
+The name memo is a bigger number than the DateTime compile step for
 any caller not writing English. A name token — month, weekday, era, day period —
 has an English branch that reads a constant array and no fast path at all for
 anything else: it asks ICU, per token, per value. Nothing else in this patch set
@@ -538,6 +547,13 @@ already returns does not change what it returns.
 It is not a substitute for the caches — those are worth a great deal between
 them, and K adds to the total on top of all of them. It is the largest single
 formatter win in isolation.
+
+Duration formatting now compiles its fields, widths and literal runs too,
+instead of rebuilding three closures and four arrays per call. The value still
+goes through `shiftTo`, sign handling and `num`, preserving custom matrices,
+flooring and fractional behavior. Numeric and literal-heavy pooled cases both
+improved by low-twenties percent on Node and Bun; the complete patch is 412
+minified bytes over stock.
 
 It is also the patch this table was rearranged for. K is the one patch without a
 rung, so the step onto the final row is what K is worth with every other patch

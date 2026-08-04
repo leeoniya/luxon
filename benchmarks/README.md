@@ -66,9 +66,9 @@ rather than whatever a sibling checkout was last built from. That directory's
 Every bench also runs under bun (`bun format.ts`), which is the point of
 `cross-engine`: the two engines do not agree about the smaller patches.
 
-Every timed bench idles five seconds between rows so the host is in a comparable
+Every timed bench idles ten seconds between rows so the host is in a comparable
 state for each of them, and prints each row as it lands rather than the table at
-the end. The times quoted below are the timing alone; add roughly five seconds a
+the end. The times quoted below are the timing alone; add roughly ten seconds a
 row for a default run. `--cooldown 0` turns the idling off, which is what to do
 when iterating on a patch and comparing a run against itself rather than reading
 rows against each other; `--cooldown <ms>` sets it to anything else.
@@ -93,6 +93,8 @@ another's cannot be dropped alone, and the error says which set to name instead.
 sections. Off by default because the answer only moves when luxon's `src`,
 moment's bundled tzdata, or the host ICU does — but the timings are only a
 result if the outputs match, so run it before quoting any of them.
+Verification runs default to no cooldown because the timing rows are incidental;
+an explicit `--cooldown` restores it when verified timings are wanted.
 `npm run verify` runs both.
 
 `upstream` prints three tables and any combination can be run alone, which is
@@ -105,7 +107,7 @@ in the same order, a row per build, its shipped bytes at the end — one per
 question a build can be asked. `formatting`, `parsing`, and `other`, the last
 being everything that neither writes a string nor reads one: arithmetic,
 `Duration`, `Interval`, `Info`. The heading carries the unit, since none of the
-38 columns does. A patch is argued from one row against the row above it, and
+53 columns does. A patch is argued from one row against the row above it, and
 the rows are the same rows throughout, so the three tables stack into one
 argument.
 

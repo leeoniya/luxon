@@ -22,6 +22,5 @@ relative and resolved-options caches already use, and is unambiguous in a way a
 joined string would not be — a format string may contain any character.
 
 Cleared from `Settings.resetCaches()`, beside the `resetDigitRegexCache()` call
-already there. `Locale.resetCache()` would arguably read better, since what a
-stale parser holds is locale-derived text, but `Settings.resetCaches()` calls it
-anyway and this cache lives in `impl/` like the other one there.
+already there. The cache lives in `impl/` like the digit-regex cache and may hold
+locale-derived text.

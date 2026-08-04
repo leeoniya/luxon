@@ -198,6 +198,39 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(casual, longterm, "both matrices gave the same answer, so neither was consulted");
     });
 
+    test("as() follows every conversion direction in a custom matrix", async () => {
+      const m = await loadLuxon(keys);
+      const seed = m.Duration.fromObject({});
+      const matrix = structuredClone((seed as unknown as { matrix: object }).matrix) as Record<
+        string,
+        Record<string, number>
+      >;
+
+      matrix["years"]!["months"] = 17;
+      matrix["months"]!["days"] = 41;
+      matrix["days"]!["hours"] = 31;
+      matrix["hours"]!["minutes"] = 47;
+      matrix["minutes"]!["seconds"] = 53;
+      matrix["seconds"]!["milliseconds"] = 997;
+
+      const shapes = [
+        { years: 1.25, months: -2, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7 },
+        { years: -0.5, days: -2.75, seconds: 1.125 },
+        { months: 2, milliseconds: -1 },
+      ];
+
+      for (const shape of shapes) {
+        const d = m.Duration.fromObject(shape, { matrix } as never);
+
+        for (const unit of AS_UNITS) {
+          const want = d.shiftTo(unit).get(unit);
+          const got = d.as(unit);
+
+          assert.ok(Object.is(got, want), `${JSON.stringify(shape)}.as(${unit}) = ${got}, shiftTo says ${want}`);
+        }
+      }
+    });
+
     // ---- endOf ----
 
     test("endOf answers what plus().startOf().minus() answers", async () => {
@@ -268,6 +301,34 @@ for (const [label, keys] of VARIANTS) {
 
       assert.equal(reads, expected.length, "startOf's option getter was skipped");
       assert.throws(() => dt.endOf("year", null as never), TypeError);
+    });
+
+    test("endOf preserves DST and locale-week calendar boundaries", async () => {
+      const m = await loadLuxon(keys);
+      const cases = [
+        m.DateTime.fromISO("2024-03-10T01:30", { zone: ZONE, locale: "en-US" }),
+        m.DateTime.fromISO("2024-11-03T01:30", { zone: ZONE, locale: "en-US" }),
+        m.DateTime.fromISO("2020-12-31T23:30", { zone: "Europe/Paris", locale: "de-DE" }),
+        m.DateTime.fromISO("2021-01-01T00:30", { zone: "Pacific/Apia", locale: "ar-SA" }),
+      ];
+
+      for (const dt of cases) {
+        for (const useLocaleWeeks of [false, true]) {
+          const opts = { useLocaleWeeks };
+          const want = dt.plus({ week: 1 }).startOf("week", opts).minus(1);
+
+          assert.equal(
+            dt.endOf("week", opts).toISO(),
+            want.toISO(),
+            `${dt.toISO()} locale=${dt.locale} useLocaleWeeks=${useLocaleWeeks}`
+          );
+        }
+
+        for (const unit of ["year", "quarter", "month"] as const) {
+          const want = dt.plus({ [unit]: 1 }).startOf(unit).minus(1);
+          assert.equal(dt.endOf(unit).toISO(), want.toISO(), `${dt.toISO()} endOf(${unit})`);
+        }
+      }
     });
 
     test("a unit named after something on Object.prototype is answered the way it always was", async () => {

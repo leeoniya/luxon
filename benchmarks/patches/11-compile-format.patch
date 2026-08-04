@@ -2,7 +2,7 @@ Patch: compileFormat
 Letter: K
 Requires: none
 Files: src/impl/formatter.js
-Summary: Formatter: compile a format string to handlers once, and memoize the name each token resolves to
+Summary: Formatter: compile DateTime and Duration format strings once, and memoize the name each DateTime token resolves to
 Description: benchmarks/docs/pr/11-compile-format.md
 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
@@ -18,6 +18,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +// depends on the pattern alone and can be shared across locales and formatters.
 +
 +const cfPrograms = new Map();
++const cfDurationPrograms = new Map();
 +const CF_CACHE_MAX = 1000;
 +
 +const cfExtract = (f, dt, opts, field) => f.loc.extract(dt, opts, field);
@@ -133,9 +134,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +const CF_YEAR_2D = { year: "2-digit" };
 +const CF_DAYPERIOD = { hour: "numeric", hourCycle: "h12" };
 +
-+// null prototype: token text comes from user format strings, so an inherited
-+// property must not be mistaken for a handler
-+const cfHandlers = Object.assign(Object.create(null), {
++const cfHandlers = {
 +  // ms
 +  S: (f, dt) => f.num(dt.millisecond),
 +  u: (f, dt) => f.num(dt.millisecond, 3),
@@ -227,7 +226,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +  qq: (f, dt) => f.num(dt.quarter, 2),
 +  X: (f, dt) => f.num(Math.floor(dt.ts / 1000)),
 +  x: (f, dt) => f.num(dt.ts),
-+});
++};
 +
 +function cfCompile(fmt) {
 +  const lits = [];
@@ -287,6 +286,75 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +
 +  for (let i = 0; i < fns.length; i++) {
 +    s += fns[i](f, dt, en, useDTF) + lits[i + 1];
++  }
++
++  return s;
++}
++
++const cfDurationFields = {
++  S: "milliseconds",
++  s: "seconds",
++  m: "minutes",
++  h: "hours",
++  d: "days",
++  w: "weeks",
++  M: "months",
++  y: "years",
++};
++
++function cfCompileDuration(fmt) {
++  const lits = [];
++  const fields = [];
++  const widths = [];
++  let lit = "";
++
++  for (const token of Formatter.parseFormat(fmt)) {
++    const field = token.literal ? undefined : cfDurationFields[token.val[0]];
++
++    if (field === undefined) {
++      lit += token.val;
++    } else {
++      lits.push(lit);
++      lit = "";
++      fields.push(field);
++      widths.push(token.val.length);
++    }
++  }
++
++  lits.push(lit);
++
++  return { lits, fields, widths };
++}
++
++function cfRunDuration(f, dur, fmt) {
++  let program = cfDurationPrograms.get(fmt);
++
++  if (program === undefined) {
++    program = cfCompileDuration(fmt);
++
++    if (cfDurationPrograms.size < CF_CACHE_MAX) {
++      cfDurationPrograms.set(fmt, program);
++    }
++  }
++
++  const { lits, fields, widths } = program;
++  const collapsed = dur.shiftTo(...fields);
++  const negative = collapsed < 0;
++  const largest = Object.keys(collapsed.values)[0];
++  const signMode = f.opts.signMode;
++  let s = lits[0];
++
++  for (let i = 0; i < fields.length; i++) {
++    const field = fields[i];
++    const secondaryNegative = signMode === "negativeLargestOnly" && negative && field !== largest;
++    const signDisplay =
++      signMode === "negativeLargestOnly" && field !== largest
++        ? "never"
++        : signMode === "all"
++          ? "always"
++          : "auto";
++
++    s += f.num(collapsed.get(field) * (secondaryNegative ? -1 : 1), widths[i], signDisplay) + lits[i + 1];
 +  }
 +
 +  return s;
@@ -531,3 +599,64 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
    }
  
    formatDurationFromString(dur, fmt) {
+-    const invertLargest = this.opts.signMode === "negativeLargestOnly" ? -1 : 1;
+-    const tokenToField = (token) => {
+-        switch (token[0]) {
+-          case "S":
+-            return "milliseconds";
+-          case "s":
+-            return "seconds";
+-          case "m":
+-            return "minutes";
+-          case "h":
+-            return "hours";
+-          case "d":
+-            return "days";
+-          case "w":
+-            return "weeks";
+-          case "M":
+-            return "months";
+-          case "y":
+-            return "years";
+-          default:
+-            return null;
+-        }
+-      },
+-      tokenToString = (lildur, info) => (token) => {
+-        const mapped = tokenToField(token);
+-        if (mapped) {
+-          const inversionFactor =
+-            info.isNegativeDuration && mapped !== info.largestUnit ? invertLargest : 1;
+-          let signDisplay;
+-          if (this.opts.signMode === "negativeLargestOnly" && mapped !== info.largestUnit) {
+-            signDisplay = "never";
+-          } else if (this.opts.signMode === "all") {
+-            signDisplay = "always";
+-          } else {
+-            // "auto" and "negative" are the same, but "auto" has better support
+-            signDisplay = "auto";
+-          }
+-          return this.num(lildur.get(mapped) * inversionFactor, token.length, signDisplay);
+-        } else {
+-          return token;
+-        }
+-      },
+-      tokens = Formatter.parseFormat(fmt),
+-      realTokens = tokens.reduce(
+-        (found, { literal, val }) => (literal ? found : found.concat(val)),
+-        []
+-      ),
+-      collapsed = dur.shiftTo(...realTokens.map(tokenToField).filter((t) => t)),
+-      durationInfo = {
+-        isNegativeDuration: collapsed < 0,
+-        // this relies on "collapsed" being based on "shiftTo", which builds up the object
+-        // in order
+-        largestUnit: Object.keys(collapsed.values)[0],
+-      };
+-    return stringifyTokens(tokens, tokenToString(collapsed, durationInfo));
++    // UPSTREAM-K: the fields, widths and literal runs depend on the pattern
++    // alone. Compile them once instead of rebuilding three closures and four
++    // temporary arrays around every Duration render.
++    return cfRunDuration(this, dur, fmt);
+   }
+ }

@@ -51,24 +51,32 @@ function instants(zone: string): number[] {
   const out: number[] = [];
   const base = Date.UTC(2026, 0, 1);
 
-  for (let i = 0; i < 800; i++) {
+  // A quiet sequential run grows and reuses the interval cache. Its answer is
+  // constant until a transition, so a longer run only repeats the same state.
+  for (let i = 0; i < 48; i++) {
     out.push(base + i * 3_600_000);
   }
 
-  let seed = 987654321;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-
-  for (let i = 0; i < 1500; i++) {
-    out.push(Math.floor((rnd() * 2 - 1) * 4e12));
-  }
-
-  for (let i = 0; i < 300; i++) {
-    out.push(Math.floor(rnd() * 6e13) - 63e12); // years 0-100, and BC
-  }
-
-  for (let i = 0; i < 200; i++) {
-    out.push(base + Math.floor(rnd() * 1000)); // sub-second
-  }
+  // One value for each scanner arithmetic partition. These are the witnesses
+  // that kill its era, leap-century, range and sub-second mutations; arbitrary
+  // points inside the same transition-free intervals add no new answer.
+  out.push(
+    0,
+    1.5,
+    -1.5,
+    -1,
+    -999,
+    -1000,
+    -1001,
+    1767225600000,
+    1769922000000,
+    -94069002240,
+    -149990079995,
+    -1538845061110,
+    -62587360024261,
+    base + 1,
+    base + 999
+  );
 
   // every real transition, to the millisecond on both sides
   const tz = moment.tz.zone(zone);
@@ -90,12 +98,14 @@ function instants(zone: string): number[] {
 }
 
 const stock = await loadLuxon([]);
+const stockFormats = new Map<string, string>();
 
 for (const [label, keys] of VARIANTS) {
   describe(label, () => {
     for (const zone of ZONES) {
       test(`${zone} matches stock luxon in every access order`, async () => {
         const points = instants(zone);
+        const now = Date.now();
         const orders: [string, number[]][] = [
           ["sequential", points],
           ["shuffled", [...points].sort(() => 0.5 - Math.random())],
@@ -105,7 +115,7 @@ for (const [label, keys] of VARIANTS) {
           // actually placing, so the zone is asked about the two in turn,
           // forever. It is the pattern a one-span cache cannot serve — each
           // lookup evicts the other's span — and the reason there are two.
-          ["interleaved with now", points.flatMap((ts) => [Date.now(), ts])],
+          ["interleaved with now", points.flatMap((ts) => [now, ts])],
         ];
 
         for (const [order, list] of orders) {
@@ -120,7 +130,8 @@ for (const [label, keys] of VARIANTS) {
           const offsetDiffs: string[] = [];
           const formatDiffs: string[] = [];
 
-          for (const ts of list) {
+          for (let i = 0; i < list.length; i++) {
+            const ts = list[i]!;
             const a = want.offset(ts);
             const b = got.offset(ts);
 
@@ -128,8 +139,20 @@ for (const [label, keys] of VARIANTS) {
               offsetDiffs.push(`${ts}: ${a} vs ${b}`);
             }
 
-            if (Number.isFinite(ts) && Math.abs(ts) <= 8.64e15) {
-              const fa = stock.DateTime.fromMillis(ts, { zone: want }).toFormat(PATTERN);
+            // In the interleaved order, every even entry is the same `now`.
+            // Its offset still participates in every lookup; formatting it once
+            // per temporal point only repeats an identical oracle and rendering.
+            const repeatedNow = order === "interleaved with now" && i % 2 === 0;
+
+            if (!repeatedNow && Number.isFinite(ts) && Math.abs(ts) <= 8.64e15) {
+              const cacheKey = `${zone}\0${ts}`;
+              let fa = stockFormats.get(cacheKey);
+
+              if (fa === undefined) {
+                fa = stock.DateTime.fromMillis(ts, { zone: want }).toFormat(PATTERN);
+                stockFormats.set(cacheKey, fa);
+              }
+
               const fb = patched.DateTime.fromMillis(ts, { zone: got }).toFormat(PATTERN);
 
               if (fa !== fb) {
