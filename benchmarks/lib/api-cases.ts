@@ -103,15 +103,19 @@ export interface ApiCase {
   live?: true;
   /**
    * Asks its zone for an offset or a name while it is being timed, so an
-   * easy-tz row has something of its own to report here. The cases without it
-   * either never touch a zone (Duration, Info) or read one that has already
-   * answered — toISO reads the cached offset off the instance, toHTTP swaps in
-   * a fixed-offset zone first, toLocaleString hands Intl the zone's NAME — and
-   * an easy-tz cell under those would be stock's number printed twice.
+   * easy-tz row can differ here. Every case is measured on every row either
+   * way — what a configuration costs should be readable off one line — and this
+   * is what the note under each table names, so that the columns where the
+   * easy-tz row is the luxon row again are not read as a result.
+   *
+   * The cases without it either never touch a zone (Duration, Info) or read one
+   * that has already answered: toISO reads the cached offset off the instance,
+   * toHTTP swaps in a fixed-offset zone first, and toLocaleString hands Intl the
+   * zone's NAME rather than asking it anything.
    *
    * Checked rather than trusted: --verify counts the calls each case makes and
    * fails if the annotation and the count disagree, so a case that grows or
-   * loses a zone lookup cannot leave a misattributed cell behind.
+   * loses a zone lookup cannot leave the note behind describing the old one.
    */
   zoned?: true;
 }

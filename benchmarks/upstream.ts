@@ -837,13 +837,13 @@ if (tables.has("ladder")) {
     // The API cases, where a build that has no answer for one leaves the cell
     // empty rather than filling it with a number from something else.
     //
-    // The easy-tz rows answer the `zoned` ones only. The rest never ask a zone
-    // anything while they are timed, so an easy-tz cell under them would be the
-    // luxon row's number measured a second time — see ApiCase#zoned, and the
-    // --verify check that keeps the annotation honest.
+    // The easy-tz rows answer all of them, including the ones easy-tz cannot
+    // affect, so that what a stock luxon with easy-tz bound to it costs can be
+    // read off one line rather than assembled from two. Which columns it can
+    // affect is ApiCase#zoned, kept honest by the --verify check below and said
+    // in a note under each table; elsewhere the row is the luxon above it
+    // measured again, on its own module instance.
     for (const kase of apiCases) {
-      if (path.easyZone && kase.zoned !== true) continue;
-
       const work =
         path.ships === "moment-timezone"
           ? kase.moment?.(momentInstanceFor(kase))
@@ -884,13 +884,11 @@ if (tables.has("ladder")) {
     for (const kase of apiCases) {
       if (kase.live === true) continue;
 
-      // The easy-tz rows join the comparison on the cases they answer, which
-      // makes this an agreement check on baked offsets against Intl's. All but
-      // the abbreviation, which easy-tz supplies in tzdata style where ICU
-      // returns a GMT offset for some zones — the same carve-out the format
-      // columns make.
-      const rows =
-        kase.zoned === true && kase.key !== "toFormat abbr" ? [...checked, ...easyRows] : checked;
+      // The easy-tz rows join the comparison too, which makes this an agreement
+      // check on baked offsets against Intl's. All but the abbreviation, which
+      // easy-tz supplies in tzdata style where ICU returns a GMT offset for some
+      // zones — the same carve-out the format columns make.
+      const rows = kase.key === "toFormat abbr" ? checked : [...checked, ...easyRows];
       const sums = rows.map((p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum);
 
       if (sums.some((s) => s !== sums[0]!)) {
@@ -1128,6 +1126,13 @@ if (tables.has("ladder")) {
     ...ladderFormats.filter((fmt) => localeFor(fmt) !== LOCALE),
   ]);
 
+  // The API columns, and of those the ones an easy-tz row can move. The format
+  // and parse columns are not in either set: those build their DateTime inside
+  // the timed loop against a zone the row was handed, so every one of them asks
+  // a zone something.
+  const apiKeys = new Set<string>(apiCases.map((kase) => kase.key));
+  const zonedKeys = new Set<string>(apiCases.filter((kase) => kase.zoned === true).map((kase) => kase.key));
+
   // Said once rather than over each table: the three carry the same rows in the
   // same order, which is the property that lets them be read as one.
   console.log(
@@ -1143,8 +1148,10 @@ if (tables.has("ladder")) {
 
   for (const band of BANDS) {
     const columns = band.segments.flatMap((seg) => seg.keys);
-    // Builds with nothing to say here are left out rather than printed as a row
-    // of dashes.
+    // A build with nothing to say here would be left out rather than printed as
+    // a row of dashes. None is, since the easy-tz rows started carrying every
+    // column; kept because what a row answers is a property of the cases and not
+    // of this loop.
     const rows = rowPaths.filter((path) => columns.some((key) => built.get(path.id)!.has(key)));
     /** rules go where the block changes, which moves when rows are left out */
     const ruleAt = new Set(
@@ -1288,14 +1295,10 @@ if (tables.has("ladder")) {
     // better for a line saying it splits an Interval — and thirty of those lines
     // would bury the ones above them that do carry information.
     const approx = columns.filter((key) => approxKeys.has(key));
-    // Both reasons a cell can be empty, but only the ones this table has. In the
-    // formatting table it is the easy-tz rows; in `other` it is moment as well.
-    const why = [
-      dashed.has("moment") ? "moment ships no Interval and no Duration#shiftTo" : "",
-      [...dashed].some((id) => id !== "moment")
-        ? "the easy-tz rows answer only the columns that ask a zone for something while they are timed"
-        : "",
-    ].filter((s) => s !== "");
+    // Named rather than counted, because the point of the line is which columns
+    // an easy-tz reading means something in — the rest of that row is the luxon
+    // above it measured again, and reads as a repeat unless it is said.
+    const unmoved = columns.filter((key) => apiKeys.has(key) && !zonedKeys.has(key));
     const notes = [
       band.legend,
       approx.length === 0
@@ -1303,7 +1306,12 @@ if (tables.has("ladder")) {
         : `${approx.join(", ")}: luxon gets its month, weekday and day-period names from ICU where\n` +
           `moment expands tables it bundles — the same user-visible answer out of a different source,\n` +
           `and part of what the bytes column charges moment for.`,
-      why.length === 0 ? "" : `--: the build has no equivalent.\n${why.join(". ")}.`,
+      unmoved.length === 0
+        ? ""
+        : `the easy-tz rows carry every column so that configuration reads off one line, but easy-tz can only\n` +
+          `move a column that asks a zone for an offset or a name. Under these it is the luxon row again:\n` +
+          `${wrap(unmoved)}`,
+      dashed.has("moment") ? `--: the build has no equivalent. moment ships no Interval and no Duration#shiftTo.` : "",
     ].filter((s) => s !== "");
 
     console.log(

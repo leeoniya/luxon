@@ -73,17 +73,20 @@ segments and printed as one, and each states its own settings underneath.
 Nothing compares a column in one table against a column in another, which is what
 makes that free.
 
-A `--` is a build with no equivalent to run: moment ships no `Interval` and no
-`Duration#shiftTo`, and the easy-tz rows answer only the columns that ask a zone
-for something while they are timed. That last one is measured rather than
-declared — `--verify` counts the `offset()` and `offsetName()` calls each case
-makes and fails if a column is annotated as one thing and behaves as another —
-because the columns it excludes are the ones where an easy-tz cell would be the
-luxon row's number printed a second time. `toISO` reads the offset already on the
-instance, `toHTTP` swaps in a fixed-offset zone before formatting, and
-`toLocaleString` hands Intl the zone's name rather than asking it anything. A
-build with *nothing* to say in a table is left out of it rather than printed as a
-row of dashes.
+A `--` is a build with no equivalent to run, which is now only moment: it ships
+no `Interval` and no `Duration#shiftTo`.
+
+The easy-tz rows carry every column, including the ones easy-tz cannot affect, so
+that what stock luxon with easy-tz bound to it costs can be read off one line
+instead of assembled from two. Which columns it *can* affect is named in a note
+under each table, and is measured rather than declared: `--verify` counts the
+`offset()` and `offsetName()` calls each case makes and fails if a column is
+annotated as one thing and behaves as another. Under the rest — `toISO`, which
+reads the offset already on the instance; `toHTTP`, which swaps in a fixed-offset
+zone before formatting; `toLocaleString`, which hands Intl the zone's name rather
+than asking it anything; and `Duration` and `Info`, which never touch a zone —
+the easy-tz row is the luxon row above it measured again, on its own module
+instance.
 
 [coverage.md](coverage.md) reads the API columns; the rest of this file reads the
 patches.
@@ -741,7 +744,9 @@ What it cannot close is the part that was never the zone. `hasSame day`,
 easy-tz moves them several-fold and they stay well behind moment, which is doing
 different arithmetic rather than cheaper lookups — that gap is H's and J's, not a
 zone's. `toRelative` is the same story with a `diff` under it. And the columns
-that never touch a zone do not move at all, which is why they have no cell.
+that never touch a zone do not move at all, which is what the note under each
+table is for: they are carried so the row is complete, not because anything
+happened in them.
 
 So: binding easy-tz is worth roughly the whole of luxon's Intl zone cost and
 nothing else. That is most of what separates stock luxon from moment on formatting
