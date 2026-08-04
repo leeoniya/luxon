@@ -102,14 +102,14 @@ the loop for iterating on a patch: `--patches` (~1s), `--ladder` (~80s), and
 `--default` (~13s). It also takes `--footprint` for rss and Intl-formatter
 counts, one subprocess per row.
 
-`--ladder` is the main event: three tables of the same shape — the same builds
-in the same order, a row per build, its shipped bytes at the end — one per
-question a build can be asked. `formatting`, `parsing`, and `other`, the last
-being everything that neither writes a string nor reads one: arithmetic,
-`Duration`, `Interval`, `Info`. The heading carries the unit, since none of the
-53 columns does. A patch is argued from one row against the row above it, and
-the rows are the same rows throughout, so the three tables stack into one
-argument.
+`--ladder` is the main event: four tables of the same shape — the same builds in
+the same order, a row per build, its shipped bytes at the end. `formatting`,
+`parsing`, `other — DateTime`, and `other — Duration, Interval and Info`. The
+last two together cover everything that neither writes a string nor reads one.
+The heading carries the unit, since none of the 53 columns does, and repeated
+API prefixes are lifted into column-group headings. A patch is argued from one
+row against the row above it, and the rows are the same rows throughout, so the
+four tables stack into one argument.
 
 They are timed in segments rather than in tables, because a segment is a
 calibration: the format-string columns run the full value count, while parsing

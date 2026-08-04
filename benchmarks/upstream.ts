@@ -987,9 +987,10 @@ if (tables.has("ladder")) {
   /** builds whose writing cells were shortened, which the legend has to admit to */
   const shortened = new Set<string>();
 
-  // ---- the three tables -----------------------------------------------------
+  // ---- the four tables ------------------------------------------------------
   //
-  // One table per question, rather than one table with a band over each third.
+  // One table per terminal-sized part of the question. Formatting and parsing
+  // each fit once; the unrelated API calls are split by receiver type.
   // The banded version held every column a build can answer on one line, which is
   // the right shape for the argument — a patch is made by reading one row against
   // the one above it — and the wrong shape for a terminal. At 38 columns it ran
@@ -1021,6 +1022,8 @@ if (tables.has("ladder")) {
     /** what the table is asking, printed above it */
     what: string;
     segments: Segment[];
+    /** common prefixes lifted into a heading spanning their columns */
+    groups?: { label: string; prefix?: string; headings?: string[]; keys: LadderKey[] }[];
     /** the column legend printed under it, for columns whose names are not the whole story */
     legend: string;
   }
@@ -1048,6 +1051,28 @@ if (tables.has("ladder")) {
         },
         lean("the toFormat and ISO calls", inBand("formatting")),
       ],
+      groups: [
+        {
+          label: "toFormat",
+          prefix: "toFormat ",
+          keys: inBand("formatting").filter((key) => key.startsWith("toFormat ")),
+        },
+        {
+          label: "Duration toFormat",
+          prefix: "Duration toFormat ",
+          keys: inBand("formatting").filter((key) => key.startsWith("Duration toFormat ")),
+        },
+        {
+          label: "toISO",
+          headings: ["date-time", "date"],
+          keys: ["toISO", "toISODate"],
+        },
+        {
+          label: "toRelative",
+          headings: ["time", "calendar"],
+          keys: ["toRelative", "toRelativeCalendar"],
+        },
+      ],
       // a format that only varies the locale points at the twin it shares a
       // pattern with, rather than printing the same string twice
       legend: ladderFormats
@@ -1072,12 +1097,69 @@ if (tables.has("ladder")) {
         },
         lean(inBand("parsing").join(" and "), inBand("parsing")),
       ],
+      groups: [
+        {
+          label: "ISO",
+          headings: ["local", "+offset"],
+          keys: ["iso", "iso+off"],
+        },
+        {
+          label: "tokens",
+          headings: ["local", "+offset"],
+          keys: ["tokens", "tokens+off"],
+        },
+      ],
       legend: parseCases.map((kase) => `${kase.key}: ${kase.what}`).join("\n"),
     },
     {
-      label: "other",
-      what: "everything that neither writes a string nor reads one",
-      segments: [lean("every column", inBand("other"))],
+      label: "other — DateTime",
+      what: "DateTime operations that neither write a string nor read one",
+      segments: [
+        lean(
+          "every column",
+          inBand("other").filter((key) => !/^(?:Duration |Interval |Info\.)/.test(key))
+        ),
+      ],
+      groups: [
+        {
+          label: "startOf",
+          prefix: "startOf ",
+          keys: inBand("other").filter((key) => key.startsWith("startOf ")),
+        },
+        {
+          label: "endOf",
+          prefix: "endOf ",
+          keys: inBand("other").filter((key) => key.startsWith("endOf ")),
+        },
+      ],
+      legend: "",
+    },
+    {
+      label: "other — Duration, Interval and Info",
+      what: "non-DateTime operations that neither write a string nor read one",
+      segments: [
+        lean(
+          "every column",
+          inBand("other").filter((key) => /^(?:Duration |Interval |Info\.)/.test(key))
+        ),
+      ],
+      groups: [
+        {
+          label: "Duration",
+          prefix: "Duration ",
+          keys: inBand("other").filter((key) => key.startsWith("Duration ")),
+        },
+        {
+          label: "Interval",
+          prefix: "Interval ",
+          keys: inBand("other").filter((key) => key.startsWith("Interval ")),
+        },
+        {
+          label: "Info",
+          prefix: "Info.",
+          keys: inBand("other").filter((key) => key.startsWith("Info.")),
+        },
+      ],
       legend: "",
     },
   ];
@@ -1133,15 +1215,15 @@ if (tables.has("ladder")) {
   const apiKeys = new Set<string>(apiCases.map((kase) => kase.key));
   const zonedKeys = new Set<string>(apiCases.filter((kase) => kase.zoned === true).map((kase) => kase.key));
 
-  // Said once rather than over each table: the three carry the same rows in the
+  // Said once rather than over each table: all four carry the same rows in the
   // same order, which is the property that lets them be read as one.
   console.log(
-    `three questions, the same builds in the same order.\n` +
+    `four tables, the same builds in the same order.\n` +
       `the ladder in the middle of each adds one patch per rung to the one above it\n`
   );
 
-  // Once, above all three, rather than under each. The tables are far enough
-  // apart that repeating it would read as three different legends.
+  // Once, above all four, rather than under each. The tables are far enough
+  // apart that repeating it would read as four different legends.
   if (colorEnabled) {
     console.log(`${colorLegend("moment-timezone", "stock luxon in the columns moment has no cell for")}\n`);
   }
@@ -1160,7 +1242,21 @@ if (tables.has("ladder")) {
     // No unit on the timing headers: it was on every one of them, which spent
     // three characters per column repeating one fact that does not vary. The
     // heading above the table carries it instead, once.
-    const headers = ["build", ...columns, ...heldHeaders, "bytes"];
+    const headingFor = (key: LadderKey) => {
+      const group = band.groups?.find((candidate) => candidate.keys.includes(key));
+
+      if (group === undefined) return key;
+
+      const at = group.keys.indexOf(key);
+
+      return group.headings?.[at] ?? key.slice(group.prefix?.length ?? 0);
+    };
+    const headers = ["build", ...columns.map(headingFor), ...heldHeaders, "bytes"];
+    const headingGroups = (band.groups ?? []).flatMap((group) => {
+      const start = columns.indexOf(group.keys[0]!);
+
+      return start < 0 ? [] : [{ label: group.label, start: start + 1, span: group.keys.length }];
+    });
     console.log(`${band.label} (ms) — ${band.what}\n`);
 
     // bytes on every table rather than only the first. It is a property of the
@@ -1172,6 +1268,7 @@ if (tables.has("ladder")) {
         ...columns.map((_, i) => [i + 1, 10]),
         [headers.length - 1, bytesWidth],
       ]),
+      groups: headingGroups,
     });
 
     /** per segment, since each is calibrated separately and quotes its own range */

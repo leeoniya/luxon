@@ -32,6 +32,8 @@ export interface StreamTableOpts {
   leftCols?: readonly number[];
   /** per-column minimum width, by index, for columns whose values outgrow their header */
   minWidths?: Readonly<Record<number, number>>;
+  /** centered headings spanning adjacent columns, indexed across the full table */
+  groups?: readonly { label: string; start: number; span: number }[];
 }
 
 export interface StreamTable {
@@ -70,6 +72,29 @@ export function streamTable(headers: string[], opts: StreamTableOpts = {}): Stre
       })
       .join("  ")
       .trimEnd();
+
+  if (opts.groups !== undefined && opts.groups.length > 0) {
+    const groups = new Map(opts.groups.map((group) => [group.start, group]));
+    const cells: string[] = [];
+
+    for (let i = 0; i < widths.length; ) {
+      const group = groups.get(i);
+
+      if (group === undefined) {
+        cells.push(" ".repeat(widths[i]!));
+        i++;
+        continue;
+      }
+
+      const width = widths.slice(i, i + group.span).reduce((sum, w) => sum + w, 2 * (group.span - 1));
+      const title = ` ${group.label} `;
+      const left = Math.max(0, Math.floor((width - title.length) / 2));
+      cells.push("-".repeat(left) + title + "-".repeat(Math.max(0, width - left - title.length)));
+      i += group.span;
+    }
+
+    console.log(cells.join("  ").trimEnd());
+  }
 
   console.log(line(headers));
   console.log(separator);

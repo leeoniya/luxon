@@ -29,11 +29,11 @@ why they are off by default. Verification also disables row cooldowns unless an
 explicit `--cooldown` is supplied. `--footprint` adds rss and Intl-formatter
 counts.
 
-The ladder is three tables of the same shape — the same builds, in the same
-order, with a row per build and the shipped bytes at the end — one per question
-a build can be asked. The split is by subject, since the column names alone
-stopped being self-evident long before there were forty of them: `text` formats
-a pattern, `tokens` parses one, and `set` does neither.
+The ladder is four tables of the same shape — the same builds, in the same
+order, with a row per build and the shipped bytes at the end. The split is by
+subject, since the column names alone stopped being self-evident long before
+there were forty of them: `text` formats a pattern, `tokens` parses one, and
+`set` does neither.
 
 - **`formatting`** — writing a date. Four columns that build a `DateTime` per
   value and format it, then the `toFormat` and ISO-writer calls on a `DateTime`
@@ -44,13 +44,17 @@ a pattern, `tokens` parses one, and `set` does neither.
   and `text fr` renders `text`'s pattern in a locale that is not English, where
   those names take a different branch entirely.
 - **`parsing`** — reading one, plus the two constructors that take no string.
-- **`other`** — everything that neither writes a string nor reads one:
-  arithmetic, `Duration`, `Interval`, `Info`. Defined by exclusion rather than by
-  a subject, which is why it is named that way.
+- **`other — DateTime`** — `DateTime` operations that neither write a string nor
+  read one.
+- **`other — Duration, Interval and Info`** — the remaining non-string API
+  operations.
 
 Each heading carries the unit — `formatting (ms)` — because no column does. The
 unit does not vary anywhere, and repeating it under every column would spend
-three characters apiece on one fact.
+three characters apiece on one fact. Repeated API prefixes are likewise lifted
+into centered group headings: `Duration`, `Interval`, `Info`, `startOf`,
+`endOf`, and the two `toFormat` families. The paired ISO, relative-time and
+token-parsing columns use the same layout.
 
 Two columns are not what their table describes, both deliberately: `millis`
 parses nothing, being the same construction with the string taken away, and sits
@@ -64,13 +68,13 @@ characters the wrong shape for a terminal, since each row arrived wrapped into
 four fragments interleaved with its neighbours'. Turning the terminal's wrapping
 off instead only traded that for silently dropping two thirds of the columns.
 Split, each table fits, and the argument survives the split because the rows are
-the same rows in the same order: a patch still reads down a column, and the three
+the same rows in the same order: a patch still reads down a column, and the four
 tables still stack.
 
 Splitting the *timing* was already free and already done. A segment is a
 calibration, not a subject: the format-string columns run the full count, while
 parsing and the API calls cost enough per value that their passes are sized by
-time and scaled. Two of the three tables hold both kinds and so are timed in two
+time and scaled. Two of the four tables hold both kinds and so are timed in two
 segments and printed as one, and each states its own settings underneath.
 Nothing compares a column in one table against a column in another, which is what
 makes that free.
