@@ -1,12 +1,14 @@
-# J — three objects that exist only to be read once
+# J — short-lived objects on the arithmetic path
 
-`src/datetime.js` · `src/duration.js`
+`src/datetime.js` · `src/duration.js` · `src/impl/diff.js`
 
 | file | function | was |
 | --- | --- | --- |
 | `datetime.js` | `clone` | `{ ...current, ...alts, old: current }` — a second object merged out of the seven fields being carried over |
 | `duration.js` | `as` | `shiftTo(unit).get(unit)`: a whole `Duration` constructed, normalized and cloned again on the way out of `shiftTo`, so one number can be read off it |
 | `datetime.js` | `endOf` | `{ [unit]: 1 }` per call. A computed key makes a dictionary-mode object, which `normalizeObject` then walks. There are nine of them and they never change |
+| `datetime.js` | `endOf` calendar units | `plus().startOf().minus()`: three `DateTime`s to reach the next year, quarter or month boundary and step back |
+| `impl/diff.js` | `diff` | two lower-order `Duration`s plus a final `Duration#plus` and clone, even when there is only one lower-order unit |
 
 **`clone` is the one that matters, and not only for the allocation.** The second
 object takes its shape from `alts`, which is a different set of keys at each of
@@ -44,12 +46,24 @@ and a different patch.
 direction: the key is whatever string the caller passed, and `oneOf["__proto__"]`
 on a plain object finds `Object.prototype`, which is truthy and would be handed to
 `plus()` in place of the `{ __proto__: 1 }` that was asked for, changing the
-answer.
+answer. Year, quarter and month take a larger shared shortcut: each sets the
+first civil millisecond of its next month boundary directly and keeps the
+existing `minus(1)`. That removes one `DateTime` while preserving the old answer
+at offset transitions. Week is excluded because its boundary may be locale-based.
+
+**`diff` has a cheap common case after the calendar walk.** When its unit list
+contains one lower-order unit, `Duration#fromMillis(...).as(unit)` answers the
+same number as `shiftTo(unit).get(unit)`. It can be written into the higher-order
+result before constructing the return value, avoiding the final
+`Duration#plus`, its nine-unit walk and its clone. Multiple lower-order units
+keep the general path.
 
 The fixtures check `as` against the `shiftTo(unit).get(unit)` it replaced, which
 is still in the tree as its fallback, and `endOf` against the
 `plus({ [unit]: 1 }).startOf(unit).minus(1)` it replaced, with `Object.is` so that
-a negative zero has to agree too. `clone` has no expression left to compare
-against and is checked through the methods that call it, including a count of
-what the zone is asked — dropping `old` changes no answer and only costs the
-constructor the calendar and offset it was handed.
+a negative zero has to agree too. The one-lower-unit `diff` path is compared
+against stock in both directions, across offset changes, zones and conversion
+matrices. `clone` has no expression left to compare against and is checked
+through the methods that call it, including a count of what the zone is asked —
+dropping `old` changes no answer and only costs the constructor the calendar and
+offset it was handed.

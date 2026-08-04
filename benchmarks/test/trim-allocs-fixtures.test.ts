@@ -245,6 +245,31 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(other.endOf("day").toISO(), dt.endOf("day").toISO());
     });
 
+    test("calendar-unit endOf preserves startOf's options handling", async () => {
+      const m = await loadLuxon(keys);
+      const dt = m.DateTime.fromISO("2024-01-15T12:00", { zone: ZONE });
+      let reads = 0;
+      const opts = {
+        get useLocaleWeeks() {
+          reads++;
+          return false;
+        },
+      };
+
+      const expected = [
+        ["year", "2024-12-31T23:59:59.999-05:00"],
+        ["quarter", "2024-03-31T23:59:59.999-04:00"],
+        ["month", "2024-01-31T23:59:59.999-05:00"],
+      ] as const;
+
+      for (const [unit, iso] of expected) {
+        assert.equal(dt.endOf(unit, opts).toISO(), iso);
+      }
+
+      assert.equal(reads, expected.length, "startOf's option getter was skipped");
+      assert.throws(() => dt.endOf("year", null as never), TypeError);
+    });
+
     test("a unit named after something on Object.prototype is answered the way it always was", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-01-01T12:00", { zone: "UTC" }) as unknown as {
@@ -266,6 +291,51 @@ for (const [label, keys] of VARIANTS) {
       }
 
       assert.equal(dt.endOf("day").toISO(), "2024-01-01T23:59:59.999Z", "a real unit after all that");
+    });
+
+    // ---- diff ----
+
+    test("diff with one lower-order unit matches stock", async () => {
+      const [m, stock] = await Promise.all([loadLuxon(keys), loadLuxon([])]);
+      const pairs = [
+        ["2024-01-01T00:00:00.000", ZONE, "2024-01-01T02:17:00.000", ZONE],
+        ["2024-03-09T23:30:00.000", ZONE, "2024-03-11T01:45:12.345", ZONE],
+        ["2024-11-02T23:30:00.000", ZONE, "2024-11-04T01:45:12.345", ZONE],
+        ["2020-02-29T12:00:00.000", "UTC", "2024-03-31T13:14:15.016", "Europe/Paris"],
+        ["2011-12-29T12:00:00.000", "Pacific/Apia", "2012-01-02T08:00:00.000", "Pacific/Apia"],
+      ] as const;
+      const unitSets = [
+        ["days", "hours"],
+        ["months", "minutes"],
+        ["years", "seconds"],
+        ["weeks", "milliseconds"],
+        ["hours"],
+        // The fallback alongside the new branch.
+        ["days", "hours", "minutes"],
+      ] as const;
+
+      for (const accuracy of ["casual", "longterm"] as const) {
+        for (const [leftISO, leftZone, rightISO, rightZone] of pairs) {
+          for (const reverse of [false, true]) {
+            const build = (luxon: typeof m) => {
+              const left = luxon.DateTime.fromISO(leftISO, { zone: leftZone });
+              const right = luxon.DateTime.fromISO(rightISO, { zone: rightZone });
+              return reverse ? ([right, left] as const) : ([left, right] as const);
+            };
+            const [left, right] = build(m);
+            const [stockLeft, stockRight] = build(stock);
+
+            for (const units of unitSets) {
+              const got = left.diff(right, [...units], { conversionAccuracy: accuracy });
+              const want = stockLeft.diff(stockRight, [...units], { conversionAccuracy: accuracy });
+              const label = `${accuracy} ${leftISO}/${leftZone} ${reverse ? "<-" : "->"} ${rightISO}/${rightZone} ${units}`;
+
+              assert.deepEqual(got.toObject(), want.toObject(), label);
+              assert.equal(got.toISO(), want.toISO(), label);
+            }
+          }
+        }
+      }
     });
 
     // ---- clone ----

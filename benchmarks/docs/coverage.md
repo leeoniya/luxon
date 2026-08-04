@@ -125,15 +125,13 @@ the trade each library made rather than something to fix here.
 itself: both sides are well under a millisecond for the whole batch. The stock
 row is where that column's argument is, and it is a large one.
 
-**`endOf` and `diff`** are the ones to read as unfinished: luxon doing the same
-job moment does and taking longer at it. `endOf` is three `DateTime`
-constructions — a `plus` of one unit, a `startOf`, and a `minus(1)` — where
-moment writes the fields in place, and its profile is flat enough that no leaf in
-it is worth taking on its own. H's calendar-free return is the exception and is
-worth about 10% of the column, since two of those three constructions go through
-`adjustTime` and the `minus(1)` sets no calendar field. Closing the rest means
-computing the boundary from the civil fields directly, which is a different kind
-of change from anything in this patch set and wants its own argument about DST.
+**`endOf` and `diff`** are the remaining like-for-like arithmetic columns to
+watch. `endOf` used to make three `DateTime`s — a `plus` of one unit, a
+`startOf`, and a `minus(1)` — where moment writes fields in place. J now combines
+the first two for year, quarter and month by setting the next civil month
+boundary directly, while retaining `minus(1)` for offset-transition semantics.
+The table measures month; that removes one of its three constructions and closes
+the V8 gap on this host, while JavaScriptCore still trails.
 
 This group used to have four in it, and the others are worth saying what became
 of, because none was fixed the same way.
@@ -150,9 +148,9 @@ formatter, each requested with a freshly built options object, so a two-unit
 duration paid three `JSON.stringify` cache keys and two `PolyNumberFormatter`
 constructions per call. With default options every one of those is fixed by the
 locale and the unit, and F already interns the locale, so they now hang off it —
-about 40% of the method, taking the column from roughly 3.0x moment to 1.8x.
-What is left is the ICU boundary, and that part is the trade rather than an
-oversight.
+about 40% of the method. F also fills the result list directly instead of
+allocating and filtering an eight-slot intermediate array. What is left is
+mostly the ICU boundary, and that part is the trade rather than an oversight.
 
 `hasSame` has left this group too, quietly: it is at or slightly ahead of moment
 now, which it was not before H.
@@ -168,11 +166,12 @@ not what a column named `fromObject` should be reporting.
 
 `diff` is the one left with an obvious next step, and it is not a leaf. It walks
 units largest-first and calls `earlier.plus(results)` once or twice per unit to
-test each guess, so it pays `adjustTime` up to ten times for one answer, and then
-builds two more `Duration`s to combine halves of a result it has already computed.
-H took the arithmetic under it and J took the allocation, which is why the column
-has moved as far as it has; what is left is the algorithm, so it wants its own
-patch and its own argument.
+test each guess, so it pays `adjustTime` up to ten times for one answer. J now
+avoids the final `Duration#plus` when the result has one lower-order unit — the
+measured `["days", "hours"]` shape — by writing `as("hours")` into the result
+before its one final construction. H took the arithmetic under the walk and J
+took that allocation, but what remains is the calendar-guessing algorithm, so a
+larger win wants its own patch and argument.
 
 `toRelative` was in this group and is not any more, and how it left is worth the
 paragraph, because the column was reporting something other than what it looked

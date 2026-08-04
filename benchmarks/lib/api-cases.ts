@@ -6,7 +6,7 @@
 // the patches were found, and that narrowness became misleading once the patch
 // set grew past the formatter. G hoists both normalizeUnit tables and the
 // SystemZone probe and replaces the Duration round trip inside adjustTime, H
-// removes three objects from under every setter, and no formatting or parsing
+// removes short-lived objects from setters, endOf and diff, and no formatting or parsing
 // case reaches any of it. A and E sit under every zoned operation, not just the
 // ones that print something.
 //

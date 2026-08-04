@@ -263,10 +263,10 @@ where `Duration#toHuman`'s formatters belong. `toHuman` asks for one number
 formatter per unit it prints and one list formatter, and builds a fresh options
 object to ask for each, so a two-unit duration pays three `JSON.stringify` cache
 keys and two `PolyNumberFormatter` constructions per call. Called with no options
-all of that is fixed by the locale and the unit — about 40% of the method, and
-the `Duration toHuman` column moves from roughly 3.0x moment to 1.8x. Any option
-at all is spread into both formatters' options, so the memo is only taken when
-the caller passed none.
+all of that is fixed by the locale and the unit — about 40% of the method. The
+same loop now pushes formatted units directly instead of allocating an
+eight-element `map()` result and filtering it. Any option at all is spread into
+both formatters' options, so the memo is only taken when the caller passed none.
 
 Hanging it off the `Locale` rather than off the `Duration` is what makes
 `Settings.resetCaches()` reach it. A `Duration` built before the reset still
@@ -436,15 +436,16 @@ including Lord Howe's half-hour DST and Chatham's 45-minute offset.
 
 ### J — `trimAllocs`
 
-Three objects that are built to be read once and dropped: `clone`'s second
-config, the `Duration` that `Duration#as` constructs in order to read one number
-off it, and the `{ [unit]: 1 }` literal `endOf` makes per call.
+Short-lived arithmetic plumbing: `clone`'s second config, the `Duration` that
+`Duration#as` constructs in order to read one number off it, the `{ [unit]: 1 }`
+literal `endOf` makes per call, one of the three DateTimes in
+calendar-unit `endOf`, and `diff`'s final lower/higher-result merge.
 
 It is the same shape as H's two round trips and a separate patch because it is a
 separate argument. H's two are on the arithmetic *math*, where the thing that
-could go wrong is floating point; these three are on the arithmetic *plumbing*,
-where the thing that could go wrong is a caller depending on a property of the
-object being removed.
+could go wrong is floating point; these are on the arithmetic *plumbing*, where
+the thing that could go wrong is a caller depending on a property of an object
+being removed.
 
 `clone` is the one that carries the patch, and not only for the allocation it
 saves. Its config was `{ ...current, ...alts, old: current }`, and `alts` is a
@@ -470,17 +471,25 @@ declines to have an opinion — anything `normalizeUnit` answers that is not one
 the nine ordered units falls back to `shiftTo` — so the quirk survives the patch
 intact. It is a `normalizeUnit` fix, and a different one.
 
-`endOf`'s memo is the weakest of the three, worth something on V8 and nothing on
-JSC, and it is in because it is four lines. It needs a `Map` rather than an
-object, for the same reason as above from the other direction: on a plain object
+`endOf`'s memo is the small part. It needs a `Map` rather than an object, for the
+same reason as above from the other direction: on a plain object
 `oneOf["__proto__"]` finds `Object.prototype`, which is truthy and would be handed
 to `plus()`, so `endOf("__proto__")` would quietly behave like `startOf` instead
-of throwing.
+of throwing. Year, quarter and month also combine `plus().startOf()` into one
+`set()` of the next civil month boundary and retain `minus(1)`, removing one
+DateTime without changing offset-transition behavior. Week keeps the general
+path because its boundary may be locale-based.
+
+`diff`'s measured `["days", "hours"]` shape has one lower-order unit. In that
+case `fromMillis(...).as("hours")` is the value `shiftTo("hours").get("hours")`
+would return, so it can be added to the result before its final construction.
+That skips `Duration#plus`, its unit walk and its clone; multiple lower-order
+units retain the general path.
 
 J's rung is nearly flat across the `formatting` and `parsing` tables, and
 expectedly so — those columns write or read a date, and the only part of J on
 those routes is the one `clone` that `fromMillis` does. The `other` table is where
-it is priced: `plus`, `set`, `startOf`, `endOf` and `Duration#as`.
+it is priced: `plus`, `set`, `startOf`, `endOf`, `diff` and `Duration#as`.
 
 ### K — `compileFormat`
 

@@ -33,7 +33,7 @@
 // — everything that neither writes a string nor reads one. Those were a table of
 // their own until the patch set outgrew the two directions. H replaces the
 // Duration round trip inside adjustTime, I stops toRelative asking for diffs it
-// can already answer, and J trims three allocations from under the setters; none
+// can already answer, and J trims allocations from setters, endOf and diff; none
 // of the three is reachable from a format string or a parse, and all were found
 // by profiling rather than by any column here. The cases are in
 // lib/api-cases.ts and the reading of them is in benchmarks/docs/coverage.md.

@@ -1,5 +1,5 @@
-// H removes three objects. Each removal is invisible for a different reason, so
-// each gets its own sweep.
+// J removes short-lived objects. Each removal is invisible for a different
+// reason, so each gets its own sweep or fixture.
 //
 // clone stopped merging its config and now names the seven fields. The risk is a
 // field that reads differently when it is named than when it was spread: a
@@ -18,10 +18,10 @@
 // both conversion accuracies — and compares with Object.is so that NaN and -0
 // have to agree and not merely compare equal.
 //
-// endOf memoizes `{ [unit]: 1 }` on the string it was handed. The risk is the
-// container: on a plain object the keys of Object.prototype are already present
-// and truthy, so the sweep asks for those by name alongside every real unit, its
-// aliases, and the strings luxon rejects, and compares how each one fails.
+// endOf memoizes `{ [unit]: 1 }` on the string it was handed and combines the
+// fixed calendar boundaries' plus().startOf() pair. The sweep asks for every
+// real unit, aliases, offset edges and object-prototype names, and compares with stock.
+// diff's single-lower-unit merge is covered by the focused cross-zone fixtures.
 //
 // Run: node --test 'benchmarks/test/*.test.ts'
 //      bun test benchmarks/test/          (the same, on JavaScriptCore)

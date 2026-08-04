@@ -30,7 +30,8 @@ with no options every one of those is determined by the locale and the unit
 alone. Any option at all is spread into both formatters' options, including ones
 Intl ignores, so the memo is only taken when the caller passed none — which keeps
 the semantics for a caller who reuses and mutates an options object between
-calls.
+calls. The same loop now pushes the units it actually formats directly instead
+of allocating an eight-slot `map()` result and immediately filtering its nulls.
 
 It has to hang off the `Locale` rather than off the `Duration` for
 `Settings.resetCaches()` to reach it: a `Duration` built before the reset still

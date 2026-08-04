@@ -171,7 +171,7 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
 diff --git a/src/duration.js b/src/duration.js
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -514,7 +514,7 @@ export default class Duration {
+@@ -514,29 +514,39 @@ export default class Duration {
    toHuman(opts = {}) {
      if (!this.isValid) return INVALID;
  
@@ -181,22 +181,49 @@ diff --git a/src/duration.js b/src/duration.js
 +    // the call toHuman() makes.
 +    const memo = Object.keys(opts).length === 0 ? this.loc.humanFormatters() : null;
  
-     const l = orderedUnits
-       .map((unit) => {
-@@ -533,13 +536,17 @@ export default class Duration {
-         if (isUndefined(val) || (val === 0 && !showZeros)) {
-           return null;
+-    const l = orderedUnits
+-      .map((unit) => {
+-        const convertUnit = humanizeUnitConversion[unit];
+-        if (convertUnit === null) return null;
+-        let val = this.values[unit];
+-        if (convertUnit) {
+-          const val2 = this.values[convertUnit];
+-          if (val2) {
+-            val = (val ?? 0) + val2 * this.matrix[convertUnit][unit];
+-          }
++    // UPSTREAM-F: build the short output list directly instead of allocating
++    // the eight-element intermediate array that map().filter() discarded.
++    const l = [];
++
++    for (const unit of orderedUnits) {
++      const convertUnit = humanizeUnitConversion[unit];
++      if (convertUnit === null) continue;
++      let val = this.values[unit];
++      if (convertUnit) {
++        const val2 = this.values[convertUnit];
++        if (val2) {
++          val = (val ?? 0) + val2 * this.matrix[convertUnit][unit];
          }
+-        if (isUndefined(val) || (val === 0 && !showZeros)) {
+-          return null;
+-        }
 -        return this.loc
 -          .numberFormatter({ style: "unit", unitDisplay: "long", ...opts, unit: unit.slice(0, -1) })
 -          .format(val);
-+        return (
+-      })
+-      .filter((n) => n);
++      }
++      if (isUndefined(val) || (val === 0 && !showZeros)) {
++        continue;
++      }
++      l.push(
++        (
 +          memo === null
 +            ? this.loc.numberFormatter({ style: "unit", unitDisplay: "long", ...opts, unit: unit.slice(0, -1) })
 +            : memo.humanNumberFormatter(unit)
-+        ).format(val);
-       })
-       .filter((n) => n);
++        ).format(val)
++      );
++    }
  
 -    return this.loc
 -      .listFormatter({ type: "conjunction", style: opts.listStyle || "narrow", ...opts })
