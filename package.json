@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "babel-node tasks/buildAll.js",
+    "build:plaid": "bun benchmarks/build-plaid.ts",
     "build-node": "babel-node tasks/buildNode.js",
     "build-global": "babel-node tasks/buildGlobal.js",
     "jest": "jest",
