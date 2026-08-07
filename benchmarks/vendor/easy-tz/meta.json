@@ -3,7 +3,7 @@
   "source": {
     "repo": "https://github.com/leeoniya/easy-tz",
     "path": "dist/07-baked-rules",
-    "commit": "3a19b11cb0a78038240e5510e12ad793916278c0"
+    "commit": "947b7ab6450415c4b76f2fbadf4a4ca71ee7d764"
   },
   "tables": {
     "host": "bun 1.4.0",

@@ -43,7 +43,7 @@ const result = spawnSync("sh", [jestScript, "--config", JSON.stringify(config), 
   cwd: rootPath,
   env: {
     ...process.env,
-    PATH: `${join(rootPath, "node_modules/.bin")}${delimiter}${process.env.PATH ?? ""}`,
+    PATH: `${join(rootPath, "node_modules/.bin")}${delimiter}${process.env["PATH"] ?? ""}`,
   },
   stdio: "inherit",
 });

@@ -10,7 +10,8 @@
 
 import { fileURLToPath } from "node:url";
 import meta from "../vendor/easy-tz/meta.json" with { type: "json" };
-import { getTimeZoneAt, getTimeZones } from "../vendor/easy-tz/index.mjs";
+import { getTimeZoneAt as lookupTimeZoneAt, getTimeZones } from "../vendor/easy-tz/index.mjs";
+import type { TimeZoneInfo } from "./easy-zone.ts";
 
 export type { TimeZoneInfo } from "./easy-zone.ts";
 
@@ -18,7 +19,15 @@ export type { TimeZoneInfo } from "./easy-zone.ts";
 export const bakedRules = fileURLToPath(new URL("../vendor/easy-tz/index.mjs", import.meta.url));
 
 /** A single zone's DST-correct abbreviation and UTC offset at an instant. */
-export { getTimeZoneAt };
+export function getTimeZoneAt(name: string, timestamp: number): TimeZoneInfo {
+  const info = lookupTimeZoneAt(name, timestamp);
+
+  if (info === undefined) {
+    throw new Error(`easy-tz cannot resolve ${name}`);
+  }
+
+  return info;
+}
 
 /** Which host's ICU the tables were baked from, for the report headers. */
 export const tablesHost = meta.tables.host;
