@@ -7,6 +7,10 @@ expand macros, build a unit per token, concatenate the units' sources, compile a
 `RegExp` — matches one string against it, and drops it. Memoized per format
 instead.
 
+The cached parser's handlers are a dense array built from those tokens. Its hot
+match loop now iterates the handlers directly instead of enumerating array keys
+and running `hasOwnProperty` for every token.
+
 Reuse is not a property this claims: `DateTime.buildFormatParser` hands a
 `TokenParser` out and `fromFormatParser` takes one back, an API whose only
 purpose is to let a caller hoist exactly this out of a loop. This does it for the

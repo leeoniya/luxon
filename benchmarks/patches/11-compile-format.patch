@@ -2,7 +2,7 @@ Patch: compileFormat
 Letter: K
 Requires: none
 Files: src/impl/formatter.js
-Summary: Formatter: compile DateTime and Duration format strings once, and memoize the name each DateTime token resolves to
+Summary: Formatter: compile formats once, read shifted Duration fields directly, and memoize the name each DateTime token resolves to
 Description: benchmarks/docs/pr/11-compile-format.md
 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
@@ -355,7 +355,9 @@ index ae6218e..de026e4 100644
 +          ? "always"
 +          : "auto";
 +
-+    let value = collapsed.get(field) * (secondaryNegative ? -1 : 1);
++    // UPSTREAM-K: field is already canonical and shiftTo filled values in that
++    // shape, so get() would only normalize the same known unit again.
++    let value = (collapsed.values[field] || 0) * (secondaryNegative ? -1 : 1);
 +
 +    // Keep upstream's negative-zero fix when the largest unit rounds to zero:
 +    // "auto" otherwise drops the only sign on a negative duration.

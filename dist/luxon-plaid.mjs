@@ -1379,14 +1379,12 @@ function match(input, regex, handlers) {
   if (matches) {
     const all = {};
     let matchIndex = 1;
-    for (const i in handlers) {
-      if (hasOwnProperty(handlers, i)) {
-        const h = handlers[i], groups = h.groups ? h.groups + 1 : 1;
-        if (!h.literal && h.token) {
-          all[h.token.val[0]] = h.deser(matches.slice(matchIndex, matchIndex + groups));
-        }
-        matchIndex += groups;
+    for (const h of handlers) {
+      const groups = h.groups ? h.groups + 1 : 1;
+      if (!h.literal && h.token) {
+        all[h.token.val[0]] = h.deser(matches.slice(matchIndex, matchIndex + groups));
       }
+      matchIndex += groups;
     }
     return [matches, all];
   } else {
@@ -2449,7 +2447,7 @@ function cfRunDuration(f, dur, fmt) {
     const field = fields[i];
     const secondaryNegative = signMode === "negativeLargestOnly" && negative && field !== largest;
     const signDisplay = signMode === "negativeLargestOnly" && field !== largest ? "never" : signMode === "all" ? "always" : "auto";
-    let value = collapsed.get(field) * (secondaryNegative ? -1 : 1);
+    let value = (collapsed.values[field] || 0) * (secondaryNegative ? -1 : 1);
     if (signMode === "negativeLargestOnly" && field === largest && negative && value === 0) {
       value = -0;
     }

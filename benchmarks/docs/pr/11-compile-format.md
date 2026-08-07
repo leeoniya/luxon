@@ -30,7 +30,9 @@ the literal runs, which is what the interpreter's default branch effectively did
 pattern, rebuilt three closures and four temporary arrays, then shifted the
 duration into the discovered fields. K now caches only the fields, widths and
 literal runs; shifting, sign mode, flooring and number formatting remain
-per-value.
+per-value. After `shiftTo` fills those already-canonical fields, the compiled
+loop reads `Duration#values` directly instead of normalizing each field again
+through `Duration#get`.
 
 ## The name a token resolves to
 
