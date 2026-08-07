@@ -59,3 +59,41 @@ test("DateTime#reconfigure() preserves weekSettings when setting other options",
   expect(recon.locale).toBe("de-DE");
   expect(recon.startOf("week", { useLocaleWeeks: true }).weekday).toBe(3);
 });
+
+test("DateTime#reconfigure() keeps each locale configuration independent", () => {
+  const original = DateTime.fromISO("2024-03-10T18:30:00Z", { zone: "UTC" });
+  const plain = { locale: "en-US" };
+  const configured = [
+    [{ locale: "en-US", numberingSystem: "arab" }, (value) => value.toFormat("yyyy")],
+    [
+      {
+        locale: "en-US",
+        weekSettings: { firstDay: 1, minimalDays: 4, weekend: [6, 7] },
+      },
+      (value) => `${value.localWeekday} ${value.localWeekNumber}`,
+    ],
+    [
+      { locale: "en-US", outputCalendar: "islamic" },
+      (value) => value.toLocaleString({ month: "long" }),
+    ],
+  ];
+
+  for (const [extra, read] of configured) {
+    const configuredFirst = read(original.reconfigure(extra));
+    const plainSecond = read(original.reconfigure(plain));
+    expect(configuredFirst).not.toBe(plainSecond);
+
+    const plainFirst = read(original.reconfigure(plain));
+    const configuredSecond = read(original.reconfigure(extra));
+    expect(plainFirst).not.toBe(configuredSecond);
+    expect(read(original.reconfigure(plain))).toBe(plainFirst);
+  }
+});
+
+test("DateTime#toFormat options do not change later default formatting", () => {
+  const original = DateTime.fromISO("2024-03-10T18:30:00Z", { zone: "UTC" });
+
+  expect(original.toFormat("MMMM")).toBe("March");
+  expect(original.toFormat("MMMM", { locale: "de-DE" })).toBe("März");
+  expect(original.toFormat("MMMM")).toBe("March");
+});

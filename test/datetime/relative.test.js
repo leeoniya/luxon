@@ -364,3 +364,124 @@ test("DateTime#toRelative works down through the units for different zone than l
   expect(base.minus({ hours: 25 }).toRelative()).toBe("1 day ago");
   expect(base.minus({ months: 15 }).toRelative()).toBe("1 year ago");
 });
+
+test("DateTime#toRelative reports units shortened by historical zone jumps", () => {
+  const cases = [
+    ["Pacific/Apia", "2011-12-24T00:00", "2011-12-31T00:00", ["weeks", "days", "hours"], "week"],
+    [
+      "Antarctica/Davis",
+      "1969-01-31T00:00",
+      "1969-04-30T00:00",
+      ["quarters", "months", "days"],
+      "quarter",
+    ],
+    [
+      "Antarctica/Davis",
+      "1969-01-31T00:00",
+      "1969-02-28T00:00",
+      ["months", "weeks", "days"],
+      "month",
+    ],
+    ["Antarctica/Macquarie", "1948-03-24T10:00", "1948-03-25T10:00", ["days", "hours"], "day"],
+    [
+      "Pacific/Enderbury",
+      "1994-11-21T00:00",
+      "1995-11-21T00:00",
+      ["years", "months", "days"],
+      "year",
+    ],
+  ];
+
+  for (const [zone, from, to, units, expectedUnit] of cases) {
+    const base = DateTime.fromISO(from, { zone });
+    const target = DateTime.fromISO(to, { zone });
+    let expected;
+
+    for (const unit of units) {
+      if (Math.abs(target.diff(base, unit).get(unit)) >= 1) {
+        expected = target.toRelative({ base, unit });
+        break;
+      }
+    }
+    expected ||= target.toRelative({ base, unit: units[units.length - 1] });
+
+    expect(target.toRelative({ base, unit: units })).toBe(expected);
+    expect(expected).toMatch(new RegExp(expectedUnit));
+  }
+});
+
+test("DateTime#toRelative does not skip spans that only just reach a unit", () => {
+  const cases = [
+    ["seconds", "2023-01-01T00:00:00", "2023-01-01T00:00:01", ["seconds"]],
+    ["minutes", "2023-01-01T00:00:00", "2023-01-01T00:01:00", ["minutes", "seconds"]],
+    ["hours", "2023-01-01T00:00:00", "2023-01-01T01:00:00", ["hours", "minutes"]],
+    ["days", "2023-01-01T00:00:00", "2023-01-02T00:00:00", ["days", "hours"]],
+    ["weeks", "2023-01-01T00:00:00", "2023-01-08T00:00:00", ["weeks", "days"]],
+    ["months", "2023-01-31T00:00:00", "2023-02-28T00:00:00", ["months", "weeks"]],
+    ["quarters", "2023-01-31T00:00:00", "2023-04-30T00:00:00", ["quarters", "months"]],
+    ["years", "2024-02-29T00:00:00", "2025-02-28T00:00:00", ["years", "months"]],
+  ];
+
+  for (const [unit, from, to, units] of cases) {
+    const base = DateTime.fromISO(from, { zone: "UTC" });
+    const target = DateTime.fromISO(to, { zone: "UTC" });
+
+    expect(target.toRelative({ base, unit: units })).toBe(target.toRelative({ base, unit }));
+    expect(target.toRelative({ base, unit: units })).toMatch(new RegExp(unit.slice(0, -1)));
+  }
+});
+
+test("DateTime#toRelative falls through for spans just under a unit in both directions", () => {
+  const day = 86400000;
+  const units = ["years", "quarters", "months", "weeks", "days", "hours", "minutes", "seconds"];
+  const base = DateTime.fromISO("2023-06-01T00:00", { zone: "UTC" });
+
+  for (const delta of [1, 999, 59999, 3599999, day - 1, 7 * day - 1, 30 * day - 1, 364 * day]) {
+    for (const sign of [1, -1]) {
+      const target = DateTime.fromMillis(+base + sign * delta, { zone: "UTC" });
+      let expected;
+
+      for (const unit of units) {
+        if (Math.abs(target.diff(base, unit).get(unit)) >= 1) {
+          expected = target.toRelative({ base, unit });
+          break;
+        }
+      }
+      expected ||= target.toRelative({ base, unit: units[units.length - 1] });
+
+      expect(target.toRelative({ base, unit: units })).toBe(expected);
+    }
+  }
+});
+
+test("DateTime#toRelativeCalendar keeps calendary boundary semantics", () => {
+  const zone = "America/New_York";
+  const late = DateTime.fromISO("2024-03-14T23:00", { zone });
+  const early = DateTime.fromISO("2024-03-15T01:00", { zone });
+  expect(early.toRelativeCalendar({ base: late })).toBe("tomorrow");
+  expect(late.toRelativeCalendar({ base: early })).toBe("yesterday");
+
+  const eve = DateTime.fromISO("2023-12-31T23:59", { zone });
+  const newYear = DateTime.fromISO("2024-01-01T00:00", { zone });
+  expect(newYear.toRelativeCalendar({ base: eve })).toBe("next year");
+  expect(eve.toRelativeCalendar({ base: newYear })).toBe("last year");
+});
+
+test("DateTime#toRelative padding crosses a day boundary in either direction", () => {
+  const base = DateTime.fromISO("2024-01-10T00:00", { zone: "UTC" });
+  const ahead = DateTime.fromISO("2024-01-10T23:00", { zone: "UTC" });
+  const behind = DateTime.fromISO("2024-01-09T01:00", { zone: "UTC" });
+
+  expect(ahead.toRelative({ base })).toBe("in 23 hours");
+  expect(ahead.toRelative({ base, padding: 2 * 3600000 })).toBe("in 1 day");
+  expect(behind.toRelative({ base })).toBe("23 hours ago");
+  expect(behind.toRelative({ base, padding: 2 * 3600000 })).toBe("1 day ago");
+});
+
+test("DateTime#toRelative handles unknown and zero-valued unit lists", () => {
+  const base = DateTime.fromISO("2024-05-05T05:05", { zone: "Europe/Berlin" });
+
+  expect(() => base.toRelative({ base, unit: ["fortnights"] })).toThrow(/Invalid unit/);
+  expect(base.toRelative({ base })).toBe("in 0 seconds");
+  expect(base.toRelative({ base, unit: ["years", "months"] })).toBe("in 0 months");
+});

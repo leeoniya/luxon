@@ -176,6 +176,29 @@ test("Info.months respects the locale", () => {
   ]);
 });
 
+test("Info.months keeps interleaved locale and calendar options independent", () => {
+  const french = Info.months("long", { locale: "fr", outputCalendar: "gregory" });
+  const german = Info.months("long", { locale: "de", outputCalendar: "gregory" });
+  const islamic = Info.months("long", { locale: "en", outputCalendar: "islamic" });
+
+  expect(french[0]).toBe("janvier");
+  expect(german[0]).toBe("Januar");
+  expect(islamic[0]).toBe("Muharram");
+  expect(Info.months("long", { locale: "fr", outputCalendar: "gregory" })).toEqual(french);
+  expect(Info.months("long", { locale: "de", outputCalendar: "gregory" })).toEqual(german);
+});
+
+test("Info.months observes mutations to a reused options object", () => {
+  const options = { locale: "fr" };
+  expect(Info.months("long", options)[0]).toBe("janvier");
+
+  options.locale = "de";
+  expect(Info.months("long", options)[0]).toBe("Januar");
+
+  options.locale = "ja";
+  expect(Info.months("long", options)[0]).toBe("1月");
+});
+
 test("Info.months defaults to long names", () => {
   expect(Info.months()).toEqual([
     "January",
@@ -374,6 +397,19 @@ test("Info.weekdaysFormat defaults to long names", () => {
     "Saturday",
     "Sunday",
   ]);
+});
+
+test("Info weekday contexts and widths remain distinct across locales", () => {
+  const russianLong = Info.weekdaysFormat("long", { locale: "ru" });
+  const russianShort = Info.weekdaysFormat("short", { locale: "ru" });
+  const germanLong = Info.weekdaysFormat("long", { locale: "de" });
+
+  expect(russianLong).toHaveLength(7);
+  expect(russianShort).toHaveLength(7);
+  expect(new Set(russianLong).size).toBe(7);
+  expect(russianLong).not.toEqual(russianShort);
+  expect(russianLong).not.toEqual(germanLong);
+  expect(Info.weekdaysFormat("long", { locale: "ru" })).toEqual(russianLong);
 });
 
 //------

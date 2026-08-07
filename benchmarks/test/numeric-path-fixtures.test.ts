@@ -61,6 +61,15 @@ function stockFields(ts: number) {
   };
 }
 
+// Date.UTC rewrites years 0..99 as 1900..1999. setUTCFullYear is the platform
+// route that preserves the proleptic year the test actually asks for.
+function startOfUTCYear(year: number): number {
+  const d = new Date(0);
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCFullYear(year, 0, 1);
+  return d.valueOf();
+}
+
 for (const [label, keys] of VARIANTS) {
   describe(`numericPath fixtures > ${label}`, () => {
     test("the civil fields are the ones Date reads", async () => {
@@ -91,12 +100,14 @@ for (const [label, keys] of VARIANTS) {
     // that can be right for most of a month and wrong on one day of it — the
     // constant in mp only moves the answer on the last day of February's
     // March-based year, which no scattered set of instants is likely to land on.
-    test("every day of a leap year, a century year and a pre-1970 year", async () => {
+    test("every day across Gregorian 4, 100 and 400-year boundaries", async () => {
       const m = await loadLuxon(keys);
 
-      for (const year of [1969, 1972, 1900, 2000, 2024, 2100, 1583]) {
-        const start = Date.UTC(year, 0, 1);
-        const end = Date.UTC(year + 1, 0, 1);
+      // Includes BCE, year zero, Date.UTC's 0..99 trap, negative century
+      // boundaries, and both sides of the modern Gregorian exceptions.
+      for (const year of [-400, -100, -4, -1, 0, 1, 4, 99, 100, 400, 1583, 1900, 1969, 1972, 2000, 2024, 2100, 2400]) {
+        const start = startOfUTCYear(year);
+        const end = startOfUTCYear(year + 1);
 
         for (let ts = start; ts < end; ts += 86400000) {
           const dt = m.DateTime.fromMillis(ts, { zone: "utc" });

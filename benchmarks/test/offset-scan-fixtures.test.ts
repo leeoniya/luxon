@@ -25,6 +25,7 @@ import { stockOffset } from "../lib/stock-zone.ts";
 
 const VARIANTS: [string, PatchKey[]][] = [
   ["offsetScan", [patchKey("offsetScan")]],
+  ["transitionInterval", [patchKey("transitionInterval")]],
   ["every patch", [...patchKeys]],
 ];
 
@@ -76,6 +77,40 @@ for (const [label, keys] of VARIANTS) {
             Object.is(got, want) || got === want,
             `${name} @${ts}: got ${got}, expected ${want}`
           );
+        }
+      }
+    });
+
+    // These are the transitions most likely to expose an offset decoder that
+    // accidentally assumes whole minutes, one-hour DST, or a date that advances
+    // by at most one day. They are stable historical rule changes rather than
+    // projections, and the expected offsets are stated independently of the
+    // stock implementation used by the broad sweep above.
+    test("historical second, quarter-hour and skipped-day transitions", async () => {
+      const m = await loadLuxon(keys);
+      const cases: [string, number, number, number][] = [
+        // Local mean time included seconds before standardized offsets.
+        ["America/New_York", Date.UTC(1883, 10, 18, 17), -(4 * 60 + 56 + 2 / 60), -5 * 60],
+        ["Africa/Monrovia", Date.UTC(1919, 2, 1, 0, 43, 8), -(43 + 8 / 60), -44.5],
+        ["Africa/Monrovia", Date.UTC(1972, 0, 7, 0, 44, 30), -44.5, 0],
+        // Nepal moved by fifteen minutes, not a DST-sized hour.
+        ["Asia/Kathmandu", Date.UTC(1985, 11, 31, 18, 30), 5.5 * 60, 5.75 * 60],
+        // Samoa moved across the date line and skipped an entire civil day.
+        ["Pacific/Apia", Date.UTC(2011, 11, 30, 10), -10 * 60, 14 * 60],
+      ];
+
+      for (const [name, transition, before, after] of cases) {
+        const zone = m.IANAZone.create(name);
+
+        // Interleave both sides as well as reading them once. The all-patches
+        // variant carries D's interval cache, so a stale span would surface.
+        for (const [ts, want] of [
+          [transition - 1, before],
+          [transition, after],
+          [transition - 1, before],
+          [transition, after],
+        ] as [number, number][]) {
+          assert.equal(zone.offset(ts), want, `${name} @${new Date(ts).toISOString()}`);
         }
       }
     });

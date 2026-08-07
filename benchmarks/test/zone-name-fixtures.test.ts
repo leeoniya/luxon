@@ -30,9 +30,17 @@ import { stockName, type NameStyle } from "../lib/stock-zone.ts";
 const STYLES: NameStyle[] = ["short", "long", "shortOffset", "longOffset", "shortGeneric", "longGeneric"];
 
 // en-US and de-DE put the name last; th-TH changes the width of everything
-// before it; zh-CN puts it first and fa-IR puts it in brackets, so those two are
-// the only rows where the suffix is not zero.
-const LOCALES = ["en-US", "de-DE", "th-TH-u-ca-buddhist-nu-thai", "zh-CN", "fa-IR"];
+// before it; ar-EG renders offset-name digits in another numbering system;
+// zh-CN puts the name first and fa-IR puts it in brackets, so those two are the
+// rows where the suffix is not zero.
+const LOCALES = [
+  "en-US",
+  "de-DE",
+  "th-TH-u-ca-buddhist-nu-thai",
+  "ar-EG-u-nu-arab",
+  "zh-CN",
+  "fa-IR",
+];
 
 const ZONES = [
   "America/New_York",

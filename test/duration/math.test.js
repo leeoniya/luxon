@@ -124,6 +124,76 @@ test("Duration#minus maintains invalidity", () => {
   expect(dur.invalidReason).toBe("because");
 });
 
+test("Duration arithmetic reads and combines every supported unit", () => {
+  const left = Duration.fromObject({
+    years: 2,
+    quarters: 3,
+    months: 4,
+    weeks: 5,
+    days: 6,
+    hours: 7,
+    minutes: 8,
+    seconds: 9,
+    milliseconds: 10,
+  });
+  const right = Duration.fromObject({
+    years: 1,
+    quarters: 1,
+    months: 1,
+    weeks: 1,
+    days: 1,
+    hours: 1,
+    minutes: 1,
+    seconds: 1,
+    milliseconds: 1,
+  });
+
+  expect(left.plus(right).toObject()).toEqual({
+    years: 3,
+    quarters: 4,
+    months: 5,
+    weeks: 6,
+    days: 7,
+    hours: 8,
+    minutes: 9,
+    seconds: 10,
+    milliseconds: 11,
+  });
+  expect(left.minus(right).toObject()).toEqual({
+    years: 1,
+    quarters: 2,
+    months: 3,
+    weeks: 4,
+    days: 5,
+    hours: 6,
+    minutes: 7,
+    seconds: 8,
+    milliseconds: 9,
+  });
+});
+
+test("Duration arithmetic preserves object and invalid-argument semantics", () => {
+  const duration = Duration.fromObject({ days: 2, hours: 1 });
+
+  expect(duration.plus(Object.create({ days: 9 })).toObject()).toEqual({
+    days: 2,
+    hours: 1,
+  });
+  expect(duration.plus(Object.assign(Object.create({ days: 9 }), { hours: 3 })).toObject()).toEqual(
+    { days: 2, hours: 4 }
+  );
+  expect(() => duration.plus(Duration.invalid("because"))).toThrow(TypeError);
+  expect(() => duration.minus(Duration.invalid("because"))).toThrow(TypeError);
+});
+
+test("Duration arithmetic normalizes negated zero like its public getters", () => {
+  const plus = Duration.fromObject({ milliseconds: -0 }).plus({ milliseconds: -0 });
+  const minus = Duration.fromObject({ milliseconds: -0 }).minus({ milliseconds: 0 });
+
+  expect(Object.is(plus.milliseconds, 0)).toBe(true);
+  expect(Object.is(minus.milliseconds, 0)).toBe(true);
+});
+
 //------
 // #negate()
 //------

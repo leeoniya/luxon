@@ -90,6 +90,16 @@ test("Interval.after an object", () => {
   expect(int.end.day).toBe(28);
 });
 
+test("Interval.after preserves calendar and elapsed-time arithmetic across DST", () => {
+  const start = DateTime.fromISO("2024-03-10T01:30", { zone: "America/New_York" });
+
+  expect(Interval.after(start, { days: 1 }).end.toISO()).toBe("2024-03-11T01:30:00.000-04:00");
+  expect(Interval.after(start, { hours: 24 }).end.toISO()).toBe("2024-03-11T02:30:00.000-04:00");
+  expect(Interval.after(start, Duration.fromObject({ hours: 1.5 })).end.toISO()).toBe(
+    "2024-03-10T04:00:00.000-04:00"
+  );
+});
+
 //------
 // .before()
 //-------
@@ -107,6 +117,13 @@ test("Interval.before takes a number and unit", () => {
 
   expect(int.start.day).toBe(22);
   expect(int.end).toBe(end);
+});
+
+test("Interval.before preserves calendar and elapsed-time arithmetic across DST", () => {
+  const end = DateTime.fromISO("2024-03-11T01:30", { zone: "America/New_York" });
+
+  expect(Interval.before(end, { days: 1 }).start.toISO()).toBe("2024-03-10T01:30:00.000-05:00");
+  expect(Interval.before(end, { hours: 24 }).start.toISO()).toBe("2024-03-10T00:30:00.000-05:00");
 });
 
 //------

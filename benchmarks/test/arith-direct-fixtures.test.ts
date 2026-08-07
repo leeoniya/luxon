@@ -195,6 +195,53 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(dt.set({ weekyears: 2 } as never).toISO(), "0002-03-10T01:59:59.000-04:56");
     });
 
+    test("calendar arithmetic preserves proleptic and 400-year boundaries", async () => {
+      const { m } = await load();
+      const utc = (year: number, month: number, day: number) =>
+        m.DateTime.fromObject({ year, month, day }, { zone: "UTC" });
+
+      assert.equal(utc(1, 3, 1).plus({ years: -1, days: 1 }).toISO(), "0000-03-02T00:00:00.000Z");
+      assert.equal(utc(0, 3, 1).minus({ years: 1 }).toISO(), "-000001-03-01T00:00:00.000Z");
+      assert.equal(utc(99, 12, 31).plus({ days: 1 }).toISO(), "0100-01-01T00:00:00.000Z");
+      assert.equal(utc(1600, 2, 29).plus({ years: 400 }).toISO(), "2000-02-29T00:00:00.000Z");
+      assert.equal(utc(2000, 2, 29).minus({ years: 400 }).toISO(), "1600-02-29T00:00:00.000Z");
+    });
+
+    test("calendar arithmetic survives non-hour and whole-day transitions", async () => {
+      const { m } = await load();
+
+      // Lord Howe advances by thirty minutes. A civil day preserves 01:45,
+      // while 24 elapsed hours lands at 02:15.
+      const lordHowe = m.DateTime.fromObject(
+        { year: 2024, month: 10, day: 6, hour: 1, minute: 45 },
+        { zone: "Australia/Lord_Howe" }
+      );
+      assert.equal(lordHowe.plus({ days: 1 }).toISO(), "2024-10-07T01:45:00.000+11:00");
+      assert.equal(lordHowe.plus({ hours: 24 }).toISO(), "2024-10-07T02:15:00.000+11:00");
+
+      // Samoa's date-line move deleted 2011-12-30. Calendar arithmetic must
+      // resolve the missing civil date without inventing or losing an instant.
+      const apia = m.DateTime.fromObject(
+        { year: 2011, month: 12, day: 29, hour: 12 },
+        { zone: "Pacific/Apia" }
+      );
+      assert.equal(apia.plus({ days: 1 }).toISO(), "2011-12-31T12:00:00.000+14:00");
+      assert.equal(apia.plus({ hours: 24 }).toISO(), "2011-12-31T12:00:00.000+14:00");
+
+      // A fall-back fold has two valid instants for one wall clock. Keeping both
+      // alternatives proves direct arithmetic did not collapse the ambiguity.
+      const fold = m.DateTime.fromObject(
+        { year: 2024, month: 11, day: 3, hour: 1, minute: 30 },
+        { zone: "America/New_York" }
+      );
+      assert.deepEqual(
+        fold.getPossibleOffsets().map((dt) => dt.toISO()),
+        ["2024-11-03T01:30:00.000-04:00", "2024-11-03T01:30:00.000-05:00"]
+      );
+      assert.equal(fold.plus({ days: 1 }).toISO(), "2024-11-04T01:30:00.000-05:00");
+      assert.equal(fold.plus({ hours: 24 }).toISO(), "2024-11-04T00:30:00.000-05:00");
+    });
+
     // the early return reports wasHole false without consulting fixOffset. That
     // is right because reading a hole resolution's civil time back out lands
     // outside the hole — but only the receiver can still be in one.

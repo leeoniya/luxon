@@ -303,6 +303,78 @@ test("DateTime#diff results works when needing to backtrack months", () => {
   expect(diff.days).toBe(1);
 });
 
+test("DateTime#diff walks mixed calendar and elapsed units across DST", () => {
+  const later = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
+  const earlier = later.minus({ years: 1, months: 1, days: 4, hours: 1 });
+
+  expect(later.diff(earlier, ["years", "months", "days", "hours"]).toISO()).toBe("P1Y1M4DT1H");
+});
+
+test("DateTime#diff handles day differences from years 0 through 99", () => {
+  const later = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
+  const yearOne = DateTime.fromObject(
+    { year: 1, month: 1, day: 1 },
+    {
+      zone: "America/New_York",
+    }
+  );
+
+  expect(later.diff(yearOne, "days").toISO()).toBe("P738954.0869444445D");
+});
+
+test("DateTime#diff preserves exact milliseconds across zones and directions", () => {
+  const ts = 1710053999000;
+  const left = DateTime.fromMillis(ts, { zone: "America/New_York", locale: "fr" });
+  const right = DateTime.fromMillis(ts + 123456789, { zone: "Europe/Paris" });
+
+  expect(right.diff(left, "milliseconds").toObject()).toEqual({ milliseconds: 123456789 });
+  expect(left.diff(right, "milliseconds").toObject()).toEqual({ milliseconds: -123456789 });
+  expect(left.diff(left, "milliseconds").toObject()).toEqual({ milliseconds: 0 });
+  expect(right.diff(left, ["seconds", "milliseconds"]).toObject()).toEqual({
+    seconds: 123456,
+    milliseconds: 789,
+  });
+  expect(left.diff(right, "milliseconds", { conversionAccuracy: "longterm" }).locale).toBe("fr");
+});
+
+test("DateTime#diff with one lower-order unit is reversible across transition edges", () => {
+  const pairs = [
+    ["2024-01-01T00:00:00.000", "America/New_York", "2024-01-01T02:17:00.000", "America/New_York"],
+    ["2024-03-09T23:30:00.000", "America/New_York", "2024-03-11T01:45:12.345", "America/New_York"],
+    ["2024-11-02T23:30:00.000", "America/New_York", "2024-11-04T01:45:12.345", "America/New_York"],
+    ["2020-02-29T12:00:00.000", "UTC", "2024-03-31T13:14:15.016", "Europe/Paris"],
+    ["2011-12-29T12:00:00.000", "Pacific/Apia", "2012-01-02T08:00:00.000", "Pacific/Apia"],
+  ];
+  const unitSets = [
+    ["days", "hours"],
+    ["months", "minutes"],
+    ["years", "seconds"],
+    ["weeks", "milliseconds"],
+    ["hours"],
+    ["days", "hours", "minutes"],
+  ];
+
+  for (const accuracy of ["casual", "longterm"]) {
+    for (const [leftISO, leftZone, rightISO, rightZone] of pairs) {
+      const left = DateTime.fromISO(leftISO, { zone: leftZone });
+      const right = DateTime.fromISO(rightISO, { zone: rightZone });
+
+      for (const units of unitSets) {
+        const forward = right.diff(left, units, { conversionAccuracy: accuracy });
+        const reverse = left.diff(right, units, { conversionAccuracy: accuracy });
+        const negated = Object.fromEntries(
+          Object.entries(forward.toObject()).map(([unit, value]) => [
+            unit,
+            value === 0 ? 0 : -value,
+          ])
+        );
+
+        expect(reverse.toObject()).toEqual(negated);
+      }
+    }
+  }
+});
+
 // see https://github.com/moment/luxon/issues/1301
 test("DateTime#diff handles Feb-29 edge case logic for higher order units in a manner consistent with DateTime#plus", () => {
   const left = DateTime.fromISO("2020-02-29");

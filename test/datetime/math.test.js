@@ -557,3 +557,169 @@ test("DateTime#endOf throws on invalid units", () => {
   expect(() => DateTime.fromISO("2016-03-12T10:00").endOf("splork")).toThrow();
   expect(() => DateTime.fromISO("2016-03-12T10:00").endOf(null)).toThrow();
 });
+
+test("DateTime#plus preserves duration argument validation and own-property semantics", () => {
+  const dt = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
+
+  expect(() => dt.minus(Infinity)).toThrow("Invalid unit value Infinity");
+  expect(() => dt.plus({ bogus: "nope" })).toThrow("Invalid unit bogus");
+  expect(() => dt.plus(Duration.invalid("because"))).toThrow("Invalid unit value NaN");
+  expect(dt.plus(Object.create({ days: 9 })).toISO()).toBe("2024-03-10T01:59:59.000-05:00");
+  expect(dt.plus({ days: undefined }).toISO()).toBe("2024-03-10T01:59:59.000-05:00");
+  expect(dt.plus({ days: null }).toISO()).toBe("2024-03-10T01:59:59.000-05:00");
+  expect(dt.plus(Duration.fromObject({ years: 1 })).toISO()).toBe("2025-03-10T01:59:59.000-04:00");
+  expect(dt.plus(Duration.fromObject({ quarters: 1 })).toISO()).toBe(
+    "2024-06-10T01:59:59.000-04:00"
+  );
+});
+
+test("DateTime#minus negates every duration unit", () => {
+  const dt = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
+  const expected = {
+    years: "2023-03-10T01:59:59.000-05:00",
+    quarters: "2023-12-10T01:59:59.000-05:00",
+    months: "2024-02-10T01:59:59.000-05:00",
+    weeks: "2024-03-03T01:59:59.000-05:00",
+    days: "2024-03-09T01:59:59.000-05:00",
+    hours: "2024-03-10T00:59:59.000-05:00",
+    minutes: "2024-03-10T01:58:59.000-05:00",
+    seconds: "2024-03-10T01:59:58.000-05:00",
+    milliseconds: "2024-03-10T01:59:58.999-05:00",
+  };
+
+  for (const [unit, iso] of Object.entries(expected)) {
+    expect(dt.minus({ [unit]: 1 }).toISO()).toBe(iso);
+  }
+});
+
+test("DateTime arithmetic distinguishes fractional, elapsed, and calendar amounts", () => {
+  const ts = 1710053999000;
+  const dt = DateTime.fromMillis(ts, { zone: "America/New_York" });
+
+  expect(dt.plus({ days: 1.5 }).toISO()).toBe("2024-03-11T13:59:59.000-04:00");
+  expect(dt.plus({ hours: 1.5 }).toISO()).toBe("2024-03-10T04:29:59.000-04:00");
+  expect(dt.plus({ seconds: 1e308 }).toISO()).toBe("2024-03-10T01:59:59.000-05:00");
+  expect(DateTime.fromMillis(0).plus({ milliseconds: 9e15 }).toISO()).toBeNull();
+  expect(dt.plus({ minutes: 1 }).valueOf() - ts).toBe(60000);
+  expect(dt.plus({ hours: 2 }).valueOf() - ts).toBe(7200000);
+  expect(dt.minus({ seconds: 90 }).valueOf() - ts).toBe(-90000);
+
+  expect(dt.plus({ days: 1 }).toISO()).toBe("2024-03-11T01:59:59.000-04:00");
+  expect(dt.plus({ weeks: 1 }).toISO()).toBe("2024-03-17T01:59:59.000-04:00");
+  expect(dt.plus({ years: 1 }).toISO()).toBe("2025-03-10T01:59:59.000-04:00");
+  expect(dt.plus({ quarters: 1 }).toISO()).toBe("2024-06-10T01:59:59.000-04:00");
+});
+
+test("DateTime calendar arithmetic preserves proleptic and 400-year boundaries", () => {
+  const utc = (year, month, day) => DateTime.fromObject({ year, month, day }, { zone: "UTC" });
+
+  expect(utc(1, 3, 1).plus({ years: -1, days: 1 }).toISO()).toBe("0000-03-02T00:00:00.000Z");
+  expect(utc(0, 3, 1).minus({ years: 1 }).toISO()).toBe("-000001-03-01T00:00:00.000Z");
+  expect(utc(99, 12, 31).plus({ days: 1 }).toISO()).toBe("0100-01-01T00:00:00.000Z");
+  expect(utc(1600, 2, 29).plus({ years: 400 }).toISO()).toBe("2000-02-29T00:00:00.000Z");
+  expect(utc(2000, 2, 29).minus({ years: 400 }).toISO()).toBe("1600-02-29T00:00:00.000Z");
+});
+
+test("DateTime#endOf agrees with plus().startOf().minus() at boundary dates", () => {
+  const units = [
+    "year",
+    "years",
+    "quarter",
+    "quarters",
+    "month",
+    "months",
+    "week",
+    "weeks",
+    "day",
+    "days",
+    "hour",
+    "hours",
+    "minute",
+    "minutes",
+    "second",
+    "seconds",
+    "millisecond",
+    "milliseconds",
+  ];
+  const anchors = [
+    "-000005-03-01T12:00:00.000",
+    "0000-12-31T12:00:00.000",
+    "0001-06-15T12:00:00.000",
+    "0099-12-31T12:00:00.000",
+    "1600-02-29T12:00:00.000",
+    "2000-02-29T12:00:00.000",
+    "2100-02-28T12:00:00.000",
+    "2024-02-29T13:45:12.345",
+    "2024-03-10T01:30:00.000",
+    "2024-11-03T01:30:00.000",
+    "2024-12-31T23:59:59.999",
+  ];
+
+  for (const iso of anchors) {
+    const dt = DateTime.fromISO(iso, { zone: "America/New_York" });
+    for (const unit of units) {
+      expect(dt.endOf(unit).toISO()).toBe(
+        dt
+          .plus({ [unit]: 1 })
+          .startOf(unit)
+          .minus(1)
+          .toISO()
+      );
+    }
+  }
+});
+
+test("DateTime#endOf remains stable across repeated calls and receivers", () => {
+  const dt = DateTime.fromISO("2024-03-10T01:30:00.000", { zone: "America/New_York" });
+
+  for (const unit of ["day", "month", "hour"]) {
+    const first = dt.endOf(unit).toISO();
+    expect(dt.endOf(unit).toISO()).toBe(first);
+    expect(dt.endOf(unit).toISO()).toBe(first);
+  }
+
+  const other = DateTime.fromISO("2020-07-04T09:00:00.000", { zone: "America/New_York" });
+  expect(other.endOf("day").toISO()).not.toBe(dt.endOf("day").toISO());
+});
+
+test("DateTime#endOf preserves DST and locale-week boundaries", () => {
+  const cases = [
+    DateTime.fromISO("2024-03-10T01:30", { zone: "America/New_York", locale: "en-US" }),
+    DateTime.fromISO("2024-11-03T01:30", { zone: "America/New_York", locale: "en-US" }),
+    DateTime.fromISO("2020-12-31T23:30", { zone: "Europe/Paris", locale: "de-DE" }),
+    DateTime.fromISO("2021-01-01T00:30", { zone: "Pacific/Apia", locale: "ar-SA" }),
+  ];
+
+  for (const dt of cases) {
+    for (const useLocaleWeeks of [false, true]) {
+      const opts = { useLocaleWeeks };
+      expect(dt.endOf("week", opts).toISO()).toBe(
+        dt.plus({ week: 1 }).startOf("week", opts).minus(1).toISO()
+      );
+    }
+
+    for (const unit of ["year", "quarter", "month"]) {
+      expect(dt.endOf(unit).toISO()).toBe(
+        dt
+          .plus({ [unit]: 1 })
+          .startOf(unit)
+          .minus(1)
+          .toISO()
+      );
+    }
+  }
+});
+
+test("DateTime relative calendar wording preserves lastable and non-lastable units", () => {
+  const dt = DateTime.fromMillis(1710053999000, {
+    zone: "America/New_York",
+    locale: "en-US",
+  });
+  const relativeCalendar = (other, unit) => other.toRelativeCalendar({ base: dt, unit });
+
+  expect(dt.plus({ years: 1 }).toRelative({ base: dt, style: "short" })).toBe("in 1 yr.");
+  expect(relativeCalendar(dt.plus({ seconds: 1 }), "seconds")).toBe("in 1 second");
+  expect(relativeCalendar(dt.minus({ seconds: 1 }), "seconds")).toBe("1 second ago");
+  expect(relativeCalendar(dt, "seconds")).toBe("in 0 seconds");
+  expect(relativeCalendar(dt.plus({ days: 1 }), "days")).toBe("tomorrow");
+});

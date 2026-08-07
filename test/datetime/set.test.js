@@ -298,3 +298,63 @@ test("DateTime#set throws for mixing incompatible units", () => {
 test("DateTime#set maintains invalidity", () => {
   expect(DateTime.invalid("because").set({ ordinal: 200 }).isValid).toBe(false);
 });
+
+test("DateTime clone-backed setters preserve unchanged fields", () => {
+  const original = DateTime.fromISO("2024-03-10T01:30:00.000", {
+    zone: "America/New_York",
+    locale: "en-US",
+  });
+
+  const later = original.plus({ hours: 5 });
+  expect(+later).toBe(+original + 5 * 3600000);
+  expect(later.zoneName).toBe(original.zoneName);
+  expect(later.locale).toBe(original.locale);
+
+  const moved = original.setZone("Europe/Berlin");
+  expect(+moved).toBe(+original);
+  expect(moved.zoneName).toBe("Europe/Berlin");
+  expect(moved.locale).toBe(original.locale);
+
+  const french = original.setLocale("fr");
+  expect(+french).toBe(+original);
+  expect(french.zoneName).toBe(original.zoneName);
+  expect(french.locale).toBe("fr");
+  expect(french.toFormat("MMMM")).not.toBe(original.toFormat("MMMM"));
+
+  const arab = original.reconfigure({ numberingSystem: "arab" });
+  expect(arab.numberingSystem).toBe("arab");
+  expect(arab.toFormat("yyyy")).not.toBe(original.toFormat("yyyy"));
+
+  const changed = original.set({ hour: 4 });
+  expect(changed.hour).toBe(4);
+  expect(changed.zoneName).toBe(original.zoneName);
+  expect(changed.locale).toBe(original.locale);
+});
+
+test("DateTime clone-backed setters preserve and replace wasHole", () => {
+  const hole = DateTime.fromObject(
+    { year: 2024, month: 3, day: 10, hour: 2, minute: 30 },
+    { zone: "America/New_York" }
+  );
+  const solid = DateTime.fromObject(
+    { year: 2024, month: 3, day: 10, hour: 4 },
+    { zone: "America/New_York" }
+  );
+
+  expect(hole.wasHole).toBe(true);
+  expect(hole.setLocale("fr").wasHole).toBe(true);
+  expect(solid.wasHole).toBe(false);
+  expect(solid.setLocale("fr").wasHole).toBe(false);
+  expect(solid.set({ hour: 2, minute: 30 }).wasHole).toBe(true);
+  expect(hole.set({ hour: 4 }).wasHole).toBe(false);
+});
+
+test("invalid DateTimes stay invalid through clone-backed methods", () => {
+  const invalid = DateTime.invalid("because");
+
+  expect(invalid.setLocale("fr").isValid).toBe(false);
+  expect(invalid.setZone("Europe/Berlin").isValid).toBe(false);
+  expect(invalid.plus({ days: 1 }).isValid).toBe(false);
+  expect(invalid.endOf("day").isValid).toBe(false);
+  expect(invalid.setLocale("fr").invalidReason).toBe("because");
+});

@@ -247,3 +247,49 @@ describe("DateTime maintains the wasHole setting properly", () => {
     ).toBe(false);
   });
 });
+
+test("calendar and elapsed arithmetic differ across Lord Howe's half-hour transition", () => {
+  const dt = DateTime.fromObject(
+    { year: 2024, month: 10, day: 6, hour: 1, minute: 45 },
+    { zone: "Australia/Lord_Howe" }
+  );
+
+  expect(dt.plus({ days: 1 }).toISO()).toBe("2024-10-07T01:45:00.000+11:00");
+  expect(dt.plus({ hours: 24 }).toISO()).toBe("2024-10-07T02:15:00.000+11:00");
+});
+
+test("calendar arithmetic resolves Samoa's skipped day", () => {
+  const dt = DateTime.fromObject(
+    { year: 2011, month: 12, day: 29, hour: 12 },
+    { zone: "Pacific/Apia" }
+  );
+
+  expect(dt.plus({ days: 1 }).toISO()).toBe("2011-12-31T12:00:00.000+14:00");
+  expect(dt.plus({ hours: 24 }).toISO()).toBe("2011-12-31T12:00:00.000+14:00");
+});
+
+test("fold alternatives and calendar arithmetic preserve both possible offsets", () => {
+  const fold = DateTime.fromObject(
+    { year: 2024, month: 11, day: 3, hour: 1, minute: 30 },
+    { zone: "America/New_York" }
+  );
+
+  expect(fold.getPossibleOffsets().map((dt) => dt.toISO())).toEqual([
+    "2024-11-03T01:30:00.000-04:00",
+    "2024-11-03T01:30:00.000-05:00",
+  ]);
+  expect(fold.plus({ days: 1 }).toISO()).toBe("2024-11-04T01:30:00.000-05:00");
+  expect(fold.plus({ hours: 24 }).toISO()).toBe("2024-11-04T00:30:00.000-05:00");
+});
+
+test("adding from a resolved DST hole clears wasHole", () => {
+  const hole = DateTime.fromObject(
+    { year: 2017, month: 3, day: 12, hour: 2, minute: 0 },
+    { zone: "America/New_York" }
+  );
+
+  expect(hole.wasHole).toBe(true);
+  expect(hole.plus(0).toISO()).toBe("2017-03-12T03:00:00.000-04:00");
+  expect(hole.plus(0).wasHole).toBe(false);
+  expect(hole.plus({ hours: 1 }).wasHole).toBe(false);
+});

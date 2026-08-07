@@ -28,6 +28,7 @@ const ZONES = [
   "Asia/Kolkata", // no DST at all
   "Australia/Lord_Howe", // 30-minute DST step, transitions off the UTC hour
   "America/Cambridge_Bay", // holds the tightest transition gap in all of tzdata
+  "America/Boa_Vista", // 6.96-day change-and-return witness for D's probe bound
   "Africa/Casablanca", // Ramadan transitions, the densest modern schedule
   "Pacific/Chatham",
   "America/Santiago",

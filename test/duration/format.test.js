@@ -320,6 +320,47 @@ test("Duration#toFormat returns a lame string for invalid durations", () => {
   expect(Duration.invalid("because").toFormat("yy")).toBe("Invalid Duration");
 });
 
+test("Duration#toFormat preserves adjacent fields, widths, literals, and unknown tokens", () => {
+  const duration = Duration.fromObject({
+    years: 3,
+    months: 2,
+    weeks: 1,
+    days: 4,
+    hours: 5,
+    minutes: 6,
+    seconds: 7,
+    milliseconds: 8,
+  });
+
+  expect(duration.toFormat("y M w d h m s S")).toBe("3 2 1 4 5 6 7 8");
+  expect(duration.toFormat("yyyy-MM-www-dd-hh-mm-ss-SSS")).toBe("0003-02-001-04-05-06-07-008");
+  expect(duration.toFormat("ssyy")).toBe("615276703");
+  expect(duration.toFormat("hh 'o''clock' mm")).toBe("27989 oclock 06");
+  expect(duration.toFormat("Q [ ] d")).toBe("Q [ ] 1166");
+  expect(duration.toFormat("")).toBe("");
+});
+
+test("Duration#toFormat preserves fractional and sign option behavior", () => {
+  const duration = Duration.fromObject({
+    days: -1.25,
+    hours: -2.5,
+    minutes: -3.75,
+    seconds: -4.125,
+  });
+
+  expect(duration.toFormat("dd:hh:mm:ss", { floor: true })).toBe("-01:-08:-33:-50");
+  expect(duration.toFormat("dd:hh:mm:ss", { floor: false })).toBe("-01:-08:-33:-49.125");
+  expect(duration.toFormat("dd:hh:mm:ss", { floor: false, signMode: "all" })).toBe(
+    "-01:-08:-33:-49.125"
+  );
+  expect(
+    duration.toFormat("dd:hh:mm:ss", {
+      floor: false,
+      signMode: "negativeLargestOnly",
+    })
+  ).toBe("-01:08:33:49.125");
+});
+
 // - signMode negativeLargestOnly
 
 test("Duration#toFormat shows negative sign on the largest unit when using signMode negativeLargestOnly", () => {
@@ -487,6 +528,38 @@ test("Duration#toHuman works in differt languages", () => {
   expect(dur().reconfigure({ locale: "fr" }).toHuman()).toEqual(
     "1 an, 2 mois, 1 semaine, 3 jours, 4 heures, 5 minutes, 6 secondes, 7 millisecondes"
   );
+});
+
+test("Duration#toHuman keeps locale-specific units separate across calls", () => {
+  const shape = { years: 1, months: 2, days: 3 };
+
+  expect(Duration.fromObject(shape, { locale: "fr" }).toHuman()).toBe("1 an, 2 mois, 3 jours");
+  expect(Duration.fromObject(shape, { locale: "de" }).toHuman()).toBe(
+    "1 Jahr, 2 Monate und 3 Tage"
+  );
+  expect(Duration.fromObject(shape, { locale: "fr" }).toHuman()).toBe("1 an, 2 mois, 3 jours");
+  expect(Duration.fromObject(shape, { locale: "ja" }).toHuman()).toBe("1 年、2 か月、3 日");
+});
+
+test("Duration#toHuman observes mutations to a reused options object", () => {
+  const duration = Duration.fromObject({ hours: 2, minutes: 30 });
+  const options = { unitDisplay: "short" };
+
+  expect(duration.toHuman(options)).toBe("2 hr, 30 min");
+  options.unitDisplay = "long";
+  expect(duration.toHuman(options)).toBe("2 hours, 30 minutes");
+  options.listStyle = "long";
+  expect(duration.toHuman(options)).toBe("2 hours and 30 minutes");
+});
+
+test("Duration#toHuman keeps option-specific output out of the default call", () => {
+  const duration = Duration.fromObject({ hours: 2, minutes: 30 });
+
+  expect(duration.toHuman()).toBe("2 hours, 30 minutes");
+  expect(duration.toHuman({ listStyle: "long" })).toBe("2 hours and 30 minutes");
+  expect(duration.toHuman()).toBe("2 hours, 30 minutes");
+  expect(duration.toHuman({ unitDisplay: "narrow" })).toBe("2h, 30m");
+  expect(duration.toHuman()).toBe("2 hours, 30 minutes");
 });
 
 test("Duration#toHuman handles quarters", () => {

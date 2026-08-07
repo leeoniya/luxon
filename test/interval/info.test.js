@@ -31,6 +31,26 @@ test("Interval#length() returns NaN for invalid intervals", () => {
   expect(i.length("years")).toBeFalsy();
 });
 
+test("Interval#length agrees with its public Duration conversion across zones", () => {
+  const pairs = [
+    ["2024-03-09T23:30:00.000", "2024-03-11T01:45:12.345", "America/New_York"],
+    ["2024-11-02T23:30:00.000", "2024-11-04T01:45:12.345", "America/New_York"],
+    ["2011-12-29T12:00:00.000", "2012-01-02T08:00:00.000", "Pacific/Apia"],
+    ["2020-02-29T12:00:00.000", "2024-03-31T13:14:15.016", "Europe/Paris"],
+  ];
+
+  for (const [start, end, zone] of pairs) {
+    const interval = Interval.fromDateTimes(
+      DateTime.fromISO(start, { zone }),
+      DateTime.fromISO(end, { zone })
+    );
+
+    for (const unit of ["days", "hours", "months", "years", "milliseconds"]) {
+      expect(Object.is(interval.length(unit), interval.toDuration(unit).get(unit))).toBe(true);
+    }
+  }
+});
+
 //------
 // #count()
 //-------
@@ -69,6 +89,21 @@ test("Interval#count() returns NaN for invalid intervals", () => {
   expect(i.count("years")).toBeFalsy();
 });
 
+test("Interval#count preserves calendar boundaries across offset transitions", () => {
+  const spring = Interval.fromDateTimes(
+    DateTime.fromISO("2024-03-09T23:30", { zone: "America/New_York" }),
+    DateTime.fromISO("2024-03-11T01:30", { zone: "America/New_York" })
+  );
+  const dateline = Interval.fromDateTimes(
+    DateTime.fromISO("2011-12-29T12:00", { zone: "Pacific/Apia" }),
+    DateTime.fromISO("2012-01-02T08:00", { zone: "Pacific/Apia" })
+  );
+
+  expect(spring.count("days")).toBe(3);
+  expect(spring.count("hours")).toBe(26);
+  expect(dateline.count("days")).toBe(5);
+});
+
 //------
 // #toDuration()
 //-------
@@ -91,6 +126,21 @@ test("Interval#toDuration accepts multiple units", () => {
   );
 
   expect(int.toDuration(["hours", "minutes"]).toObject()).toEqual({ hours: 4, minutes: 44 });
+});
+
+test("Interval#toDuration preserves exact millisecond differences", () => {
+  const start = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
+  const end = DateTime.fromMillis(1710053999000 + 123456789, { zone: "Europe/Paris" });
+
+  expect(Interval.fromDateTimes(start, end).toDuration("milliseconds").toObject()).toEqual({
+    milliseconds: 123456789,
+  });
+  expect(
+    Interval.fromDateTimes(start, end).toDuration(["seconds", "milliseconds"]).toObject()
+  ).toEqual({
+    seconds: 123456,
+    milliseconds: 789,
+  });
 });
 
 test("Interval#toDuration accepts duration options", () => {

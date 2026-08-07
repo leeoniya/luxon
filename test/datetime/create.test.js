@@ -432,6 +432,186 @@ test("DateTime.fromSeconds(seconds) does not accept non-finite numbers", () => {
   expect(DateTime.fromSeconds(NaN).isValid).toBe(false);
 });
 
+const stockUTCFields = (ts) => {
+  const d = new Date(ts);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    second: d.getUTCSeconds(),
+    millisecond: d.getUTCMilliseconds(),
+  };
+};
+
+const startOfUTCYear = (year) => {
+  const d = new Date(0);
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCFullYear(year, 0, 1);
+  return d.valueOf();
+};
+
+test("DateTime.fromMillis reads proleptic and TimeClip boundary fields like Date", () => {
+  const maxDate = 8.64e15;
+  const instants = [
+    0,
+    -1,
+    1,
+    -86400000,
+    -86399999,
+    86400000,
+    -2208988800000,
+    -12212553600000,
+    -62135596800000,
+    -62167219200000,
+    -62198755200000,
+    -maxDate,
+    maxDate,
+    -maxDate + 1,
+    maxDate - 1,
+    1e15,
+    -1e15,
+    951782400000,
+    4107542400000,
+  ];
+
+  for (const ts of instants) {
+    const dt = DateTime.fromMillis(ts, { zone: "UTC" });
+    expect(dt.isValid).toBe(true);
+    expect(dt.toObject()).toEqual(stockUTCFields(ts));
+  }
+});
+
+test("DateTime.fromMillis preserves dates across Gregorian 4, 100, and 400-year boundaries", () => {
+  const years = [
+    -400, -100, -4, -1, 0, 1, 4, 99, 100, 400, 1583, 1900, 1969, 1972, 2000, 2024, 2100, 2400,
+  ];
+
+  for (const year of years) {
+    const start = startOfUTCYear(year);
+    const end = startOfUTCYear(year + 1);
+
+    for (let ts = start; ts < end; ts += 86400000) {
+      const dt = DateTime.fromMillis(ts, { zone: "UTC" });
+      const expected = stockUTCFields(ts);
+      expect({ year: dt.year, month: dt.month, day: dt.day }).toEqual({
+        year: expected.year,
+        month: expected.month,
+        day: expected.day,
+      });
+    }
+  }
+});
+
+test("DateTime.fromMillis applies zone offsets before reading boundary fields", () => {
+  const instants = [0, -1, -62167219200000, -8.64e15 + 1, 8.64e15 - 1, 951782400000];
+
+  for (const zone of ["America/New_York", "Asia/Kathmandu", "Pacific/Kiritimati"]) {
+    for (const ts of instants) {
+      const dt = DateTime.fromMillis(ts, { zone });
+      if (!dt.isValid) continue;
+
+      const expected = stockUTCFields(ts + dt.offset * 60000);
+      expect({
+        year: dt.year,
+        month: dt.month,
+        day: dt.day,
+        hour: dt.hour,
+        minute: dt.minute,
+        second: dt.second,
+      }).toEqual({
+        year: expected.year,
+        month: expected.month,
+        day: expected.day,
+        hour: expected.hour,
+        minute: expected.minute,
+        second: expected.second,
+      });
+    }
+  }
+});
+
+test("DateTime.fromSeconds keeps fractional instants while truncating displayed fields", () => {
+  for (const seconds of [1.0006, -1.0006, 0.9994, -0.9994, 1.5, -1.5]) {
+    const dt = DateTime.fromSeconds(seconds, { zone: "UTC" });
+    expect(dt.valueOf()).toBe(seconds * 1000);
+    expect(dt.toObject()).toEqual(stockUTCFields(Math.trunc(seconds * 1000)));
+  }
+});
+
+test("DateTime arithmetic enforces the TimeClip boundary", () => {
+  expect(DateTime.fromMillis(8.64e15, { zone: "UTC" }).isValid).toBe(true);
+  expect(DateTime.fromMillis(8.64e15, { zone: "UTC" }).plus({ milliseconds: 1 }).isValid).toBe(
+    false
+  );
+  expect(DateTime.fromMillis(-8.64e15, { zone: "UTC" }).minus({ milliseconds: 1 }).isValid).toBe(
+    false
+  );
+});
+
+test("DateTime ISO output pads ordinary and expanded years and fixed offsets", () => {
+  const pad = (n, width) => `${n < 0 ? "-" : ""}${String(Math.abs(n)).padStart(width, "0")}`;
+
+  for (const year of [1, 9, 99, 100, 999, 1000, 2024, 9999]) {
+    const dt = DateTime.fromObject(
+      { year, month: 2, day: 3, hour: 4, minute: 5, second: 6, millisecond: 7 },
+      { zone: "UTC" }
+    );
+    expect(dt.toISO({ suppressMilliseconds: false })).toBe(`${pad(year, 4)}-02-03T04:05:06.007Z`);
+  }
+
+  for (const year of [-1, -44, -2024, 10000, 275760]) {
+    const dt = DateTime.fromObject({ year, month: 1, day: 1 }, { zone: "UTC" });
+    if (dt.isValid) {
+      expect(dt.toISO().slice(0, 7)).toBe(`${year < 0 ? "-" : "+"}${pad(Math.abs(year), 6)}`);
+    }
+  }
+
+  for (const [zone, offset] of [
+    ["UTC+5:45", "+05:45"],
+    ["UTC-8", "-08:00"],
+    ["UTC+14", "+14:00"],
+    ["UTC-9:30", "-09:30"],
+  ]) {
+    expect(DateTime.fromMillis(1710053999000, { zone }).toISO().slice(-6)).toBe(offset);
+  }
+});
+
+test("DateTime formatting preserves numbering systems, literals, and memoized formats", () => {
+  const dt = DateTime.fromMillis(1710053999000, { zone: "UTC" });
+
+  expect(dt.reconfigure({ locale: "en-US" }).toFormat("yyyy-MM-dd")).toBe("2024-03-10");
+  expect(dt.reconfigure({ locale: "ar-EG", numberingSystem: "arab" }).toFormat("yyyy")).toBe(
+    "٢٠٢٤"
+  );
+  expect(dt.reconfigure({ locale: "en-US", numberingSystem: "beng" }).toFormat("dd")).toBe("১০");
+  expect(dt.reconfigure({ locale: "th-TH", numberingSystem: "thai" }).toFormat("MM")).toBe("๐๓");
+  expect(dt.toFormat("yyyy-MM-dd'T'HH:mm:ss")).toBe("2024-03-10T06:59:59");
+  expect(dt.toFormat("//--..::")).toBe("//--..::");
+  expect(dt.toFormat("(yyyy) [MM] {dd}")).toBe("(2024) [03] {10}");
+  expect(dt.toFormat("y!!!")).toBe("2024!!!");
+  expect(dt.toFormat("Q")).toBe("Q");
+
+  const formats = [
+    ["yyyy", "2024"],
+    ["yy", "24"],
+    ["MM", "03"],
+    ["M", "3"],
+    ["MMM", "Mar"],
+    ["MMMM", "March"],
+    ["dd/MM/yyyy", "10/03/2024"],
+    ["yyyy/MM/dd", "2024/03/10"],
+    ["HH:mm:ss.SSS", "06:59:59.000"],
+    ["'yyyy'", "yyyy"],
+  ];
+  for (let pass = 0; pass < 2; pass++) {
+    for (const [format, expected] of formats) {
+      expect(dt.toFormat(format)).toBe(expected);
+    }
+  }
+});
+
 //------
 // .fromObject()
 //-------

@@ -1278,3 +1278,63 @@ test("DateTime.fromFormatParser throws error when used with a different locale t
     "fromFormatParser called with a locale of Locale(es-MX, null, null), but the format parser was created for Locale(es-ES, null, null)"
   );
 });
+
+test("DateTime.fromFormat round-trips numeric, name, era, meridiem, offset, and macro tokens", () => {
+  const cases = [
+    ["en-US", "MMMM d, yyyy", "America/New_York"],
+    ["de-DE", "MMMM d, yyyy", "Europe/Berlin"],
+    ["fr-FR", "MMM d yy h:mm a", "Europe/Berlin"],
+    ["ru-RU", "d MMMM yyyy G", "UTC"],
+    ["ja-JP", "yyyy-MM-dd HH:mm:ss", "Asia/Tokyo"],
+    ["hi-IN-u-nu-deva", "yyyy-MM-dd HH:mm:ss", "UTC"],
+    ["en-US", "yyyy-MM-dd'T'HH:mm:ss.SSSZZ", "America/New_York"],
+    ["en-US", "kkkk-'W'WW-c", "UTC"],
+    ["en-US", "y o", "UTC"],
+    ["en-US", "DDDD", "UTC"],
+    ["de-DE", "ff", "Europe/Berlin"],
+  ];
+  const instants = [
+    Date.UTC(2024, 0, 15, 8, 30, 15, 123),
+    Date.UTC(2024, 6, 4, 23, 59, 59, 999),
+    Date.UTC(1999, 11, 31),
+  ];
+
+  for (const [locale, format, zone] of cases) {
+    for (const instant of instants) {
+      const expected = DateTime.fromMillis(instant, { locale, zone });
+      const text = expected.toFormat(format);
+      const parsed = DateTime.fromFormat(text, format, { locale, zone });
+
+      expect(parsed.isValid).toBe(true);
+      expect(parsed.toFormat(format)).toBe(text);
+    }
+  }
+});
+
+test("DateTime.fromFormat distinguishes numbering systems and output calendars", () => {
+  const cases = [
+    [{ locale: "en-US" }, "2024 July 4"],
+    [{ locale: "en-US", numberingSystem: "arab" }, "٢٠٢٤ July ٤"],
+    [{ locale: "en-US", numberingSystem: "deva" }, "२०२४ July ४"],
+    [{ locale: "en-US", outputCalendar: "buddhist" }, "2567 July 4"],
+    [{ locale: "en-US", numberingSystem: "arab", outputCalendar: "buddhist" }, "٢٥٦٧ July ٤"],
+  ];
+
+  for (const [options, text] of cases) {
+    const parsed = DateTime.fromFormat(text, "yyyy MMMM d", { ...options, zone: "UTC" });
+    expect(parsed.isValid).toBe(true);
+    expect(parsed.month).toBe(7);
+    expect(parsed.day).toBe(4);
+  }
+});
+
+test("DateTime.fromFormat preserves failed and invalid parsing semantics across repeated calls", () => {
+  expect(DateTime.fromFormat("nope", "yyyy-MM-dd").invalidReason).toBe("unparsable");
+  expect(DateTime.fromFormat("2024-01-15", "yyyy-MM-dd").toISODate()).toBe("2024-01-15");
+
+  for (let i = 0; i < 2; i++) {
+    const parsed = DateTime.fromFormat("2024", "qqqq");
+    expect(parsed.isValid).toBe(false);
+    expect(parsed.invalidReason).toBe("unparsable");
+  }
+});

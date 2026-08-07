@@ -601,3 +601,196 @@ test("DateTime#toFormat('iiii')", () => {
   expect(DateTime.fromISO("2012-01-01", { locale: "de-DE" }).toFormat("iiii")).toBe("2011");
   expect(DateTime.fromISO("2012-01-01", { locale: "en-US" }).toFormat("iiii")).toBe("2012");
 });
+
+test("DateTime#toFormat name tokens agree with locale parts for every field value", () => {
+  const partOf = (dateTime, options, type) =>
+    dateTime.toLocaleParts(options).find((part) => part.type === type).value;
+
+  for (const locale of ["fr", "de", "ru", "ja"]) {
+    for (let month = 1; month <= 12; month++) {
+      const dateTime = DateTime.fromObject(
+        { year: 2024, month, day: 15 },
+        { zone: "America/New_York", locale }
+      );
+
+      for (const [token, length, standalone] of [
+        ["MMM", "short", false],
+        ["MMMM", "long", false],
+        ["MMMMM", "narrow", false],
+        ["LLL", "short", true],
+        ["LLLL", "long", true],
+        ["LLLLL", "narrow", true],
+      ]) {
+        const options = standalone ? { month: length } : { month: length, day: "numeric" };
+        expect(dateTime.toFormat(token)).toBe(partOf(dateTime, options, "month"));
+      }
+    }
+
+    for (let day = 1; day <= 7; day++) {
+      const dateTime = DateTime.fromObject(
+        { year: 2024, month: 4, day },
+        { zone: "America/New_York", locale }
+      );
+
+      for (const [token, length, standalone] of [
+        ["EEE", "short", false],
+        ["EEEE", "long", false],
+        ["EEEEE", "narrow", false],
+        ["ccc", "short", true],
+        ["cccc", "long", true],
+        ["ccccc", "narrow", true],
+      ]) {
+        const options = standalone
+          ? { weekday: length }
+          : { weekday: length, month: "long", day: "numeric" };
+        expect(dateTime.toFormat(token)).toBe(partOf(dateTime, options, "weekday"));
+      }
+    }
+
+    for (let hour = 0; hour < 24; hour++) {
+      const dateTime = DateTime.fromObject(
+        { year: 2024, month: 6, day: 12, hour },
+        { zone: "America/New_York", locale }
+      );
+      expect(dateTime.toFormat("a")).toBe(
+        partOf(dateTime, { hour: "numeric", hourCycle: "h12" }, "dayPeriod")
+      );
+    }
+
+    for (const year of [2024, 0, 1, -1, -44, -3000]) {
+      const dateTime = DateTime.fromObject(
+        { year, month: 6, day: 12 },
+        { zone: "America/New_York", locale }
+      );
+
+      for (const [token, length] of [
+        ["G", "short"],
+        ["GG", "long"],
+        ["GGGGG", "narrow"],
+      ]) {
+        expect(dateTime.toFormat(token)).toBe(partOf(dateTime, { era: length }, "era"));
+      }
+    }
+  }
+});
+
+test("DateTime#toFormat preserves Russian month contexts and widths", () => {
+  const dateTime = DateTime.fromObject(
+    { year: 2024, month: 9, day: 3 },
+    { zone: "America/New_York", locale: "ru" }
+  );
+  const formatted = dateTime.toFormat("MMMM");
+  const standalone = dateTime.toFormat("LLLL");
+
+  expect(formatted).toBe(
+    dateTime.toLocaleParts({ month: "long", day: "numeric" }).find((part) => part.type === "month")
+      .value
+  );
+  expect(standalone).toBe(
+    dateTime.toLocaleParts({ month: "long" }).find((part) => part.type === "month").value
+  );
+  expect(formatted).not.toBe(standalone);
+  expect(new Set(["MMM", "MMMM", "MMMMM"].map((token) => dateTime.toFormat(token))).size).toBe(3);
+});
+
+test("DateTime#toFormat follows resolved and explicit non-Gregorian calendars", () => {
+  for (const locale of ["fa", "fa-IR"]) {
+    const march10 = DateTime.fromObject({ year: 2024, month: 3, day: 10 }, { zone: "UTC", locale });
+    const march28 = DateTime.fromObject({ year: 2024, month: 3, day: 28 }, { zone: "UTC", locale });
+
+    for (const dateTime of [march10, march28]) {
+      const month = dateTime
+        .toLocaleParts({ month: "long", day: "numeric" })
+        .find((part) => part.type === "month").value;
+      expect(dateTime.toFormat("MMMM")).toBe(month);
+    }
+    expect(march10.toFormat("MMMM")).not.toBe(march28.toFormat("MMMM"));
+  }
+
+  for (const outputCalendar of ["islamic", "hebrew", "buddhist"]) {
+    for (let month = 1; month <= 12; month++) {
+      const dateTime = DateTime.fromObject(
+        { year: 2024, month, day: 14 },
+        { zone: "UTC", locale: "en-US", outputCalendar }
+      );
+      const part = (options, type) =>
+        dateTime.toLocaleParts(options).find((item) => item.type === type).value;
+
+      expect(dateTime.toFormat("MMMM")).toBe(part({ month: "long", day: "numeric" }, "month"));
+      expect(dateTime.toFormat("d")).toBe(part({ day: "numeric" }, "day"));
+      expect(dateTime.toFormat("y")).toBe(part({ year: "numeric" }, "year"));
+    }
+  }
+});
+
+test("DateTime#toFormat follows Japanese era changes within positive years", () => {
+  const eras = [1985, 2000, 2018, 2020].map((year) => {
+    const dateTime = DateTime.fromObject(
+      { year, month: 6, day: 1 },
+      { zone: "UTC", locale: "ja-JP-u-ca-japanese" }
+    );
+    const expected = dateTime
+      .toLocaleParts({ era: "long" })
+      .find((part) => part.type === "era").value;
+    expect(dateTime.toFormat("GG")).toBe(expected);
+    return expected;
+  });
+
+  expect(new Set(eras).size).toBe(3);
+});
+
+test("DateTime#toFormat keeps literal, unknown, adjacent, and escaped token placement", () => {
+  const dateTime = DateTime.fromObject(
+    { year: 2024, month: 3, day: 5, hour: 14, minute: 7, second: 9 },
+    { zone: "UTC", locale: "en-US" }
+  );
+
+  expect(dateTime.toFormat("yyyy-MM-dd'T'HH:mm:ss")).toBe("2024-03-05T14:07:09");
+  expect(dateTime.toFormat("[HH]")).toBe("[14]");
+  expect(dateTime.toFormat("'at' HH")).toBe("at 14");
+  expect(dateTime.toFormat("HH 'sharp'")).toBe("14 sharp");
+  expect(dateTime.toFormat("HHmmss")).toBe("140709");
+  expect(dateTime.toFormat("'hello'")).toBe("hello");
+  expect(dateTime.toFormat("-- --")).toBe("-- --");
+  expect(dateTime.toFormat("")).toBe("");
+  expect(dateTime.toFormat("Q HH")).toBe("Q 14");
+  expect(dateTime.toFormat("HH Q HH")).toBe("14 Q 14");
+  expect(dateTime.toFormat("''")).toBe("'");
+  expect(dateTime.toFormat("'''HH'''")).toBe("'HH'");
+});
+
+test("DateTime#toFormat macro tokens equal their locale presets in every position", () => {
+  const dateTime = DateTime.fromObject(
+    { year: 2024, month: 3, day: 5, hour: 14, minute: 7 },
+    { zone: "UTC", locale: "en-US" }
+  );
+  const formats = {
+    D: DateTime.DATE_SHORT,
+    DD: DateTime.DATE_MED,
+    DDD: DateTime.DATE_FULL,
+    DDDD: DateTime.DATE_HUGE,
+    t: DateTime.TIME_SIMPLE,
+    tt: DateTime.TIME_WITH_SECONDS,
+    T: DateTime.TIME_24_SIMPLE,
+    TT: DateTime.TIME_24_WITH_SECONDS,
+    ttt: DateTime.TIME_WITH_SHORT_OFFSET,
+    tttt: DateTime.TIME_WITH_LONG_OFFSET,
+    TTT: DateTime.TIME_24_WITH_SHORT_OFFSET,
+    TTTT: DateTime.TIME_24_WITH_LONG_OFFSET,
+    f: DateTime.DATETIME_SHORT,
+    ff: DateTime.DATETIME_MED,
+    fff: DateTime.DATETIME_FULL,
+    ffff: DateTime.DATETIME_HUGE,
+    F: DateTime.DATETIME_SHORT_WITH_SECONDS,
+    FF: DateTime.DATETIME_MED_WITH_SECONDS,
+    FFF: DateTime.DATETIME_FULL_WITH_SECONDS,
+    FFFF: DateTime.DATETIME_HUGE_WITH_SECONDS,
+  };
+
+  for (const [macro, preset] of Object.entries(formats)) {
+    const rendered = dateTime.toLocaleString(preset);
+    expect(dateTime.toFormat(macro)).toBe(rendered);
+    expect(dateTime.toFormat(`<${macro}>`)).toBe(`<${rendered}>`);
+    expect(dateTime.toFormat(`${macro} ${macro}`)).toBe(`${rendered} ${rendered}`);
+  }
+});
