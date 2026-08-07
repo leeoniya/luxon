@@ -40,7 +40,7 @@
 //     Info.monthsFormat pass "gregory" explicitly — so those two paid E's check
 //     and got nothing, coming out 12-17% slower than stock while Info.weekdays
 //     (which passes null) came out 45% faster. E now interns both shapes.
-//   * B, C and D each added a module-level cache that Settings.resetCaches()
+//   * A, B, C and D each added a module-level cache that Settings.resetCaches()
 //     did not reach, which is what their two resetCaches() cases are for. A cache
 //     that survives a documented reset is a behavior change rather than a
 //     memoization, and these patches only claim the latter.

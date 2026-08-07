@@ -54,7 +54,7 @@ Two things it taught are worth keeping even without the table:
   percentage on both engines and still read as engine-specific**. That was
   JavaScriptCore's noisier run failing to resolve a real saving, not the engines
   disagreeing. Any future verdict column here needs the same warning.
-- `F` was the patch that kept tripping it. It is aimed at `Info`, which a
+- `E` was the patch that kept tripping it. It is aimed at `Info`, which a
   formatting table barely touches, so a formatting-side ranking was the wrong
   place to judge it from. Its case is in the ladder's `other` table — see
   [coverage.md](coverage.md).
@@ -65,7 +65,7 @@ The large rungs — the structural formatter change and the merged fast paths �
 hold on both engines by a wide margin, and neither depends on which engine you
 believe.
 
-The reason `G` is one patch and not six is visible here in the negative. While
+The reason `F` is one patch and not six is visible here in the negative. While
 those six were separate patches with rows of their own, they disagreed across the
 engines: some resolved on V8 only, one on JavaScriptCore only, one on neither.
 Merged, the result holds on both. Filing them separately would have meant six

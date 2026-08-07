@@ -37,7 +37,7 @@ export type PatchKey = string;
 
 export interface Patch {
   key: PatchKey;
-  /** A-K, its position in apply order; what the report tables label it */
+  /** A-J, its position in apply order; what the report tables label it */
   letter: string;
   /** one-line summary for report tables */
   what: string;
@@ -77,7 +77,7 @@ function parseHeader(text: string, file: string) {
     key: field("Patch"),
     letter: field("Letter"),
     what: field("Summary"),
-    // "B (offsetScan), D (zoneNameScan)" -> the keys in the parens
+    // "A (zoneInfoCache), B (offsetScan)" -> the keys in the parens
     needs: requires === "none" ? [] : [...requires.matchAll(/\((\w+)\)/g)].map((m) => m[1]!),
     doc: field("Description"),
   };
@@ -85,7 +85,7 @@ function parseHeader(text: string, file: string) {
 
 async function readPatches(): Promise<Patch[]> {
   // numeric filename prefixes ARE the apply order, and several patches are only
-  // meaningful in it (D's diff is written against A's output, E's against B's and D's)
+  // meaningful in it (D's diff is written against A's and B's output)
   const names = (await readdir(PATCH_DIR)).filter((n) => n.endsWith(".patch")).sort();
 
   return Promise.all(
@@ -174,7 +174,7 @@ export const patchWhat = new Map(PATCHES.map((p) => [p.key, p.what]));
 
 /**
  * Patches that have to be applied before this one, because its diff is written
- * against text they introduce. D needs A, and E needs B and D — so those are
+ * against text they introduce. D needs A and B — so those are
  * only ever measurable together.
  */
 export const patchNeeds = new Map(PATCHES.map((p) => [p.key, p.needs]));

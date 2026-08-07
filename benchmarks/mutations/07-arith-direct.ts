@@ -3,13 +3,13 @@ import type { MutationSet } from "../lib/mutations.ts";
 const nl = (...parts: string[]) => parts.join("\n");
 
 /**
- * H edits five files and nothing it does is supposed to be visible, so every one
+ * G edits five files and nothing it does is supposed to be visible, so every one
  * of these is a way for it to be wrong quietly. They are grouped the way the
  * patch is: the argument parsing that replaced fromDurationLike, the two guards
  * in adjustTime, the constants, and the three edits outside datetime.js.
  */
 const set: MutationSet = {
-  patch: "08-arith-direct.patch",
+  patch: "07-arith-direct.patch",
   // The fixtures first, because they are what would ship and they are what has
   // to hold: run with --tests test/arith-direct-fixtures.test.ts to check them
   // alone. They catch everything the sweep does and one thing it does not, so

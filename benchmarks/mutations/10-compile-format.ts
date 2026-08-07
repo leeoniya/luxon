@@ -1,7 +1,7 @@
 import type { MutationSet } from "../lib/mutations.ts";
 
 /**
- * K is a table and a memo. The table is checked by luxon's own format tests --
+ * J is a table and a memo. The table is checked by luxon's own format tests --
  * it is the same sixty cases the interpreter had, and miswiring one is what
  * those already catch -- so the mutations here are about the parts that have no
  * counterpart in the interpreter: what a memo slot is keyed on, whether the
@@ -9,7 +9,7 @@ import type { MutationSet } from "../lib/mutations.ts";
  * the literal runs and the handler runs are put back together.
  */
 const set: MutationSet = {
-  patch: "11-compile-format.patch",
+  patch: "10-compile-format.patch",
   tests: ["test/compile-format-fixtures.test.ts"],
   mutations: [
     // ---- what a memo slot is keyed on ----
@@ -63,7 +63,7 @@ const set: MutationSet = {
     {
       // this was the patch as written, and it was wrong: year 0 is the proleptic
       // one and renders as 1 BC, so filing it under AD hands it whatever an AD
-      // year put there. Invisible until F interns locales and two DateTimes
+      // year put there. Invisible until E interns locales and two DateTimes
       // share a memo, which is why the fixture runs under every patch as well.
       name: "files the proleptic year 0 under AD",
       find: '+        ? cfMemo(f, dt, opts, "era", key, 2, dt.year <= 0 ? 0 : 1)',

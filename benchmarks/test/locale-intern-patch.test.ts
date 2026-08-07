@@ -1,4 +1,4 @@
-// F interns Locales and memoizes three things off them, and all three have the
+// E interns Locales and memoizes three things off them, and all three have the
 // same failure mode: a memo that outlives what it was derived from. The intern
 // and the redefaultToEN memo are keyed on a generation counter that moves when
 // any Settings field Locale.create() falls back to changes; the two formatters

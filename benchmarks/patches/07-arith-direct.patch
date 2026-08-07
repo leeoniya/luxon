@@ -1,9 +1,9 @@
 Patch: arithDirect
-Letter: H
+Letter: G
 Requires: none
 Files: src/datetime.js, src/duration.js, src/impl/diff.js, src/impl/english.js, src/zones/systemZone.js
 Summary: arithmetic paths that built or normalized temporary objects per call to reach values already available directly
-Description: benchmarks/docs/pr/08-arith-direct.md
+Description: benchmarks/docs/pr/07-arith-direct.md
 
 diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..c674ee0 100644
@@ -22,7 +22,7 @@ index fd32d47..c674ee0 100644
    return fixOffset(objToLocalTS(obj), offset, zone);
  }
  
-+// UPSTREAM-H: the nine numbers adjustTime reads, produced without the Duration
++// UPSTREAM-G: the nine numbers adjustTime reads, produced without the Duration
 +// that used to carry them. plus and minus called Duration.fromDurationLike on
 +// their argument, which for the object literal every caller writes is a
 +// normalizeObject building a keyed object, a Locale lookup and a Duration
@@ -123,7 +123,7 @@ index fd32d47..c674ee0 100644
 -  const oPre = inst.o,
 -    year = inst.c.year + Math.trunc(dur.years),
 -    month = inst.c.month + Math.trunc(dur.months) + Math.trunc(dur.quarters) * 3,
-+  // UPSTREAM-H: each of these was a getter call repeated two or three
++  // UPSTREAM-G: each of these was a getter call repeated two or three
 +  // times below.
 +  const ic = inst.c,
 +    oPre = inst.o,
@@ -136,7 +136,7 @@ index fd32d47..c674ee0 100644
 +    durMinutes = dur.minutes,
 +    durSeconds = dur.seconds,
 +    durMilliseconds = dur.milliseconds,
-+    // UPSTREAM-H: this replaces a nine-key Duration that was built and
++    // UPSTREAM-G: this replaces a nine-key Duration that was built and
 +    // converted per call, to reach a number that is almost always this sum. Two
 +    // things stop it from being an unconditional replacement.
 +    //
@@ -163,7 +163,7 @@ index fd32d47..c674ee0 100644
 +        ? durHours * 3600000 + durMinutes * 60000 + durSeconds * 1000 + durMilliseconds
 +        : NaN;
 +
-+  // UPSTREAM-H: with no calendar field set, the civil object below is inst.c
++  // UPSTREAM-G: with no calendar field set, the civil object below is inst.c
 +  // unchanged, so objToLocalTS(c) is this instance's own local time and
 +  // fixOffset re-derives the ts and offset it already carries. Verified
 +  // idempotent, including for instances constructed into a DST hole: reading
@@ -189,7 +189,7 @@ index fd32d47..c674ee0 100644
 +
 +  const year = ic.year + Math.trunc(durYears),
 +    month = ic.month + Math.trunc(durMonths) + Math.trunc(durQuarters) * 3,
-+    // UPSTREAM-H: was a spread of inst.c. inst.c is always tsToObj
++    // UPSTREAM-G: was a spread of inst.c. inst.c is always tsToObj
 +    // output, so these are its keys, in its order.
      c = {
 -      ...inst.c,
@@ -238,7 +238,7 @@ index fd32d47..c674ee0 100644
    orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
  
  // standardize case and plurality in units
-+// UPSTREAM-H: hoisted. This table is a constant, and was being built
++// UPSTREAM-G: hoisted. This table is a constant, and was being built
 +// per call to read one key off it.
 +const normalizedUnits = {
 +  year: "year",
@@ -304,7 +304,7 @@ index fd32d47..c674ee0 100644
      if (!this.isValid) return this;
 -    const dur = Duration.fromDurationLike(duration);
 -    return clone(this, adjustTime(this, dur));
-+    // UPSTREAM-H: was fromDurationLike, building a Duration for adjustTime to
++    // UPSTREAM-G: was fromDurationLike, building a Duration for adjustTime to
 +    // read nine numbers off and drop. See durationValues.
 +    return clone(this, adjustTime(this, durationValues(duration, false)));
    }
@@ -316,7 +316,7 @@ index fd32d47..c674ee0 100644
      if (!this.isValid) return this;
 -    const dur = Duration.fromDurationLike(duration).negate();
 -    return clone(this, adjustTime(this, dur));
-+    // UPSTREAM-H: the same, and negate() was a second Duration on top of the
++    // UPSTREAM-G: the same, and negate() was a second Duration on top of the
 +    // first — a fresh values object, a clone and nine more getter reads.
 +    return clone(this, adjustTime(this, durationValues(duration, true)));
    }
@@ -330,7 +330,7 @@ index ed27f9c..2d997e3 100644
  // for toHuman due to missing support from Intl.
  // if value is set, then key is what to convert to and value is what to convert
  // if value is null, then key is a unit to be ignored
-+// UPSTREAM-H: hoisted out of Duration.normalizeUnit, which was building
++// UPSTREAM-G: hoisted out of Duration.normalizeUnit, which was building
 +// it per call.
 +const normalizedUnits = {
 +  year: "years",
@@ -395,7 +395,7 @@ index ed27f9c..2d997e3 100644
      for (const k of orderedUnits) {
        if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
 -        result[k] = dur.get(k) + this.get(k);
-+        // UPSTREAM-H: get() normalizes a known constant before this same read.
++        // UPSTREAM-G: get() normalizes a known constant before this same read.
 +        result[k] = (theirs[k] || 0) + (mine[k] || 0);
        }
      }
@@ -406,7 +406,7 @@ index ed27f9c..2d997e3 100644
  
 -    const dur = Duration.fromDurationLike(duration);
 -    return this.plus(dur.negate());
-+    // UPSTREAM-H: negate() cloned the addend, then plus() normalized that
++    // UPSTREAM-G: negate() cloned the addend, then plus() normalized that
 +    // Duration again and cloned the receiver. Subtract the same fixed unit
 +    // values into the one result object directly.
 +    const dur = Duration.fromDurationLike(duration),
@@ -432,7 +432,7 @@ index ebd129e..6790fd3 100644
  import Duration from "../duration.js";
 +import { objToLocalTS } from "./util.js";
 +
-+// UPSTREAM-H: was dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
++// UPSTREAM-G: was dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
 +// inline in dayDiff. Both steps clone, and both clones reconstruct, so reading
 +// one number cost four DateTimes. What the expression asks for is the UTC
 +// midnight of the civil date, and the civil date is what dt.c already holds:
@@ -455,7 +455,7 @@ index ebd129e..6790fd3 100644
 -    ms = utcDayStart(later) - utcDayStart(earlier);
 -  return Math.floor(Duration.fromMillis(ms).as("days"));
 +  const ms = utcDayStart(later) - utcDayStart(earlier);
-+  // UPSTREAM-H: was Math.floor(Duration.fromMillis(ms).as("days")) — a Duration
++  // UPSTREAM-G: was Math.floor(Duration.fromMillis(ms).as("days")) — a Duration
 +  // built and converted to reach one division, since shiftTo puts a lone
 +  // milliseconds value into days through its leftover loop. Both endpoints are
 +  // UTC midnights, so the difference is a whole number of days. The finite guard
@@ -471,7 +471,7 @@ index ebd129e..6790fd3 100644
  }
  
  export default function (earlier, later, units, opts) {
-+  // UPSTREAM-H: milliseconds are already the representation of both endpoints;
++  // UPSTREAM-G: milliseconds are already the representation of both endpoints;
 +  // no calendar walk or unit shifting can contribute to this exact result.
 +  if (units.length === 1 && units[0] === "milliseconds") {
 +    return Duration.fromMillis(later - earlier, opts);
@@ -488,7 +488,7 @@ index cf93798..cb0ac8c 100644
    return eras(length)[dt.year < 0 ? 0 : 1];
  }
  
-+// UPSTREAM-H: hoisted. Both were per call, the first of them along with
++// UPSTREAM-G: hoisted. Both were per call, the first of them along with
 +// the nine arrays inside it.
 +const relativeUnits = {
 +  years: ["year", "yr."],
@@ -530,7 +530,7 @@ index 533e663..29b4d0b 100644
  
  let singleton = null;
  
-+// UPSTREAM-H: one Date, reused by offset() below, in place of one per
++// UPSTREAM-G: one Date, reused by offset() below, in place of one per
 +// call. setTime and getTimezoneOffset are adjacent and nothing else holds it.
 +const probe = new Date(0);
 +

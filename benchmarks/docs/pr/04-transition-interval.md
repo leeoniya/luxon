@@ -1,7 +1,7 @@
-# E — cache the interval an offset and a name are known not to change over
+# D — cache the interval an offset and a name are known not to change over
 
 `src/impl/util.js` · `src/zones/IANAZone.js`
-**Requires B and D**, whose scanners it anchors on.
+**Requires A and B**, whose scanners it anchors on.
 
 An offset or a name only changes at a transition, so a value inside a span
 already proven transition-free needs no Intl call at all. That is one idea and it
@@ -30,7 +30,7 @@ Each widens according to prior hits, so sequential reads approach the cap while
 scattered reads stay near the one-probe floor.
 
 **Invalidation.** `IANAZone` keeps a map keyed by zone, cleared by its existing
-`resetCache()`. The name side hangs its interval off the scanner D already caches
+`resetCache()`. The name side hangs its interval off the scanner A already caches
 per locale and style, so `Locale.resetCache()` drops it with the scanner and no
 new hook is needed.
 

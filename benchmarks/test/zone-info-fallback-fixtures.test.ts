@@ -1,6 +1,6 @@
-// A is still load-bearing underneath D and E when D declines a formatter
-// layout. This forces that full-stack fallback and proves it reaches A's shared
-// DTF cache rather than constructing the stock formatter on every read.
+// A's scan keeps a cached formatToParts fallback for formatter layouts it cannot
+// prove fixed. This forces that fallback alone and under D, proving both builds
+// reach A's shared DTF cache rather than constructing one per read.
 //
 // Run: node --test benchmarks/test/zone-info-fallback-fixtures.test.ts
 //      bun test benchmarks/test/zone-info-fallback-fixtures.test.ts
@@ -12,14 +12,12 @@ import { stockName } from "../lib/stock-zone.ts";
 
 const TS = Date.UTC(2024, 6, 15, 23);
 const ZONE = "America/New_York";
-const LOCALE = "en-US";
+// Non-English so the fallback's locale argument is observable to mutations.
+const LOCALE = "de-DE";
 
 const VARIANTS: [string, PatchKey[]][] = [
-  ["A alone", [patchKey("zoneInfoCache")]],
-  [
-    "A under D/E",
-    ["zoneInfoCache", "offsetScan", "zoneNameScan", "transitionInterval"].map(patchKey),
-  ],
+  ["A", [patchKey("zoneInfoCache")]],
+  ["A under D", ["zoneInfoCache", "offsetScan", "transitionInterval"].map(patchKey)],
 ];
 
 for (const [label, keys] of VARIANTS) {
@@ -37,8 +35,8 @@ for (const [label, keys] of VARIANTS) {
           const opts = args[1] as Intl.DateTimeFormatOptions | undefined;
           const dtf = new (Real as unknown as new (...a: unknown[]) => Intl.DateTimeFormat)(...args);
 
-          // D's narrow scanner asks only for hour + timeZoneName. Make format()
-          // disagree with its parts so D must reject it. A's fallback asks for
+          // A's narrow scanner asks only for hour + timeZoneName. Make format()
+          // disagree with its parts so A must reject it. A's fallback asks for
           // the full date/time shape; count those constructions without bending
           // their answer.
           if (opts?.timeZoneName !== undefined && opts.year === undefined) {

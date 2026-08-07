@@ -1,4 +1,4 @@
-# K — compile DateTime and Duration formats, and memoize DateTime names
+# J — compile DateTime and Duration formats, and memoize DateTime names
 
 `src/impl/formatter.js`
 
@@ -20,7 +20,7 @@ time. The two locale-derived flags stay per call, passed as arguments rather tha
 baked into the program, which is what lets the cache key on the format string
 alone.
 
-If G lands as well, this subsumes two of its six: `parseFormat` runs once per
+If F lands as well, this subsumes two of its six: `parseFormat` runs once per
 pattern rather than once per value, and punctuation and unknown tokens fold into
 the literal runs, which is what the interpreter's default branch effectively did.
 
@@ -28,7 +28,7 @@ the literal runs, which is what the interpreter's default branch effectively did
 
 `Duration#toFormat` had the same per-call shape at a smaller scale: it parsed the
 pattern, rebuilt three closures and four temporary arrays, then shifted the
-duration into the discovered fields. K now caches only the fields, widths and
+duration into the discovered fields. J now caches only the fields, widths and
 literal runs; shifting, sign mode, flooring and number formatting remain
 per-value. After `shiftTo` fills those already-canonical fields, the compiled
 loop reads `Duration#values` directly instead of normalizing each field again
@@ -55,7 +55,7 @@ period. Same options and same call, so the string cannot change.
 
 The memo hangs off the `Locale`, and `toFormat` builds a fresh one per call
 through `redefaultToEN`. On its own this therefore memoizes nothing across calls;
-F is what makes those the same object. The two are independently correct and only
+E is what makes those the same object. The two are independently correct and only
 together fast.
 
 Three boundaries, none of them visible from the code alone:

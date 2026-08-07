@@ -1,8 +1,8 @@
-// F hands one Locale to every caller who asked for the same thing. Two ways that
+// E hands one Locale to every caller who asked for the same thing. Two ways that
 // goes wrong: a caller who asked for something else gets it anyway, and the
 // settings that decided what it is move while it does not.
 //
-// Running benchmarks/mutations/06-locale-intern.ts against the sweep beside this
+// Running benchmarks/mutations/05-locale-intern.ts against the sweep beside this
 // file caught six of twenty. The fourteen it missed were the whole of the
 // interning — every field the key discriminates on and every setting the
 // generation counter watches — because that sweep exercises Duration#toHuman,
@@ -85,7 +85,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
-    // "gregory" and no calendar at all are the two shapes F does intern, and it
+    // "gregory" and no calendar at all are the two shapes E does intern, and it
     // keeps them apart with two maps rather than a wider key. They format the
     // same, so identity is the only thing that shows one being served for the
     // other.

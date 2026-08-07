@@ -1,4 +1,4 @@
-# J — short-lived objects on the arithmetic path
+# I — short-lived objects on the arithmetic path
 
 `src/datetime.js` · `src/duration.js` · `src/impl/diff.js`
 

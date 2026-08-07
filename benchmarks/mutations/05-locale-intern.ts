@@ -3,13 +3,13 @@ import type { MutationSet } from "../lib/mutations.ts";
 const nl = (...parts: string[]) => parts.join("\n");
 
 /**
- * F hands the same Locale back to two callers who asked for the same thing, and
+ * E hands the same Locale back to two callers who asked for the same thing, and
  * then hangs three memos off it. So the failures are aliasing — two callers who
  * did not ask for the same thing sharing an object — and staleness, where the
  * settings that decided what a Locale is have moved and the object has not.
  */
 const set: MutationSet = {
-  patch: "06-locale-intern.patch",
+  patch: "05-locale-intern.patch",
   tests: ["test/locale-intern-fixtures.test.ts", "test/locale-intern-patch.test.ts"],
   mutations: [
     // ---- who is allowed to share ----

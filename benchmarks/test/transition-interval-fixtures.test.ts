@@ -1,4 +1,4 @@
-// E is the patch where most of what can go wrong is not visible in an answer.
+// D is the patch where most of what can go wrong is not visible in an answer.
 // A span that reaches over a transition returns a stale offset or name, and that
 // is a bug a comparison finds. A span that is evicted every other lookup, or
 // anchored the wrong way, or never allowed to grow, returns the right value
@@ -6,7 +6,7 @@
 // of Intl calls.
 //
 // So this file is in two halves, and the counting half is not a lesser kind of
-// test here: running benchmarks/mutations/05-transition-interval.ts shows six of
+// test here: running benchmarks/mutations/04-transition-interval.ts shows six of
 // the sixteen ways to break this patch are caught by a count and by nothing
 // else.
 //
@@ -22,7 +22,7 @@ import moment from "moment-timezone";
 import { loadLuxon, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
 import { stockName, stockOffset, type NameStyle } from "../lib/stock-zone.ts";
 
-const KEYS: PatchKey[] = ["offsetScan", "zoneInfoCache", "zoneNameScan", "transitionInterval"].map(patchKey);
+const KEYS: PatchKey[] = ["offsetScan", "zoneInfoCache", "transitionInterval"].map(patchKey);
 
 const VARIANTS: [string, PatchKey[]][] = [
   ["transitionInterval", KEYS],

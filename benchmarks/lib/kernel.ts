@@ -464,7 +464,7 @@ export async function measureRows<R, K>(
 // ---- sizing for a wide table ------------------------------------------------
 
 // What the API columns of benchmarks/upstream.ts's ladder run `interleavedBest`
-// at. Those are 30 columns across eleven luxon builds plus a moment row, where
+// at. Those are 30 columns across ten luxon builds plus a moment row, where
 // the default DEFAULT_BUDGET_MS and a 3-7 pass range put the bench into minutes
 // of sustained load — long enough on a thermally limited host that it starts
 // measuring its own cooling.

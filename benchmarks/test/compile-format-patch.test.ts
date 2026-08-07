@@ -1,4 +1,4 @@
-// I's name memo has to be invisible, and the way it could fail is specific: it
+// J's name memo has to be invisible, and the way it could fail is specific: it
 // answers from a slot keyed by one field of the DateTime, so it is wrong exactly
 // when the rendered name depends on something else. Everything here is built to
 // find that.

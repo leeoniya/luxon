@@ -1,4 +1,4 @@
-// J removes short-lived objects. Each removal is invisible for a different
+// I removes short-lived objects. Each removal is invisible for a different
 // reason, so each gets its own sweep or fixture.
 //
 // clone stopped merging its config and now names the seven fields. The risk is a

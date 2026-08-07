@@ -29,10 +29,10 @@ disagreement was the harness rather than the library.
 The narrowness of the other two tables became misleading once the patch set grew
 past the formatter.
 
-`H` hoists both `normalizeUnit` tables and the `SystemZone` probe, and replaces
+`G` hoists both `normalizeUnit` tables and the `SystemZone` probe, and replaces
 the `Duration` round trip inside `adjustTime`. None of those are reachable from
 any formatting or parsing case; they were found by profiling, not by any table,
-and a reader of the other two tables would not know those paths exist. `A` and `E`
+and a reader of the other two tables would not know those paths exist. `A` and `D`
 sit under every zoned operation, not just the ones that print something.
 
 The `adjustTime` change is the reason this set has its current shape. It is under
@@ -75,11 +75,11 @@ when collecting promotion evidence.
 
 One exploratory Bun ladder run reported a `toRelativeCalendar` slowdown. It did
 not repeat in an isolated subtraction check: the complete stack was faster than
-the same stack without H, J, or E, both with this column's minute-spaced pool and
+the same stack without G, I, or D, both with this column's minute-spaced pool and
 with a day-spaced pool crossing calendar and DST boundaries. Fresh module
 instances varied more than the initial result while returning identical
 checksums. Treat the observation as JavaScriptCore tier/cache noise, amplified by
-E's interval-cache hit shape, not as evidence against a retained production
+D's interval-cache hit shape, not as evidence against a retained production
 change. It is not a promotion result unless it repeats in the interleaved full
 ladder above the column's own floor.
 
@@ -94,30 +94,30 @@ parse columns already answer the question those rows are there for.
 Which internals a column reaches is in
 [`lib/api-cases.ts`](../lib/api-cases.ts) rather than in the table, because it
 does not follow the timings, and the places it comes apart are the interesting
-ones. `toLocaleString` routes through F and barely moves, because F interns
+ones. `toLocaleString` routes through E and barely moves, because E interns
 locales and these cases hold the locale fixed. `toISO` never reaches the
-`Formatter` at all — it builds its string directly — so K does nothing for it and
-G does.
+`Formatter` at all — it builds its string directly — so J does nothing for it and
+F does.
 
 ### The format-pattern columns
 
 `toFormat` appears several times because the pattern decides which internals run,
 and for a long time every formatting bench in this repo used one shape: all
-numeric, en-US, gregorian calendar. That is exactly the input G's numeric fast
-paths were written for, so a table containing only it credits G with most of what
-K does and makes K look redundant.
+numeric, en-US, gregorian calendar. That is exactly the input F's numeric fast
+paths were written for, so a table containing only it credits F with most of what
+J does and makes J look redundant.
 
 The other shapes are not that. A month or weekday **name** never reaches a
-numeric fast path at all, so in the text columns G has nothing to contribute and the
-interpreter K replaces is the whole cost. A **wide** pattern multiplies that,
+numeric fast path at all, so in the text columns F has nothing to contribute and the
+interpreter J replaces is the whole cost. A **wide** pattern multiplies that,
 because the per-token switch runs once per token per value while the other
 patches' savings are per value. And words in a **non-English** locale leave the
 English short-circuit for `Locale#extract` and ICU entirely, asking for a name
-per token per value — the branch K's name memo answers from a per-locale slot
+per token per value — the branch J's name memo answers from a per-locale slot
 instead, and the one no other patch touches. That last is the largest of the
 three by some distance: the columns naming a month or weekday in `fr` are the
 only ones in the whole ladder that sit flat down every rung and then collapse on
-K's, because every other patch is on a path they never take.
+J's, because every other patch is on a path they never take.
 
 `toRFC2822` and `toHTTP` are the text shape with the pattern fixed by a standard
 rather than by the caller, which makes them the formatting most likely to sit on
@@ -158,7 +158,7 @@ row is where that column's argument is, and it is a large one.
 
 **`endOf` and `diff`** are the remaining like-for-like arithmetic columns to
 watch. `endOf` used to make three `DateTime`s — a `plus` of one unit, a
-`startOf`, and a `minus(1)` — where moment writes fields in place. J now combines
+`startOf`, and a `minus(1)` — where moment writes fields in place. I now combines
 the first two for year, quarter and month by setting the next civil month
 boundary directly, while retaining `minus(1)` for offset-transition semantics.
 The table measures month; that removes one of its three constructions and closes
@@ -169,7 +169,7 @@ of, because none was fixed the same way.
 
 `Duration#as` was `shiftTo` and `normalizeValues` — a whole `Duration` built,
 walked and cloned so one number could be read off it, against moment's `asHours`,
-which divides. J computes the sum directly and the column now leads.
+which divides. I computes the sum directly and the column now leads.
 
 `Duration toHuman` is still on the not-like-for-like list and still behind, but
 by much less, and what closed most of the gap was not the Intl boundary. Only
@@ -178,29 +178,29 @@ make. The rest was asking for the formatters: one per unit printed plus a list
 formatter, each requested with a freshly built options object, so a two-unit
 duration paid three `JSON.stringify` cache keys and two `PolyNumberFormatter`
 constructions per call. With default options every one of those is fixed by the
-locale and the unit, and F already interns the locale, so they now hang off it —
-about 40% of the method. F also fills the result list directly instead of
+locale and the unit, and E already interns the locale, so they now hang off it —
+about 40% of the method. E also fills the result list directly instead of
 allocating and filtering an eight-slot intermediate array. What is left is
 mostly the ICU boundary, and that part is the trade rather than an oversight.
 
 `hasSame` has left this group too, quietly: it is at or slightly ahead of moment
-now, which it was not before H.
+now, which it was not before G.
 
 `fromObject` was a measurement artifact. Its inputs advanced month, day and hour
 off one counter, which lands every construction in a different month from the one
-before it, and E caches the transition-free span around the offset it last looked
+before it, and D caches the transition-free span around the offset it last looked
 up. Nothing hit that cache, so the column was paying 3.69 ICU calls per
 construction where the same code paying 0.38 is what an ordinary caller sees. It
 now walks hours the way a caller filling a calendar does. The old shape is a real
-cost of E, and a caller who really does hop between months pays it; it just is
+cost of D, and a caller who really does hop between months pays it; it just is
 not what a column named `fromObject` should be reporting.
 
 `diff` is the one left with an obvious next step, and it is not a leaf. It walks
 units largest-first and calls `earlier.plus(results)` once or twice per unit to
-test each guess, so it pays `adjustTime` up to ten times for one answer. J now
+test each guess, so it pays `adjustTime` up to ten times for one answer. I now
 avoids the final `Duration#plus` when the result has one lower-order unit — the
 measured `["days", "hours"]` shape — by writing `as("hours")` into the result
-before its one final construction. H took the arithmetic under the walk and J
+before its one final construction. G took the arithmetic under the walk and I
 took that allocation, but what remains is the calendar-guessing algorithm, so a
 larger win wants its own patch and argument.
 
@@ -217,12 +217,12 @@ anything but zero — a unit cannot reach 1 unless the instants are at least one
 it apart, and the shortest each unit can be in local time is a constant.
 
 Neither is large on its own, and that is the part that generalises. Each `plus`
-walks E's transition-free interval cache, which holds two spans, so the calls
+walks D's transition-free interval cache, which holds two spans, so the calls
 that did not need making were evicting the working set and the calls that did
 need making then missed. Removing them takes the column's ICU traffic to zero,
-not down. Both are in I, which is a patch rather than two lines folded into H
+not down. Both are in H, which is a patch rather than two lines folded into G
 because that column is the only one either of them moves that far; the effect
-belongs as much to E, since this is worth little without it and it is worth more
+belongs as much to D, since this is worth little without it and it is worth more
 now.
 
 The general shape — that a wasted lookup in a cached zone costs more than the
@@ -233,7 +233,7 @@ rest of this list. `diff` is the obvious place to look for it next.
 
 **A `toLocaleString` identity cache.** `toLocaleString` is the formatting API
 luxon's own docs steer callers toward, and nothing in the patch set moves it.
-Profiled under all eleven patches it is 61–66% `Intl.DateTimeFormat#format` across
+Profiled under all ten patches it is 61–66% `Intl.DateTimeFormat#format` across
 the presets, which nothing can remove without changing what luxon returns, and
 another ~8% is the `Date` that `format` has to be handed, whose instant varies
 per call. Of the ~29% left, ~9% is the `JSON.stringify` key `getCachedDTF` builds

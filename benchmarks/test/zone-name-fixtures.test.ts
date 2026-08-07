@@ -1,8 +1,8 @@
-// D reads the zone name out of a fixed slice of a formatted string, so it is
+// A reads the zone name out of a fixed slice of a formatted string, so it is
 // wrong if the slice is measured badly, reused where it does not apply, or kept
 // when the layout it was measured against no longer holds.
 //
-// Running the mutations in benchmarks/mutations/04-zone-name-scan.ts against the
+// Running the scanner mutations in benchmarks/mutations/01-zone-info-cache.ts against the
 // sweep beside this file caught six of twelve. Every survivor was in the
 // validation, and for two different reasons.
 //
@@ -13,11 +13,11 @@
 //
 // The three rejection paths are defensive. Asking ICU for every locale it has,
 // across six styles and nine zones, produced no layout where format() differs
-// from its parts joined and none that moves between D's probes. So those are
+// from its parts joined and none that moves between A's probes. So those are
 // reached here by handing the scanner a formatter that does, which also pins
 // down something no sweep can: that each of the three probes is load-bearing.
 //
-// Expected names are recomputed with the expression D replaced, never recorded.
+// Expected names are recomputed with A's scanner replaced, never recorded.
 //
 // Run: node --test benchmarks/test/
 //      bun --test benchmarks/test/
@@ -42,7 +42,7 @@ const ZONES = [
   "UTC",
 ];
 
-// D's own probes: either side of a northern DST boundary, and one that renders
+// A's own probes: either side of a northern DST boundary, and one that renders
 // 01 rather than 1
 const INSTANTS = [Date.UTC(2024, 0, 15, 3), Date.UTC(2024, 6, 15, 23), Date.UTC(2024, 10, 3, 5)];
 
@@ -52,7 +52,7 @@ const INSTANTS = [Date.UTC(2024, 0, 15, 3), Date.UTC(2024, 6, 15, 23), Date.UTC(
 const READS = [...INSTANTS, Date.UTC(2024, 0, 15, 14), Date.UTC(2024, 6, 15, 13)];
 
 const VARIANTS: [string, PatchKey[]][] = [
-  ["zoneNameScan", ["zoneInfoCache", "zoneNameScan"].map(patchKey)],
+  ["zoneInfoCache", [patchKey("zoneInfoCache")]],
   ["every patch", [...patchKeys]],
 ];
 
@@ -101,7 +101,7 @@ async function withBentIntl(
 }
 
 for (const [label, keys] of VARIANTS) {
-  describe(`zoneNameScan fixtures > ${label}`, () => {
+  describe(`zoneInfoCache scanner fixtures > ${label}`, () => {
     test("the name comes out whole, wherever the locale puts it", async () => {
       const m = await loadLuxon(keys);
 
@@ -140,7 +140,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
-    // NOT from the sweep. No real locale disagrees with itself between D's
+    // NOT from the sweep. No real locale disagrees with itself between A's
     // probes, so each probe is checked by making one — and only one — of them
     // come back with an extra character in front of the name. A scanner that no
     // longer looks at that instant measures a prefix that is wrong for the other

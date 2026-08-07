@@ -1,14 +1,14 @@
 import type { MutationSet } from "../lib/mutations.ts";
 
 /**
- * J is three unrelated allocations, and only one of them has arithmetic in it.
+ * I is three unrelated allocations, and only one of them has arithmetic in it.
  * `clone` fails by forgetting a field, which is the same failure eleven times
  * over; `endOf` fails by handing plus() the wrong object; `as` fails the way any
  * hand-rolled sum fails -- the matrix indexed the wrong way round, a bound off by
  * one, or a float subtlety copied out of shiftTo and then simplified away.
  */
 const set: MutationSet = {
-  patch: "10-trim-allocs.patch",
+  patch: "09-trim-allocs.patch",
   tests: ["test/trim-allocs-fixtures.test.ts"],
   mutations: [
     // ---- clone, one per field ----

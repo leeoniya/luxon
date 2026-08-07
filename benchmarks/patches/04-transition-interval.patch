@@ -1,9 +1,9 @@
 Patch: transitionInterval
-Letter: E
-Requires: B (offsetScan), D (zoneNameScan)
+Letter: D
+Requires: A (zoneInfoCache), B (offsetScan)
 Files: src/impl/util.js, src/zones/IANAZone.js
 Summary: one transition-free interval cache, shared by the offset and the zone-name lookup
-Description: benchmarks/docs/pr/05-transition-interval.md
+Description: benchmarks/docs/pr/04-transition-interval.md
 
 diff --git a/src/impl/util.js b/src/impl/util.js
 index a2d21d7..fcd33d4 100644
@@ -13,7 +13,7 @@ index a2d21d7..fcd33d4 100644
    nameScanCache.clear();
  }
  
-+// UPSTREAM-E: one transition-free interval cache, shared by the two Intl
++// UPSTREAM-D: one transition-free interval cache, shared by the two Intl
 +// lookups that want one -- IANAZone#offset over in zones/IANAZone.js, and
 +// parseZoneInfo below.
 +//
@@ -142,7 +142,7 @@ index b5235ba..99f0ab3 100644
  const dtfCache = new Map();
  const scanCache = new Map();
  
-+// UPSTREAM-E: the interval state for each zone's scanner. The name side keeps
++// UPSTREAM-D: the interval state for each zone's scanner. The name side keeps
 +// its own on the scanner object; this side needs a map because the scanner is a
 +// bare function.
 +const intervalCache = new Map();

@@ -4,10 +4,10 @@
 // upstream.ts's ladder. The reason they exist has not changed: upstream.ts's
 // original columns time writing a date and reading one, because that is where
 // the patches were found, and that narrowness became misleading once the patch
-// set grew past the formatter. G hoists both normalizeUnit tables and the
-// SystemZone probe and replaces the Duration round trip inside adjustTime, H
+// set grew past the formatter. F hoists both normalizeUnit tables and the
+// SystemZone probe and replaces the Duration round trip inside adjustTime, G
 // removes short-lived objects from setters, endOf and diff, and no formatting or parsing
-// case reaches any of it. A and E sit under every zoned operation, not just the
+// case reaches any of it. A and D sit under every zoned operation, not just the
 // ones that print something.
 //
 // adjustTime is the reason this set exists in its current form. It is under
@@ -66,13 +66,13 @@ const LUX_NUMERIC = "yyyy-MM-dd HH:mm:ss";
 const MO_NUMERIC = "YYYY-MM-DD HH:mm:ss";
 
 // Patterns that are not all-numeric, because an all-numeric one in en-US on the
-// gregorian calendar is the input G's num()/padStart/roundTo fast paths were
+// gregorian calendar is the input F's num()/padStart/roundTo fast paths were
 // written for, and for a while it was the only input any bench here had. The
-// three shapes below are the ones that fall outside it, and they are I's case
-// rather than G's:
+// three shapes below are the ones that fall outside it, and they are H's case
+// rather than F's:
 //
 //   text     a month or weekday name never reaches a numeric fast path at all
-//   wide     the per-token switch I removes runs once per token, so its cost
+//   wide     the per-token switch H removes runs once per token, so its cost
 //            scales with the pattern and the other patches' savings do not
 //   fr       words in a non-English locale go through Locale#extract, where the
 //            interpreter rebuilds an Intl options literal per token per value
@@ -203,8 +203,8 @@ function momentDurationPool(mo: MomentTz): moment.Duration[] {
 export const API_CASES: ApiCase[] = [
   // ---- constructing ----
   //
-  // Both need an offset to place a local time, so both are under A, B and E, and
-  // fromObject is the only case here that normalizes unit names (G).
+  // Both need an offset to place a local time, so both are under A, B and D, and
+  // fromObject is the only case here that normalizes unit names (F).
   //
   // There were three more: fromMillis, fromISO and fromFormat. Each turned out to
   // be the same call as one of the parse columns beside them — the same input
@@ -219,11 +219,11 @@ export const API_CASES: ApiCase[] = [
     //
     // It used to jump. month, day and hour were each `i % n` off the same
     // counter, which advances all three at once and lands every construction in a
-    // different month from the one before it. E caches the transition-free span
+    // different month from the one before it. D caches the transition-free span
     // around the last offset it looked up, and no two consecutive values shared
-    // one, so the case was measuring E's miss path at a rate no caller produces —
+    // one, so the case was measuring D's miss path at a rate no caller produces —
     // 3.69 ICU calls per construction, against 0.38 for the pattern here. That is
-    // a real cost of E and worth knowing, but it is a fact about the cache and
+    // a real cost of D and worth knowing, but it is a fact about the cache and
     // this case is supposed to be about fromObject.
     //
     // Hours ascending is the shape of the callers that build dates in bulk: a
@@ -289,10 +289,10 @@ export const API_CASES: ApiCase[] = [
   // ---- arithmetic ----
   //
   // Every one of these names a unit, so every one goes through a normalizeUnit
-  // (G), and every one needs an offset for the result, so every one is also under
-  // A, B and E. None of them formats anything, which is why neither of the other
+  // (F), and every one needs an offset for the result, so every one is also under
+  // A, B and D. None of them formats anything, which is why neither of the other
   // two bands reaches them. setZone is the exception that proves it: no unit, so
-  // no G.
+  // no F.
   {
     key: "plus",
     band: "other",
@@ -643,7 +643,7 @@ export const API_CASES: ApiCase[] = [
   },
   {
     // not the Formatter: toISO builds its string directly and normalizes only
-    // its `precision` argument, which is why H does nothing for it and G does
+    // its `precision` argument, which is why G does nothing for it and F does
     key: "toISO",
     band: "formatting",
     luxon: (m) => {
@@ -694,7 +694,7 @@ export const API_CASES: ApiCase[] = [
   },
   {
     // most of what the patches win here is the diff it does internally, not the
-    // relative-time formatting: the zone rungs move it before G is on at all
+    // relative-time formatting: the zone rungs move it before F is on at all
     key: "toRelative",
     band: "formatting",
     zoned: true,

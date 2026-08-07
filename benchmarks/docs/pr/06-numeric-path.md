@@ -1,4 +1,4 @@
-# G — six fast paths along the route a numeric token takes
+# F — six fast paths along the route a numeric token takes
 
 `src/datetime.js` · `src/impl/formatter.js` · `src/impl/util.js`
 

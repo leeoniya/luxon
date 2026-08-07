@@ -1,5 +1,5 @@
 /**
- * The two zone lookups as they stood before B, D and E, rewritten here so the
+ * The two zone lookups as they stood before A, B and D, rewritten here so the
  * fixtures for those patches have something to check against that is not a
  * recorded value. Both go straight to Intl, so a tzdata or CLDR update moves the
  * expectation and the answer together and cannot turn a fixture red on its own.
@@ -56,7 +56,7 @@ export function stockOffset(name: string, ts: number): number {
 
 export type NameStyle = "short" | "long" | "shortOffset" | "longOffset" | "shortGeneric" | "longGeneric";
 
-/** parseZoneInfo before A and D */
+/** parseZoneInfo before A */
 export function stockName(ts: number, format: NameStyle, locale: string, timeZone: string): string | null {
   const parsed = new Intl.DateTimeFormat(locale, {
     timeZoneName: format,

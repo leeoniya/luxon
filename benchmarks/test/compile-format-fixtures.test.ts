@@ -1,6 +1,6 @@
-// K's fixtures.
+// J's fixtures.
 //
-// K deletes an interpreter and replaces it with a table, so the bulk of what
+// J deletes an interpreter and replaces it with a table, so the bulk of what
 // could go wrong -- a token wired to the wrong field or the wrong width -- is
 // what luxon's own format tests already assert, and those are run against the
 // patched tree rather than restated here. What is left is everything the
@@ -537,7 +537,7 @@ for (const [label, keys] of VARIANTS) {
         for (let i = 0; i < 40; i++) fr.toFormat("MMMM cccc");
 
         // The memo hangs off the Locale, and toFormat builds a fresh one per call
-        // through redefaultToEN, so on its own this patch memoizes nothing. F is
+        // through redefaultToEN, so on its own this patch memoizes nothing. E is
         // what makes those the same object. Both halves are asserted, because the
         // one that does nothing here is still the one that has to be right.
         if (interned) {

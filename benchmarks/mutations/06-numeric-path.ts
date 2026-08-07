@@ -1,7 +1,7 @@
 import type { MutationSet } from "../lib/mutations.ts";
 
 /**
- * G is six unrelated shortcuts that happen to share a route. Two of them replace
+ * F is six unrelated shortcuts that happen to share a route. Two of them replace
  * a library call with arithmetic — the civil math and the TimeClip it now has to
  * do itself — and those are where the interesting failures are: right in the
  * middle of the range and wrong at its edges, or right for positive timestamps
@@ -9,7 +9,7 @@ import type { MutationSet } from "../lib/mutations.ts";
  * admits something it should not.
  */
 const set: MutationSet = {
-  patch: "07-numeric-path.patch",
+  patch: "06-numeric-path.patch",
   tests: ["test/numeric-path-fixtures.test.ts", "test/numeric-path-patch.test.ts"],
   mutations: [
     // ---- the TimeClip that new Date() used to do ----
@@ -110,10 +110,6 @@ const set: MutationSet = {
       name: "stops passing punctuation through untouched",
       find: "+    if (token.literal || token.verbatim) {",
       replace: "+    if (token.literal) {",
-      survives:
-        "the switch the flag skips returns an unrecognised token unchanged, " +
-        "so this is the same answer by a longer route. What the flag saves is " +
-        "the call.",
     },
 
     // ---- the parseFormat cache ----

@@ -1,13 +1,13 @@
 # benchmarks
 
-Luxon's own benchmark suite, plus a harness for eleven candidate upstream
+Luxon's own benchmark suite, plus a harness for ten candidate upstream
 patches to `src/`.
 
 The patches came out of profiling luxon against moment-timezone on a formatting
 workload: a column of timestamps rendered in a named IANA zone, which is what a
 dashboard or a data table produces thousands of at a time. Stock luxon runs that
 at ~3x moment-timezone with a plain `yyyy-MM-dd HH:mm:ss`, and ~26x once the
-pattern includes a zone abbreviation. All eleven are pure memoization or
+pattern includes a zone abbreviation. All ten are pure memoization or
 provable short-circuits: no API changes, no output changes.
 
 Nothing here modifies `src/`. Each patch is a unified diff in
@@ -21,7 +21,7 @@ running one does not bury its numbers in several pages of explanation:
 
 | doc | what is in it |
 | --- | --- |
-| [`docs/upstream.md`](docs/upstream.md) | the eleven patches one by one, `E`'s tzdata precondition, and the order to file them in |
+| [`docs/upstream.md`](docs/upstream.md) | the ten patches one by one, `D`'s tzdata precondition, and the order to file them in |
 | [`docs/coverage.md`](docs/coverage.md) | the ladder's public API columns: why each is there, and where luxon still trails moment |
 | [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
 | [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
@@ -82,8 +82,8 @@ left plain. Redirected output is never shaded, so piping to a file gets the same
 plain text it always did; `--no-color` or `NO_COLOR=1` turns it off on a terminal
 too, and `FORCE_COLOR=1` turns it on anywhere.
 
-`--drop <letters>` leaves patches out of every build a run makes — `--drop G`,
-`--drop CG`. It answers a question the ladder cannot: a rung measures what a
+`--drop <letters>` leaves patches out of every build a run makes — `--drop F`,
+`--drop CF`. It answers a question the ladder cannot: a rung measures what a
 patch *adds* given everything above it, which is not what removing it would
 cost whenever two patches overlap. Run the bench twice, with and without, and
 the pair of numbers is the answer. A patch whose diff is written against
@@ -123,10 +123,10 @@ semantically honest equivalent to run — both moment and date-fns leave some of
 Luxon's compiled parser, Duration, Interval, and ambiguous-time APIs blank.
 
 The API columns exist because the patch set outgrew the two questions that found it:
-`H` hoists both `normalizeUnit` tables and replaces the `Duration` round trip
-inside `adjustTime`, and `I` stops `toRelative` asking for diffs it can already
+`G` hoists both `normalizeUnit` tables and replaces the `Duration` round trip
+inside `adjustTime`, and `H` stops `toRelative` asking for diffs it can already
 answer — none of which any formatting or parsing case touches — and
-`A` and `E` sit under every zoned operation rather than only the ones that print
+`A` and `D` sit under every zoned operation rather than only the ones that print
 something. They were a table of their own (`coverage.ts`) until they moved here.
 Every build's answers are checked against every other's before anything is
 timed, so a patch that changed an answer fails the bench rather than winning it.
@@ -176,7 +176,7 @@ suite.ts                         those 29 cases across build columns
 format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
 cross-engine.ts                  upstream.ts under node and bun, diffed
-patches/                         the eleven diffs
+patches/                         the ten diffs
 docs/                            what the tables mean
 test/                            parity tests for the patches that rewrite logic
 lib/                             harness (see each file's header)

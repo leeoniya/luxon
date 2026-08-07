@@ -1,9 +1,9 @@
 Patch: numericPath
-Letter: G
+Letter: F
 Requires: none
 Files: src/datetime.js, src/impl/formatter.js, src/impl/util.js
 Summary: six fast paths along the route a numeric token takes
-Description: benchmarks/docs/pr/07-numeric-path.md
+Description: benchmarks/docs/pr/06-numeric-path.md
 
 diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..cbe5009 100644
@@ -16,7 +16,7 @@ index fd32d47..cbe5009 100644
 -  ts += offset * 60 * 1000;
 -
 -  const d = new Date(ts);
-+  // UPSTREAM-G: new Date(ts) ran TimeClip on its argument first — round
++  // UPSTREAM-F: new Date(ts) ran TimeClip on its argument first — round
 +  // toward zero, NaN outside +/-MAX_DATE — before any field was read off it. The
 +  // civil math below does neither, so both are explicit. A fractional timestamp
 +  // comes from fromSeconds and from a plus with a fractional millisecond; an
@@ -26,7 +26,7 @@ index fd32d47..cbe5009 100644
 +  const clipped = ts + offset * 60 * 1000;
 +  ts = Math.abs(clipped) > MAX_DATE ? NaN : Math.trunc(clipped);
 +
-+  // UPSTREAM-G: was `new Date(ts)` plus seven getUTC* calls. Same result, no
++  // UPSTREAM-F: was `new Date(ts)` plus seven getUTC* calls. Same result, no
 +  // allocation (Howard Hinnant's civil_from_days, valid for any Gregorian year).
 +  const days = Math.floor(ts / 86400000);
 +  const msOfDay = ts - days * 86400000;
@@ -70,7 +70,7 @@ index ae6218e..4c80d34 100644
 +import { padStart, roundTo } from "./util.js";
  
  function stringifyTokens(splits, tokenToString) {
-+  // UPSTREAM-G: indexed loop (no iterator allocation per format) and a verbatim
++  // UPSTREAM-F: indexed loop (no iterator allocation per format) and a verbatim
 +  // check so punctuation skips tokenToString entirely.
    let s = "";
 -  for (const token of splits) {
@@ -85,7 +85,7 @@ index ae6218e..4c80d34 100644
   * @private
   */
  
-+// UPSTREAM-G: format strings are overwhelmingly reused (one pattern, a whole
++// UPSTREAM-F: format strings are overwhelmingly reused (one pattern, a whole
 +// column of values), but parseFormat re-tokenized on every call. Bounded so a
 +// caller generating unique format strings can't grow it without limit.
 +const parseFormatCache = new Map();
@@ -118,7 +118,7 @@ index ae6218e..4c80d34 100644
        splits.push({ literal: bracketed || /^\s+$/.test(currentFull), val: currentFull });
      }
  
-+    // UPSTREAM-G: a token with no ASCII letters matches no switch case and no
++    // UPSTREAM-F: a token with no ASCII letters matches no switch case and no
 +    // macro name, so formatting it is the identity. Flag it once here instead of
 +    // rediscovering that per value.
 +    for (const token of splits) {
@@ -134,7 +134,7 @@ index ae6218e..4c80d34 100644
        return padStart(n, p);
      }
  
-+    // UPSTREAM-G: the one caller that reaches here is DateTime#toFormat, whose
++    // UPSTREAM-F: the one caller that reaches here is DateTime#toFormat, whose
 +    // Formatter carries no options at all -- a duration token always arrives with
 +    // a signDisplay, and toISO's formatter sets forceSimple, so both return above
 +    // this. With no options PolyNumberFormatter reduces to padStart(roundTo(n, 3),
@@ -161,7 +161,7 @@ index 32a5d9d..32505a9 100644
    return x - n * Math.floor(x / n);
  }
  
-+// UPSTREAM-G: "00".."99", for the pad-to-two case that dominates date formatting
++// UPSTREAM-F: "00".."99", for the pad-to-two case that dominates date formatting
 +const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
 +
  export function padStart(input, n = 2) {
@@ -176,7 +176,7 @@ index 32a5d9d..32505a9 100644
  }
  
  export function roundTo(number, digits, rounding = "round") {
-+  // UPSTREAM-G: every rounding mode is the identity on an integer once digits is
++  // UPSTREAM-F: every rounding mode is the identity on an integer once digits is
 +  // non-negative, and that is what every DateTime numeric token arrives as.
 +  if (digits >= 0 && Number.isInteger(number)) {
 +    return number;

@@ -1,4 +1,4 @@
-# F — intern `Locale`, and memoize the three things rebuilt off it per value
+# E — intern `Locale`, and memoize the three things rebuilt off it per value
 
 `src/impl/locale.js` · `src/duration.js`
 

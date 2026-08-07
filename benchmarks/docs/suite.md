@@ -42,14 +42,14 @@ two cases that reset the caches decide the answer.
 
 **The zone patches**, on every case that names a zone: `DateTime#setZone`,
 `DateTime.local` with a zone, and both token parsers with one. None of those
-formats anything — they need an offset to place a local time, and B and E are what
+formats anything — they need an offset to place a local time, and B and D are what
 that offset costs. The same four cases *without* a zone move by much less, which
 is the size of the rest of the ladder on paths it was not written for.
 
-**F**, on `Info.months` and `Info.weekdays`, both of which build a `Locale` per
+**E**, on `Info.months` and `Info.weekdays`, both of which build a `Locale` per
 call and now get an interned one.
 
-**H**, which this is the only table that reaches at all. Its relative-time table
+**G**, which this is the only table that reaches at all. Its relative-time table
 lands on `DateTime#toRelativeCalendar`; the reused `Date` inside `SystemZone` on
 `DateTime.now` — the default zone, and so the one configuration
 [`upstream`](upstream.md) never names; and the `Duration` unit table plus the
@@ -57,7 +57,7 @@ lands on `DateTime#toRelativeCalendar`; the reused `Date` inside `SystemZone` on
 margin, and the ladder's [`other` table](coverage.md) is where its reach is
 visible rather than here.
 
-**K**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
+**J**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
 bulk.
 
 ## The two cases that reset the caches
@@ -69,10 +69,10 @@ on both engines because every iteration deliberately defeats the locale and
 formatter caches.
 
 That is a reset-path cost, not a regression introduced by this audit's retained
-H arithmetic or K Duration-format changes: the case formats DateTimes and reaches
+G arithmetic or J Duration-format changes: the case formats DateTimes and reaches
 neither path. Each patch's cache is cleared where luxon clears the cache it stands
 in for, so none of the speedups elsewhere is a cache quietly outliving its reset.
-These rows are how the reset hooks in B, C, D and E came to be written.
+These rows are how the reset hooks in A, B, C and D came to be written.
 
 ## The case nothing moves
 

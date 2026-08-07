@@ -1,4 +1,4 @@
-// G's one change off the formatter is tsToObj, and it is the one with a risk
+// F's one change off the formatter is tsToObj, and it is the one with a risk
 // worth a file. Replacing new Date(ts) with civil math also dropped the TimeClip
 // the Date constructor was running on the way in — truncate toward zero, NaN
 // outside +/-MAX_DATE — and neither is something a benchmark reaches, because

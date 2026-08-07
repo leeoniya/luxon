@@ -1,4 +1,4 @@
-// G replaces two library calls with arithmetic and adds four guards. The
+// F replaces two library calls with arithmetic and adds four guards. The
 // arithmetic has an exact oracle — the Date calls it replaced, which are still
 // in the platform — so tsToObj is checked against new Date().getUTC*() rather
 // than against recorded values, and padStart against String#padStart.
@@ -46,7 +46,7 @@ const INSTANTS = [
   4107542400000, // 2100-03-01, the leap day the century rule does take away
 ];
 
-/** tsToObj as it stood before G */
+/** tsToObj as it stood before F */
 function stockFields(ts: number) {
   const d = new Date(ts);
 

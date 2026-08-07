@@ -1,7 +1,7 @@
 import type { MutationSet } from "../lib/mutations.ts";
 
 /**
- * I is a table of lower bounds and one guard. A bound that is too low buys less
+ * H is a table of lower bounds and one guard. A bound that is too low buys less
  * and is never wrong; a bound that is too high skips a unit whose answer was
  * one, and the caller is told days when the answer was a week. So most of these
  * raise a floor, and each is the floor a naive reading of tzdata would have
@@ -9,7 +9,7 @@ import type { MutationSet } from "../lib/mutations.ts";
  * day. One of them is not hypothetical: the weeks floor really was 6.9 days.
  */
 const set: MutationSet = {
-  patch: "09-relative-skip.patch",
+  patch: "08-relative-skip.patch",
   tests: ["test/relative-skip-fixtures.test.ts"],
   mutations: [
     // ---- floors raised to what tzdata looks like from a distance ----

@@ -1,9 +1,9 @@
 Patch: compileFormat
-Letter: K
-Requires: G (numericPath)
+Letter: J
+Requires: F (numericPath)
 Files: src/impl/formatter.js
 Summary: Formatter: compile formats once, read shifted Duration fields directly, and memoize the name each DateTime token resolves to
-Description: benchmarks/docs/pr/11-compile-format.md
+Description: benchmarks/docs/pr/10-compile-format.md
 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 index 4c80d34..a68bc57 100644
@@ -14,14 +14,14 @@ index 4c80d34..a68bc57 100644
  import { padStart, roundTo } from "./util.js";
  
 -function stringifyTokens(splits, tokenToString) {
--  // UPSTREAM-G: indexed loop (no iterator allocation per format) and a verbatim
+-  // UPSTREAM-F: indexed loop (no iterator allocation per format) and a verbatim
 -  // check so punctuation skips tokenToString entirely.
 -  let s = "";
 -  for (let i = 0; i < splits.length; i++) {
 -    const token = splits[i];
 -    if (token.literal || token.verbatim) {
 -      s += token.val;
-+// ---- UPSTREAM-K: compiled format programs ----------------------------------
++// ---- UPSTREAM-J: compiled format programs ----------------------------------
 +// A format string compiles to alternating literal/handler runs. Handlers take
 +// (formatter, dateTime, knownEnglish, useDateTimeFormatter) so that a program
 +// depends on the pattern alone and can be shared across locales and formatters.
@@ -365,7 +365,7 @@ index 4c80d34..a68bc57 100644
 +          ? "always"
 +          : "auto";
 +
-+    // UPSTREAM-K: field is already canonical and shiftTo filled values in that
++    // UPSTREAM-J: field is already canonical and shiftTo filled values in that
 +    // shape, so get() would only normalize the same known unit again.
 +    let value = (collapsed.values[field] || 0) * (secondaryNegative ? -1 : 1);
 +
@@ -612,7 +612,7 @@ index 4c80d34..a68bc57 100644
 -      };
 -
 -    return stringifyTokens(Formatter.parseFormat(fmt), tokenToString);
-+    // UPSTREAM-K: see benchmarks/patches/
++    // UPSTREAM-J: see benchmarks/patches/
 +    return cfRun(this, dt, fmt);
    }
  
@@ -686,7 +686,7 @@ index 4c80d34..a68bc57 100644
 -        largestUnit: Object.keys(collapsed.values)[0],
 -      };
 -    return stringifyTokens(tokens, tokenToString(collapsed, durationInfo));
-+    // UPSTREAM-K: the fields, widths and literal runs depend on the pattern
++    // UPSTREAM-J: the fields, widths and literal runs depend on the pattern
 +    // alone. Compile them once instead of rebuilding three closures and four
 +    // temporary arrays around every Duration render.
 +    return cfRunDuration(this, dur, fmt);

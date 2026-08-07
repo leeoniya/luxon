@@ -1,11 +1,11 @@
-// H's sweep, reduced to the cases that actually discriminate.
+// G's sweep, reduced to the cases that actually discriminate.
 //
 // The sweep beside this file compares roughly a million calls against a stock
 // build. That works while the fork exists and stops working the moment a patch
 // merges, because upstream has one tree and nothing to compare against. So every
-// mutation in benchmarks/mutations/08-arith-direct.ts was run against the sweep
+// mutation in benchmarks/mutations/07-arith-direct.ts was run against the sweep
 // and the case that failed first was recorded; those cases are below, and nothing
-// else is. `node mutate.ts --patch 08-arith-direct` is what checks that claim.
+// else is. `node mutate.ts --patch 07-arith-direct` is what checks that claim.
 //
 // Two of the fixtures were not found that way. They are the two mutations the
 // sweep did NOT catch, which is the more interesting half of the result: a

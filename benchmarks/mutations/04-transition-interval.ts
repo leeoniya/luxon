@@ -3,14 +3,14 @@ import type { MutationSet } from "../lib/mutations.ts";
 const nl = (...parts: string[]) => parts.join("\n");
 
 /**
- * E is the one patch where most of the code is not the answer. A span that is
+ * D is the one patch where most of the code is not the answer. A span that is
  * too wide returns a stale value and is a correctness bug; a span that is too
  * narrow, evicted too eagerly, or never allowed to grow is right every time and
  * buys nothing. So roughly half of these are only visible to a count of Intl
  * calls, and that is not a weakness of the tests — it is what the patch is.
  */
 const set: MutationSet = {
-  patch: "05-transition-interval.patch",
+  patch: "04-transition-interval.patch",
   tests: ["test/transition-interval-fixtures.test.ts", "test/offset-patches.test.ts"],
   mutations: [
     // ---- the span, where being wrong is being wrong ----

@@ -1,9 +1,9 @@
 Patch: trimAllocs
-Letter: J
+Letter: I
 Requires: none
 Files: src/datetime.js, src/duration.js, src/impl/diff.js
 Summary: objects built to be read once and dropped: clone's config, as()'s Duration, endOf's calendar-boundary chain, diff's single-lower-unit merge
-Description: benchmarks/docs/pr/10-trim-allocs.md
+Description: benchmarks/docs/pr/09-trim-allocs.md
 
 diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..179875a 100644
@@ -13,7 +13,7 @@ index fd32d47..179875a 100644
  const INVALID = "Invalid DateTime";
  const MAX_DATE = 8.64e15;
  
-+// UPSTREAM-J: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
++// UPSTREAM-I: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
 +// A Map rather than an object because the key is whatever the caller passed:
 +// oneOf["__proto__"] on an object finds Object.prototype, which is truthy, and
 +// endOf("__proto__") would then behave like startOf instead of throwing.
@@ -37,7 +37,7 @@ index fd32d47..179875a 100644
      wasHole: inst.wasHole,
    };
 -  return new DateTime({ ...current, ...alts, old: current });
-+  // UPSTREAM-J: was `new DateTime({ ...current, ...alts, old: current })`, a
++  // UPSTREAM-I: was `new DateTime({ ...current, ...alts, old: current })`, a
 +  // second object merged out of the first. `alts` is a different set of keys at
 +  // each call site, so the config the constructor reads was a different shape on
 +  // every path into it; naming the fields gives it one.
@@ -70,7 +70,7 @@ index fd32d47..179875a 100644
 +
 +    const normalized = typeof unit === "string" ? unit.toLowerCase() : unit;
 +
-+    // UPSTREAM-J: calendar units with a fixed month boundary can combine the
++    // UPSTREAM-I: calendar units with a fixed month boundary can combine the
 +    // plus().startOf() pair. Both routes target the first civil millisecond of
 +    // the next period; keeping minus(1) preserves the existing answer at offset
 +    // transitions. Week is excluded because its boundary can be locale-based.
@@ -115,7 +115,7 @@ index fd32d47..179875a 100644
 +      }).minus(1);
 +    }
 +
-+    // UPSTREAM-J: was this.plus({ [unit]: 1 }); see oneOf() at the top of the file
++    // UPSTREAM-I: was this.plus({ [unit]: 1 }); see oneOf() at the top of the file
 +    return this.plus(oneOf(unit)).startOf(unit, opts).minus(1);
    }
  
@@ -131,7 +131,7 @@ index ed27f9c..4e35b4c 100644
 -    return this.isValid ? this.shiftTo(unit).get(unit) : NaN;
 +    if (!this.isValid) return NaN;
 +
-+    // UPSTREAM-J: was this.shiftTo(unit).get(unit) — a Duration built, walked,
++    // UPSTREAM-I: was this.shiftTo(unit).get(unit) — a Duration built, walked,
 +    // normalized and cloned so that one number could be read back off it. With a
 +    // single target unit shiftTo's loop is the sum below: everything ordered
 +    // above the target converted up into it, everything below divided into it.
@@ -185,7 +185,7 @@ index ebd129e..2cd7d59 100644
      }
    }
  
-+  // UPSTREAM-J: the common mixed-unit shape has one lower-order unit. `as`
++  // UPSTREAM-I: the common mixed-unit shape has one lower-order unit. `as`
 +  // answers exactly what shiftTo(unit).get(unit) answered, and writing that
 +  // value into the result avoids the final Duration#plus and its clone.
 +  if (lowerOrderUnits.length === 1) {

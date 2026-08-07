@@ -1,4 +1,4 @@
-// H has two shapes of risk in it, and they are not the same.
+// G has two shapes of risk in it, and they are not the same.
 //
 // Three of the constants it hoists are lookup tables moved out of the function
 // that reads them. A table that lost or gained a key while being moved would not

@@ -1,4 +1,4 @@
-# I — two calls `toRelative` makes that cannot affect its answer
+# H — two calls `toRelative` makes that cannot affect its answer
 
 `src/datetime.js`
 

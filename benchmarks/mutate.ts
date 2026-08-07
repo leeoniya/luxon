@@ -10,7 +10,7 @@
  * the same thing if the forty are the ones that fail here.
  *
  * Run: node mutate.ts                      (every catalog)
- *      node mutate.ts --patch 08-arith-direct
+ *      node mutate.ts --patch 07-arith-direct
  *      node mutate.ts --only "fast path"   (substring of the mutation name)
  *      node mutate.ts --witness            (print the failing case, not just the verdict)
  *

@@ -1,9 +1,9 @@
 Patch: relativeSkip
-Letter: I
+Letter: H
 Requires: none
 Files: src/datetime.js
 Summary: two calls toRelative makes that cannot affect its answer
-Description: benchmarks/docs/pr/09-relative-skip.md
+Description: benchmarks/docs/pr/08-relative-skip.md
 
 diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..2009215 100644
@@ -13,7 +13,7 @@ index fd32d47..2009215 100644
    return new DateTime({ ts, zone, loc, o, wasHole });
  }
  
-+// UPSTREAM-I: the least real time one step of each unit can span, so that two
++// UPSTREAM-H: the least real time one step of each unit can span, so that two
 +// instants closer together than this cannot be one of that unit apart and the
 +// diff below is one whose answer is already known.
 +//
@@ -64,7 +64,7 @@ index fd32d47..2009215 100644
        unit = undefined;
      }
 -    return diffRelative(base, this.plus(padding), {
-+    // UPSTREAM-I: padding is 0 unless the caller asked for it, and plus(0) is a
++    // UPSTREAM-H: padding is 0 unless the caller asked for it, and plus(0) is a
 +    // clone whose offset is re-derived to produce a copy of this
 +    return diffRelative(base, padding === 0 ? this : this.plus(padding), {
        ...options,

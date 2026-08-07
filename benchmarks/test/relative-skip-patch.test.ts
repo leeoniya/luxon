@@ -1,4 +1,4 @@
-// I declines to run diffs whose answers it can already bound, so the way it
+// H declines to run diffs whose answers it can already bound, so the way it
 // fails is by declining one it could not: a floor set above the shortest that
 // unit really is, in a zone where it is shorter than usual. Everything here is
 // built to sit on that.

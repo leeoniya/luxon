@@ -2,7 +2,7 @@
 //
 // Not `git apply`, and deliberately not a fuzzy one either. Hunks are located by
 // searching for their context, not by trusting their line numbers, because the
-// patches are independently selectable: a run may apply A and F but not the four
+// patches are independently selectable: a run may apply A and E but not the four
 // between them, and every patch ahead of one in the same file has already moved
 // its lines. What is kept from `git apply` is the strictness — a hunk whose
 // context does not appear EXACTLY once fails the run rather than landing

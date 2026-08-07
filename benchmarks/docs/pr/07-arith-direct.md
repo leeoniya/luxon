@@ -1,4 +1,4 @@
-# H — reach values directly, on the arithmetic path
+# G — reach values directly, on the arithmetic path
 
 `src/datetime.js` · `src/duration.js` · `src/impl/diff.js` · `src/impl/english.js` · `src/zones/systemZone.js`
 

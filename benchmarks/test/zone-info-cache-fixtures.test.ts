@@ -1,12 +1,10 @@
 // A swaps a per-call Intl.DateTimeFormat construction for the lookup luxon
-// already had. Two things have to hold: the formatter it gets back is the one it
-// asked for, and the cache it now shares is still emptied when a caller asks for
-// that.
+// already had, then scans format() for the name. Two things have to hold: the
+// formatter it gets back is the one it asked for, and both caches are still
+// emptied when a caller asks for that.
 //
-// These load A on its own, which is not fussiness. D rewrites parseZoneInfo to
-// scan dtf.format() and reaches the line A edits only when its scanner declines a
-// layout, so in any build carrying D these assertions would pass without A's line
-// ever running.
+// The reset test makes the scanner reject its mocked formatter after the reset,
+// which drives the cached formatToParts fallback as well as the scanner path.
 //
 // The expected name is recomputed here with the expression A replaced, rather
 // than recorded, so no CLDR update can turn this red on its own.
@@ -43,9 +41,8 @@ describe("zoneInfoCache", () => {
     }
   });
 
-  // The cache A starts reading is cleared by Locale.resetCache(), which
-  // Settings.resetCaches() calls. That is the whole reason this is safe to
-  // share, so it is worth an assertion rather than a reading of the code.
+  // Both caches A starts reading are cleared by Locale.resetCache(), which
+  // Settings.resetCaches() calls.
   test("Settings.resetCaches() reaches the shared formatter cache", async () => {
     const m = await loadLuxon([patchKey("zoneInfoCache")]);
     const z = m.IANAZone.create("America/New_York");

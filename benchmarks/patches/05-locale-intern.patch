@@ -1,9 +1,9 @@
 Patch: localeIntern
-Letter: F
+Letter: E
 Requires: none
 Files: src/impl/locale.js, src/duration.js
 Summary: Locale: intern Locales, and memoize the three things rebuilt per value off them — redefaultToEN and the two formatters toHuman asks for
-Description: benchmarks/docs/pr/06-locale-intern.md
+Description: benchmarks/docs/pr/05-locale-intern.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
 index 76f08a7..05e57d7 100644
@@ -50,7 +50,7 @@ index 76f08a7..05e57d7 100644
    }
  
    static create(locale, numberingSystem, outputCalendar, weekSettings, defaultToEN = false) {
-+    // UPSTREAM-F: see benchmarks/patches/. Only the plain shapes are interned:
++    // UPSTREAM-E: see benchmarks/patches/. Only the plain shapes are interned:
 +    // no numbering system and no week settings, and either no outputCalendar or
 +    // the "gregory" that Info.months and Info.monthsFormat pass explicitly.
 +    // Anything else falls through to the original uncached path.
@@ -106,7 +106,7 @@ index 76f08a7..05e57d7 100644
    }
  
    redefaultToEN(alts = {}) {
-+    // UPSTREAM-F: toFormat() lands here on every call with no alts at all.
++    // UPSTREAM-E: toFormat() lands here on every call with no alts at all.
 +    if (Object.getOwnPropertyNames(alts).length === 0) {
 +      const gen = localeSettingsGen();
 +
@@ -125,7 +125,7 @@ index 76f08a7..05e57d7 100644
      return getCachedLF(this.intl, opts);
    }
  
-+  // UPSTREAM-F: Duration#toHuman asks for one number formatter per unit it
++  // UPSTREAM-E: Duration#toHuman asks for one number formatter per unit it
 +  // prints and one list formatter, and builds fresh option objects for each to
 +  // ask with — so a two-unit duration pays three JSON.stringify cache keys and
 +  // two PolyNumberFormatters per call. Called with no options, every one of
@@ -191,12 +191,12 @@ index ed27f9c..27343c5 100644
 -        }
 -        if (isUndefined(val) || (val === 0 && !showZeros)) {
 -          return null;
-+    // UPSTREAM-F: any option at all is spread into both formatters' options
++    // UPSTREAM-E: any option at all is spread into both formatters' options
 +    // below, so the memo is only good for the call that passed none — which is
 +    // the call toHuman() makes.
 +    const memo = Object.keys(opts).length === 0 ? this.loc.humanFormatters() : null;
 +
-+    // UPSTREAM-F: build the short output list directly instead of allocating
++    // UPSTREAM-E: build the short output list directly instead of allocating
 +    // the eight-element intermediate array that map().filter() discarded.
 +    const l = [];
 +
