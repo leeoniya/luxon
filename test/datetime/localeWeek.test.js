@@ -1,6 +1,6 @@
 /* global test expect */
 
-import { DateTime, Info } from "../../src/luxon";
+import { DateTime, Info, Settings } from "../../src/luxon";
 import Helpers, { supportsMinDaysInFirstWeek } from "../helpers";
 
 const withDefaultWeekSettings = Helpers.setUnset("defaultWeekSettings");
@@ -292,4 +292,25 @@ describe("Week settings can be overridden", () => {
       expect(modified.day).toBe(26);
     });
   });
+});
+
+test("locale week APIs observe default week settings changed after warm-up", () => {
+  const original = Settings.defaultWeekSettings;
+  const mondayFirst = { firstDay: 1, minimalDays: 4, weekend: [6, 7] };
+  const sundayFirst = { firstDay: 7, minimalDays: 1, weekend: [5, 6] };
+
+  try {
+    Settings.defaultWeekSettings = mondayFirst;
+    expect(Info.getStartOfWeek({ locale: "en-US" })).toBe(mondayFirst.firstDay);
+    expect(DateTime.fromISO("2024-03-13", { locale: "en-US" }).localWeekday).toBe(3);
+
+    Settings.defaultWeekSettings = sundayFirst;
+    expect(Info.getStartOfWeek({ locale: "en-US" })).toBe(sundayFirst.firstDay);
+    expect(Info.getMinimumDaysInFirstWeek({ locale: "en-US" })).toBe(sundayFirst.minimalDays);
+    expect(Info.getWeekendWeekdays({ locale: "en-US" })).toEqual(sundayFirst.weekend);
+    expect(DateTime.fromISO("2024-03-13", { locale: "en-US" }).localWeekday).toBe(4);
+  } finally {
+    Settings.defaultWeekSettings = original;
+    Settings.resetCaches();
+  }
 });

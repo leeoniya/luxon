@@ -115,3 +115,45 @@ test("a DateTime created before a default locale change observes the new setting
     Settings.resetCaches();
   }
 });
+
+test("an explicit gregory calendar stays separate from a changed default output calendar", () => {
+  const previousOutputCalendar = Settings.defaultOutputCalendar;
+  const format = { year: "numeric", month: "numeric", day: "numeric" };
+  const jsDate = new Date("2024-03-10T18:30:00Z");
+
+  try {
+    Settings.defaultOutputCalendar = "gregory";
+    DateTime.fromJSDate(jsDate, { zone: "UTC", locale: "en-US", numberingSystem: "latn" });
+
+    Settings.defaultOutputCalendar = "islamic";
+    const implicit = DateTime.fromJSDate(jsDate, {
+      zone: "UTC",
+      locale: "en-US",
+      numberingSystem: "latn",
+    });
+    const gregory = DateTime.fromJSDate(jsDate, {
+      zone: "UTC",
+      locale: "en-US",
+      numberingSystem: "latn",
+      outputCalendar: "gregory",
+    });
+
+    expect(implicit.outputCalendar).toBe("islamic");
+    expect(gregory.outputCalendar).toBe("gregory");
+    expect(implicit.toLocaleString(format)).toBe(
+      new Intl.DateTimeFormat("en-US-u-ca-islamic-nu-latn", {
+        ...format,
+        timeZone: "UTC",
+      }).format(jsDate)
+    );
+    expect(gregory.toLocaleString(format)).toBe(
+      new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
+        ...format,
+        timeZone: "UTC",
+      }).format(jsDate)
+    );
+  } finally {
+    Settings.defaultOutputCalendar = previousOutputCalendar;
+    Settings.resetCaches();
+  }
+});

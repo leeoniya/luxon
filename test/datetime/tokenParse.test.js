@@ -1365,3 +1365,68 @@ test("DateTime format parsers remain correct across different week settings", ()
     expect(cached.valueOf()).toBe(fresh.valueOf());
   }
 });
+
+test("Settings.resetCaches rebuilds cached token parsers from current Intl month names", () => {
+  const NativeDateTimeFormat = Intl.DateTimeFormat;
+  const january = new NativeDateTimeFormat("fr", { month: "long", timeZone: "UTC" }).format(
+    new Date(Date.UTC(2024, 0, 1))
+  );
+  let marker = "before-";
+
+  function MockDateTimeFormat(...args) {
+    const formatter = new NativeDateTimeFormat(...args);
+    const formatToParts = formatter.formatToParts.bind(formatter);
+    Object.defineProperty(formatter, "formatToParts", {
+      configurable: true,
+      value: (date) =>
+        formatToParts(date).map((part) =>
+          part.type === "month" ? { ...part, value: `${marker}${part.value}` } : part
+        ),
+    });
+    return formatter;
+  }
+  MockDateTimeFormat.supportedLocalesOf =
+    NativeDateTimeFormat.supportedLocalesOf.bind(NativeDateTimeFormat);
+  MockDateTimeFormat.prototype = NativeDateTimeFormat.prototype;
+
+  try {
+    Intl.DateTimeFormat = MockDateTimeFormat;
+    Settings.resetCaches();
+    expect(
+      DateTime.fromFormat(`before-${january} 15 2024`, "MMMM d yyyy", {
+        locale: "fr",
+        zone: "UTC",
+      }).toISODate()
+    ).toBe("2024-01-15");
+
+    marker = "after-";
+    Settings.resetCaches();
+    expect(
+      DateTime.fromFormat(`after-${january} 15 2024`, "MMMM d yyyy", {
+        locale: "fr",
+        zone: "UTC",
+      }).toISODate()
+    ).toBe("2024-01-15");
+  } finally {
+    Intl.DateTimeFormat = NativeDateTimeFormat;
+    Settings.resetCaches();
+  }
+});
+
+test("DateTime.fromFormat keeps interleaved locale and numbering parser keys separate", () => {
+  const format = "MMMM d yyyy";
+  const optionSets = [
+    { locale: "fr", numberingSystem: "latn", zone: "UTC" },
+    { locale: "de", numberingSystem: "arab", zone: "UTC" },
+    { locale: "fr", numberingSystem: "arab", zone: "UTC" },
+    { locale: "de", numberingSystem: "latn", zone: "UTC" },
+  ];
+
+  for (const options of [...optionSets, ...optionSets.slice().reverse()]) {
+    const text = DateTime.fromObject({ year: 2024, month: 7, day: 4 }, options).toFormat(format);
+    const parsed = DateTime.fromFormat(text, format, options);
+
+    expect(parsed.isValid).toBe(true);
+    expect(parsed.toISODate()).toBe("2024-07-04");
+  }
+});

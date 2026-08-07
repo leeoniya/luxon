@@ -1,5 +1,6 @@
 /* global test expect */
 import { Duration, Settings } from "../../src/luxon";
+import { casualMatrix } from "../../src/duration";
 
 const dur = () =>
   Duration.fromObject({
@@ -359,6 +360,32 @@ test("Duration#toFormat preserves fractional and sign option behavior", () => {
       signMode: "negativeLargestOnly",
     })
   ).toBe("-01:08:33:49.125");
+});
+
+test("Duration#toFormat uses a custom matrix for compiled fields, fractions, and signs", () => {
+  const matrix = {
+    ...casualMatrix,
+    days: {
+      ...casualMatrix.days,
+      hours: 7,
+      minutes: 7 * 60,
+      seconds: 7 * 60 * 60,
+      milliseconds: 7 * 60 * 60 * 1000,
+    },
+  };
+
+  expect(
+    Duration.fromObject(
+      { days: 1, hours: 2, minutes: 3, seconds: 4, milliseconds: 5 },
+      { matrix }
+    ).toFormat("hh:mm:ss.SSS")
+  ).toBe("09:03:04.005");
+  expect(Duration.fromObject({ days: 1.5 }, { matrix }).toFormat("hh:mm")).toBe("10:30");
+  expect(
+    Duration.fromObject({ days: -0.5 }, { matrix }).toFormat("hh:mm", {
+      signMode: "negativeLargestOnly",
+    })
+  ).toBe("-03:30");
 });
 
 // - signMode negativeLargestOnly

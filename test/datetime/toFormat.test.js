@@ -794,3 +794,34 @@ test("DateTime#toFormat macro tokens equal their locale presets in every positio
     expect(dateTime.toFormat(`${macro} ${macro}`)).toBe(`${rendered} ${rendered}`);
   }
 });
+
+test("DateTime#toFormat keeps interleaved French and German compiled names separate", () => {
+  const dateTime = DateTime.fromObject({ year: 2024, month: 3, day: 5, hour: 14 }, { zone: "UTC" });
+
+  for (const locale of ["fr", "de", "fr", "de"]) {
+    const localized = dateTime.reconfigure({ locale });
+    const part = (options, type) =>
+      localized.toLocaleParts(options).find((candidate) => candidate.type === type).value;
+    const expected = [
+      part({ weekday: "long" }, "weekday"),
+      part({ month: "long" }, "month"),
+      part({ hour: "numeric", hour12: true }, "dayPeriod"),
+      part({ era: "short" }, "era"),
+    ].join(" ");
+
+    expect(localized.toFormat("cccc LLLL a G")).toBe(expected);
+  }
+});
+
+test("DateTime#toFormat distinguishes French year zero and year one eras", () => {
+  const eras = [0, 1, 0, 1].map((year) => {
+    const dateTime = DateTime.fromObject({ year, month: 1, day: 1 }, { zone: "UTC", locale: "fr" });
+    const expected = dateTime.toLocaleParts({ era: "short" }).find(({ type }) => type === "era").value;
+    expect(dateTime.toFormat("G")).toBe(expected);
+    return expected;
+  });
+
+  expect(eras[0]).not.toBe(eras[1]);
+  expect(eras[0]).toBe(eras[2]);
+  expect(eras[1]).toBe(eras[3]);
+});

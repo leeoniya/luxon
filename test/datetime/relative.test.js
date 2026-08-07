@@ -410,6 +410,40 @@ test("DateTime#toRelative reports units shortened by historical zone jumps", () 
   }
 });
 
+test("DateTime#toRelative finds a backward six-day week across the Pacific/Apia jump", () => {
+  const base = DateTime.fromISO("2011-12-31T00:00", { zone: "Pacific/Apia" });
+  const target = DateTime.fromISO("2011-12-24T00:00", { zone: "Pacific/Apia" });
+  const units = ["weeks", "days", "hours"];
+
+  expect(target.diff(base, "weeks").weeks).toBe(-1);
+  expect(target.toRelative({ base, unit: units })).toBe(target.toRelative({ base, unit: "weeks" }));
+});
+
+test("DateTime#toRelative finds a backward shortened quarter in Antarctica/Davis", () => {
+  const base = DateTime.fromISO("1969-04-30T00:00", { zone: "Antarctica/Davis" });
+  const target = DateTime.fromISO("1969-01-31T00:00", { zone: "Antarctica/Davis" });
+  const units = ["quarters", "months", "days"];
+
+  expect(target.diff(base, "quarters").quarters).toBe(-1);
+  expect(target.toRelative({ base, unit: units })).toBe(
+    target.toRelative({ base, unit: "quarters" })
+  );
+});
+
+test("DateTime#toRelative applies padding across the Pacific/Apia date-line jump", () => {
+  const base = DateTime.fromISO("2011-12-24T00:00", { zone: "Pacific/Apia" });
+  const target = DateTime.fromISO("2011-12-29T23:00", { zone: "Pacific/Apia" });
+  const padding = 2 * 3600000;
+  const units = ["weeks", "days", "hours"];
+  const paddedTarget = target.plus(padding);
+
+  expect(paddedTarget.toISO()).toBe("2011-12-31T01:00:00.000+14:00");
+  expect(target.toRelative({ base, unit: units })).toBe(target.toRelative({ base, unit: "days" }));
+  expect(target.toRelative({ base, unit: units, padding })).toBe(
+    paddedTarget.toRelative({ base, unit: "weeks" })
+  );
+});
+
 test("DateTime#toRelative does not skip spans that only just reach a unit", () => {
   const cases = [
     ["seconds", "2023-01-01T00:00:00", "2023-01-01T00:00:01", ["seconds"]],

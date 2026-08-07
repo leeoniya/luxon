@@ -1,6 +1,6 @@
 /* global test expect */
 
-import { Info } from "../../src/luxon";
+import { Info, Settings } from "../../src/luxon";
 
 import Helpers from "../helpers";
 const withDefaultLocale = Helpers.withDefaultLocale;
@@ -118,6 +118,27 @@ test("Info.months respects the calendar", () => {
     "Dhuʻl-Qiʻdah",
     "Dhuʻl-Hijjah",
   ]);
+});
+
+test("Info.months observes a default numbering system changed after warm-up", () => {
+  const original = Settings.defaultNumberingSystem;
+
+  try {
+    Settings.defaultNumberingSystem = "latn";
+    Info.months("numeric", { locale: "en-US", outputCalendar: "gregory" });
+
+    Settings.defaultNumberingSystem = "beng";
+    expect(Info.months("numeric", { locale: "en-US", outputCalendar: "gregory" })).toEqual(
+      Info.months("numeric", {
+        locale: "en-US",
+        numberingSystem: "beng",
+        outputCalendar: "gregory",
+      })
+    );
+  } finally {
+    Settings.defaultNumberingSystem = original;
+    Settings.resetCaches();
+  }
 });
 
 test("Info.months respects the locale", () => {

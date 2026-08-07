@@ -282,6 +282,24 @@ test("fold alternatives and calendar arithmetic preserve both possible offsets",
   expect(fold.plus({ hours: 24 }).toISO()).toBe("2024-11-04T00:30:00.000-05:00");
 });
 
+test("DateTime#endOf('second') preserves each side of a DST fold", () => {
+  const fold = DateTime.fromObject(
+    { year: 2024, month: 11, day: 3, hour: 1, minute: 30, second: 15 },
+    { zone: "America/New_York" }
+  );
+  const alternatives = fold.getPossibleOffsets();
+
+  expect(alternatives.map((dt) => dt.endOf("second").toISO())).toEqual([
+    "2024-11-03T01:30:15.999-04:00",
+    "2024-11-03T01:30:15.999-05:00",
+  ]);
+  for (const dt of alternatives) {
+    expect(dt.endOf("second").equals(dt.plus({ seconds: 1 }).startOf("second").minus(1))).toBe(
+      true
+    );
+  }
+});
+
 test("adding from a resolved DST hole clears wasHole", () => {
   const hole = DateTime.fromObject(
     { year: 2017, month: 3, day: 12, hour: 2, minute: 0 },

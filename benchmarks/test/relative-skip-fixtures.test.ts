@@ -136,6 +136,8 @@ for (const [label, keys] of VARIANTS) {
     });
 
     // JEST-PARTIAL (sync shared cases; not removable): test/datetime/relative.test.js — "DateTime#toRelative falls through for spans just under a unit in both directions"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/relative.test.js — "DateTime#toRelative finds a backward six-day week across the Pacific/Apia jump"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/relative.test.js — "DateTime#toRelative finds a backward shortened quarter in Antarctica/Davis"
     test("a span reaching backwards is measured the same way", async () => {
       const m = await loadLuxon(keys);
       const zone = "America/New_York";

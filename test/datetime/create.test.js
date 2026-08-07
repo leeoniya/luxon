@@ -452,6 +452,27 @@ const startOfUTCYear = (year) => {
   return d.valueOf();
 };
 
+test.each([
+  [
+    "positive",
+    1.75,
+    { year: 1970, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 1 },
+  ],
+  [
+    "negative",
+    -1.75,
+    { year: 1969, month: 12, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999 },
+  ],
+])(
+  "DateTime.fromMillis preserves a %s fractional instant while truncating its fields",
+  (_sign, ms, fields) => {
+    const dt = DateTime.fromMillis(ms, { zone: "UTC" });
+
+    expect(dt.valueOf()).toBe(ms);
+    expect(dt.toObject()).toEqual(fields);
+  }
+);
+
 test("DateTime.fromMillis reads proleptic and TimeClip boundary fields like Date", () => {
   const maxDate = 8.64e15;
   const instants = [

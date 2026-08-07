@@ -558,6 +558,52 @@ test("DateTime#endOf throws on invalid units", () => {
   expect(() => DateTime.fromISO("2016-03-12T10:00").endOf(null)).toThrow();
 });
 
+test("DateTime#endOf observes options getters for fixed calendar units", () => {
+  const dt = DateTime.fromISO("2024-01-15T12:00", { zone: "America/New_York" });
+  const sentinel = new Error("options getter was read");
+  const opts = {
+    get useLocaleWeeks() {
+      throw sentinel;
+    },
+  };
+
+  for (const unit of ["year", "quarter", "month"]) {
+    expect(() => dt.endOf(unit, opts)).toThrow(sentinel);
+  }
+});
+
+test("DateTime#endOf preserves behavior for prototype-like unit names", () => {
+  const dt = DateTime.fromISO("2024-01-01T12:00", { zone: "UTC" });
+
+  for (const unit of ["__proto__", "constructor"]) {
+    expect(dt.endOf(unit).toISO()).toBe(
+      dt
+        .plus({ [unit]: 1 })
+        .startOf(unit)
+        .minus(1)
+        .toISO()
+    );
+  }
+
+  for (const unit of ["toString", "valueOf", "hasOwnProperty"]) {
+    expect(() => dt.endOf(unit)).toThrow("Invalid unit");
+  }
+});
+
+test("DateTime bare numeric arithmetic is elapsed milliseconds across DST", () => {
+  const beforeSpring = DateTime.fromISO("2024-03-10T01:30", {
+    zone: "America/New_York",
+  });
+  const afterSpring = DateTime.fromISO("2024-03-10T03:30", {
+    zone: "America/New_York",
+  });
+
+  expect(beforeSpring.plus(3600000).toISO()).toBe("2024-03-10T03:30:00.000-04:00");
+  expect(beforeSpring.plus(3600000).equals(beforeSpring.plus({ hours: 1 }))).toBe(true);
+  expect(afterSpring.minus(3600000).toISO()).toBe("2024-03-10T01:30:00.000-05:00");
+  expect(afterSpring.minus(3600000).equals(afterSpring.minus({ hours: 1 }))).toBe(true);
+});
+
 test("DateTime#plus preserves duration argument validation and own-property semantics", () => {
   const dt = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
 

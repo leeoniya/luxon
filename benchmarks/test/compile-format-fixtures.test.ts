@@ -104,6 +104,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toFormat uses a custom matrix for compiled fields, fractions, and signs"
     test("compiled Duration programs use the Duration's custom matrix", async () => {
       const m = await loadLuxon(keys);
       const make = (mod: typeof stock) => {
@@ -214,7 +215,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/toFormat.test.js — "DateTime#toFormat name tokens agree with locale parts for every field value"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/toFormat.test.js — "DateTime#toFormat keeps interleaved French and German compiled names separate"
     test("two locales asking for the same token do not share an answer", async () => {
       const m = await loadLuxon(keys);
       const at = (locale: string) =>

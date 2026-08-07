@@ -337,6 +337,57 @@ test("DateTime#diff preserves exact milliseconds across zones and directions", (
   expect(left.diff(right, "milliseconds", { conversionAccuracy: "longterm" }).locale).toBe("fr");
 });
 
+test("DateTime#diff keeps milliseconds as the remainder of a calendar-day diff", () => {
+  const earlier = DateTime.fromISO("2024-03-09T23:30:00.250", {
+    zone: "America/New_York",
+  });
+  const later = earlier.plus({ days: 2, milliseconds: 1234 });
+  const forward = later.diff(earlier, ["days", "milliseconds"]);
+  const reverse = earlier.diff(later, ["days", "milliseconds"]);
+
+  expect(forward.toObject()).toEqual({ days: 2, milliseconds: 1234 });
+  expect(earlier.plus(forward).equals(later)).toBe(true);
+  expect(reverse.toObject()).toEqual({ days: -2, milliseconds: -1234 });
+});
+
+test("DateTime#diff splits two lower-order units across a DST transition", () => {
+  const earlier = DateTime.fromISO("2024-03-09T23:30", { zone: "America/New_York" });
+  const later = DateTime.fromISO("2024-03-11T01:45", { zone: "America/New_York" });
+  const forward = later.diff(earlier, ["hours", "minutes"]);
+  const reverse = earlier.diff(later, ["hours", "minutes"]);
+
+  expect(forward.toObject()).toEqual({ hours: 25, minutes: 15 });
+  expect(earlier.plus(forward).equals(later)).toBe(true);
+  expect(reverse.toObject()).toEqual({ hours: -25, minutes: -15 });
+});
+
+test("DateTime#diff backtracks calendar days when times of day do not match", () => {
+  const earlier = DateTime.fromISO("2024-03-08T23:30", { zone: "America/New_York" });
+  const later = DateTime.fromISO("2024-03-11T22:15", { zone: "America/New_York" });
+  const diff = later.diff(earlier, ["days", "hours", "minutes"]);
+
+  expect(diff.toObject()).toEqual({ days: 2, hours: 22, minutes: 45 });
+  expect(earlier.plus(diff).equals(later)).toBe(true);
+});
+
+test("DateTime#diff remains reversible from BCE into CE", () => {
+  const earlier = DateTime.fromObject(
+    { year: -5, month: 3, day: 1, hour: 13, minute: 30 },
+    { zone: "UTC" }
+  );
+  const later = DateTime.fromObject(
+    { year: 2, month: 3, day: 2, hour: 12, minute: 15 },
+    { zone: "UTC" }
+  );
+  const units = ["years", "days", "hours", "minutes"];
+  const forward = later.diff(earlier, units);
+  const reverse = earlier.diff(later, units);
+
+  expect(forward.toObject()).toEqual({ years: 7, days: 0, hours: 22, minutes: 45 });
+  expect(earlier.plus(forward).equals(later)).toBe(true);
+  expect(reverse.toObject()).toEqual({ years: -7, days: 0, hours: -22, minutes: -45 });
+});
+
 test("DateTime#diff with one lower-order unit is reversible across transition edges", () => {
   const pairs = [
     ["2024-01-01T00:00:00.000", "America/New_York", "2024-01-01T02:17:00.000", "America/New_York"],

@@ -120,6 +120,7 @@ for (const [label, keys] of VARIANTS) {
     // A parser is built out of the locale's month, weekday, era and meridiem
     // names, all of which come from caches Settings.resetCaches() empties. If it
     // outlived that reset it would keep matching names the locale no longer has.
+    // JEST-MIRROR (sync until tokenParserCache merges, then remove): test/datetime/tokenParse.test.js — "Settings.resetCaches rebuilds cached token parsers from current Intl month names"
     test("Settings.resetCaches() drops the parsers with the names they were built from", async () => {
       const m = await loadLuxon(keys);
       const Real = Intl.DateTimeFormat;

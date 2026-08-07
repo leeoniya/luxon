@@ -149,6 +149,7 @@ for (const [label, keys] of VARIANTS) {
 
     // new Date() ran TimeClip before any field was read, so both of these used
     // to be handled by the constructor and now have to be done by hand.
+    // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime.fromMillis preserves a %s fractional instant while truncating its fields"
     // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime.fromSeconds keeps fractional instants while truncating displayed fields"
     // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime arithmetic enforces the TimeClip boundary"
     test("a fractional timestamp is truncated and an out-of-range one is invalid", async () => {

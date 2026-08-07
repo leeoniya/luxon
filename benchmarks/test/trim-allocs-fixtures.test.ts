@@ -291,6 +291,7 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(other.endOf("day").toISO(), dt.endOf("day").toISO());
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf observes options getters for fixed calendar units"
     test("calendar-unit endOf preserves startOf's options handling", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-01-15T12:00", { zone: ZONE });
@@ -345,6 +346,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf preserves behavior for prototype-like unit names"
     test("a unit named after something on Object.prototype is answered the way it always was", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-01-01T12:00", { zone: "UTC" }) as unknown as {

@@ -519,6 +519,69 @@ describe("IANAZone.offset public behavior contracts", () => {
       });
     }
   });
+
+  test("handles Boa Vista's quick offset change and return", () => {
+    const zoneName = "America/Boa_Vista";
+    const firstTransition = Date.UTC(2000, 9, 8, 4);
+    const secondTransition = Date.UTC(2000, 9, 15, 3);
+    const points = [
+      firstTransition - 1,
+      firstTransition,
+      Date.UTC(2000, 9, 11, 12),
+      secondTransition - 1,
+      secondTransition,
+    ];
+    const expected = points.map((ts) => intlOffset(zoneName, ts));
+
+    expect(expected[0]).toBe(expected[4]);
+    expect(expected[1]).not.toBe(expected[0]);
+    expect(expected[1]).toBe(expected[3]);
+
+    for (const order of [points, [...points].reverse()]) {
+      IANAZone.resetCache();
+      const zone = IANAZone.create(zoneName);
+      for (const ts of order) {
+        expect(zone.offset(ts)).toBe(intlOffset(zoneName, ts));
+      }
+    }
+  });
+
+  test("traverses Casablanca's dense Ramadan transition schedule", () => {
+    const zoneName = "Africa/Casablanca";
+    const transitions = [
+      Date.UTC(2022, 2, 27, 2),
+      Date.UTC(2022, 4, 8, 2),
+      Date.UTC(2023, 2, 19, 2),
+      Date.UTC(2023, 3, 23, 2),
+      Date.UTC(2024, 2, 10, 2),
+      Date.UTC(2024, 3, 14, 2),
+    ];
+    const points = transitions.flatMap((ts) => [ts - 1, ts]);
+    const orders = [
+      points,
+      [...points].reverse(),
+      points.filter((_, index) => index % 2 === 0).concat(points.filter((_, index) => index % 2)),
+    ];
+
+    for (const transition of transitions) {
+      expect(intlOffset(zoneName, transition - 1)).not.toBe(intlOffset(zoneName, transition));
+    }
+
+    for (const order of orders) {
+      IANAZone.resetCache();
+      const zone = IANAZone.create(zoneName);
+      for (const ts of order) {
+        expect(zone.offset(ts)).toBe(intlOffset(zoneName, ts));
+      }
+    }
+  });
+
+  test("gets the epoch offset on the first read after a cache reset", () => {
+    for (const zoneName of ["Asia/Kolkata", "America/New_York", "Pacific/Kiritimati"]) {
+      IANAZone.resetCache();
+      expect(IANAZone.create(zoneName).offset(0)).toBe(intlOffset(zoneName, 0));
+    }
+  });
 });
 
 describe("IANAZone.offsetName public behavior contracts", () => {
@@ -590,6 +653,55 @@ describe("IANAZone.offsetName public behavior contracts", () => {
       expect(zone.offsetName(ts, { format: "short", locale: "en-US" })).toBe(
         intlOffsetName(zoneName, ts, "short", "en-US")
       );
+    }
+  });
+
+  test("tracks Cambridge Bay name-only transitions while its offset stays stable", () => {
+    const zoneName = "America/Cambridge_Bay";
+    const locale = "en-US";
+    const format = "shortGeneric";
+    const instants = [
+      Date.UTC(2000, 9, 29, 5, 59, 59, 999),
+      Date.UTC(2000, 9, 29, 6),
+      Date.UTC(2000, 9, 29, 6, 59, 59, 999),
+      Date.UTC(2000, 9, 29, 7),
+    ];
+    const expectedNames = instants.map((ts) => intlOffsetName(zoneName, ts, format, locale));
+    const expectedOffsets = instants.map((ts) => intlOffset(zoneName, ts));
+
+    expect(expectedNames[0]).not.toBe(expectedNames[1]);
+    expect(expectedNames[1]).toBe(expectedNames[2]);
+    expect(expectedNames[2]).not.toBe(expectedNames[3]);
+    expect(new Set(expectedOffsets).size).toBe(1);
+
+    const zone = IANAZone.create(zoneName);
+    instants.forEach((ts, index) => {
+      expect(zone.offsetName(ts, { format, locale })).toBe(expectedNames[index]);
+      expect(zone.offset(ts)).toBe(expectedOffsets[index]);
+    });
+  });
+
+  test("keeps alternating zones' offset names independent at transition edges", () => {
+    const locale = "en-US";
+    const reads = [
+      ["America/New_York", Date.UTC(2024, 2, 10, 6, 59, 59, 999)],
+      ["Australia/Lord_Howe", Date.UTC(2024, 9, 5, 15, 29, 59, 999)],
+      ["America/New_York", Date.UTC(2024, 2, 10, 7)],
+      ["Australia/Lord_Howe", Date.UTC(2024, 9, 5, 15, 30)],
+      ["Australia/Lord_Howe", Date.UTC(2024, 3, 6, 14, 59, 59, 999)],
+      ["America/New_York", Date.UTC(2024, 10, 3, 5, 59, 59, 999)],
+      ["Australia/Lord_Howe", Date.UTC(2024, 3, 6, 15)],
+      ["America/New_York", Date.UTC(2024, 10, 3, 6)],
+    ];
+
+    Settings.resetCaches();
+    for (const [zoneName, ts] of reads) {
+      const zone = IANAZone.create(zoneName);
+      for (const format of ["shortOffset", "longOffset"]) {
+        expect(zone.offsetName(ts, { format, locale })).toBe(
+          intlOffsetName(zoneName, ts, format, locale)
+        );
+      }
     }
   });
 });
