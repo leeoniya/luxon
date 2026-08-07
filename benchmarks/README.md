@@ -101,7 +101,7 @@ an explicit `--cooldown` restores it when verified timings are wanted.
 the loop for iterating on a patch: `--patches` (~1s), `--ladder` (~80s), and
 `--default` (~13s). It also takes `--footprint` for rss and Intl-formatter
 counts, one subprocess per row. `--row <build-id>` limits the ladder to one
-named row for focused validation, for example `--ladder --row date-fns`.
+named row for focused validation.
 
 `--ladder` is the main event: four tables of the same shape — the same builds in
 the same order, a row per build, its shipped bytes at the end. `formatting`,
@@ -109,9 +109,10 @@ the same order, a row per build, its shipped bytes at the end. `formatting`,
 last two together cover everything that neither writes a string nor reads one.
 The heading carries the unit, since none of the 53 columns does, and repeated
 API prefixes are lifted into column-group headings. The baseline block is
-moment-timezone, date-fns with `@date-fns/tz`, then stock luxon; a patch is
-argued from one row against the row above it, and the rows are the same rows
-throughout, so the four tables stack into one argument.
+moment-timezone then stock luxon, with a date-fns + `@date-fns/tz` row available
+in `upstream.ts`'s `optionalPaths`; a patch is argued from one row against the
+row above it, and the rows are the same rows throughout, so the four tables
+stack into one argument.
 
 They are timed in segments rather than in tables, because a segment is a
 calibration: the format-string columns run the full value count, while parsing

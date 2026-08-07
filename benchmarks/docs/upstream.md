@@ -102,9 +102,10 @@ patches.
 
 The first baseline is moment-**timezone**, not moment: a named zone needs its
 packed offset table, and only its `z` token renders an abbreviation. moment core
-is underneath it doing the formatting, so both versions are reported. The next
-row is date-fns with its official `@date-fns/tz` integration, using `TZDate`,
-date-fns tokens, and explicit locale objects; stock luxon follows it.
+is underneath it doing the formatting, so both versions are reported. An
+optional date-fns row with its official `@date-fns/tz` integration uses
+`TZDate`, date-fns tokens, and explicit locale objects; uncommenting its line in
+`upstream.ts`'s `optionalPaths` places it before stock luxon.
 
 ### The moment row gets several moments
 

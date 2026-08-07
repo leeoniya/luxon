@@ -427,6 +427,19 @@ const dateFnsSpec = (fmt: FormatKey): Promise<BuildSpec> =>
     pattern: patternFor("date-fns", fmt),
   });
 
+const dateFnsPath: Path = {
+  id: "date-fns",
+  patches: [],
+  ships: "date-fns",
+  easyZone: false,
+  spec: dateFnsSpec,
+  make: (fmt) => dateFnsSpec(fmt).then(formatterFor),
+};
+
+const optionalPaths: Path[] = [
+  // dateFnsPath,
+];
+
 // Every build here has a row. There used to be several that did not — one per
 // individual patch over the easy-tz zone, plus a few variant stacks — measured
 // only to feed a per-patch ranking in benchmarks/cross-engine.ts. They cost a
@@ -446,14 +459,7 @@ const paths: Path[] = [
     spec: momentSpec,
     make: (fmt) => momentSpec(fmt).then(formatterFor),
   },
-  {
-    id: "date-fns",
-    patches: [],
-    ships: "date-fns",
-    easyZone: false,
-    spec: dateFnsSpec,
-    make: (fmt) => dateFnsSpec(fmt).then(formatterFor),
-  },
+  ...optionalPaths,
   luxonPath("luxon (stock)", [], false),
   ...LADDER.map((rung) => luxonPath(rung.id, rung.keys, false)),
   luxonPath("easytz zone", [], true),
@@ -482,10 +488,12 @@ let sink = 0;
 // offset table, and only its `z` token renders an abbreviation. moment core is
 // underneath it doing the formatting, so both versions are worth printing —
 // reproducing these numbers means installing the pair.
+const dateFnsVersion = optionalPaths.includes(dateFnsPath)
+  ? ` vs date-fns ${await pkgVersion("date-fns")} + @date-fns/tz ${await pkgVersion("@date-fns/tz")}`
+  : "";
 console.log(
   `luxon ${await pkgVersion()} (this fork's src/) vs moment-timezone ${await pkgVersion("moment-timezone")} ` +
-    `(on moment ${await pkgVersion("moment")}) vs date-fns ${await pkgVersion("date-fns")} ` +
-    `+ @date-fns/tz ${await pkgVersion("@date-fns/tz")}`
+    `(on moment ${await pkgVersion("moment")})${dateFnsVersion}`
 );
 console.log(`runtime: ${runtime()}, easy-tz tables: ${tablesHost}, host ICU ${process.versions["icu"] ?? "?"}`);
 // Each timed table states its own value count and pass count underneath itself,
@@ -625,7 +633,7 @@ const named = (id: string, label = id) => ({ id, label });
 // The ladder keeps only its letters, since the group it sits in is all luxon
 // builds; the group below it mixes luxon and easy-tz, so those keep the prefix.
 const groups = [
-  [named("moment", "moment-timezone"), named("date-fns"), named("luxon (stock)", "luxon")],
+  [named("moment", "moment-timezone"), ...optionalPaths.map(({ id }) => named(id)), named("luxon (stock)", "luxon")],
   LADDER.map((r) => named(r.id, r.id.replace("luxon ", ""))),
   // What binding easy-tz's offset() and offsetName() to luxon is worth, before
   // and after the patches: the same two zone methods either way, so the pair

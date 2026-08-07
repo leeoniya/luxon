@@ -95,10 +95,10 @@ ones. So the floor errs wide. That is the safe direction for a threshold, but a
 constant calibrated against the old control does not carry across unchanged.
 
 Baseline columns are not controls and have not gone anywhere: moment,
-moment-timezone, date-fns with `@date-fns/tz`, stock luxon, the unpatched easy-tz
-zone, and stock luxon with a zone named are all still there. A control repeats a
-configuration to measure noise; a baseline is what the patches are being
-compared *to*.
+moment-timezone, stock luxon, the unpatched easy-tz zone, and stock luxon with a
+zone named are all still there; date-fns with `@date-fns/tz` is available as an
+optional row. A control repeats a configuration to measure noise; a baseline is
+what the patches are being compared *to*.
 
 ## Pass sizing and scaling
 
