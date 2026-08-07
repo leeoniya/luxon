@@ -1,18 +1,26 @@
 Patch: compileFormat
 Letter: K
-Requires: none
+Requires: G (numericPath)
 Files: src/impl/formatter.js
 Summary: Formatter: compile formats once, read shifted Duration fields directly, and memoize the name each DateTime token resolves to
 Description: benchmarks/docs/pr/11-compile-format.md
 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
-index ae6218e..de026e4 100644
+index 4c80d34..364e2f8 100644
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -14,6 +14,362 @@ function stringifyTokens(splits, tokenToString) {
-   return s;
- }
+@@ -2,18 +2,361 @@ import * as English from "./english.js";
+ import * as Formats from "./formats.js";
+ import { padStart, roundTo } from "./util.js";
  
+-function stringifyTokens(splits, tokenToString) {
+-  // UPSTREAM-G: indexed loop (no iterator allocation per format) and a verbatim
+-  // check so punctuation skips tokenToString entirely.
+-  let s = "";
+-  for (let i = 0; i < splits.length; i++) {
+-    const token = splits[i];
+-    if (token.literal || token.verbatim) {
+-      s += token.val;
 +// ---- UPSTREAM-K: compiled format programs ----------------------------------
 +// A format string compiles to alternating literal/handler runs. Handlers take
 +// (formatter, dateTime, knownEnglish, useDateTimeFormatter) so that a program
@@ -314,7 +322,8 @@ index ae6218e..de026e4 100644
 +
 +    if (field === undefined) {
 +      lit += token.val;
-+    } else {
+     } else {
+-      s += tokenToString(token.val);
 +      lits.push(lit);
 +      lit = "";
 +      fields.push(field);
@@ -335,8 +344,8 @@ index ae6218e..de026e4 100644
 +
 +    if (cfDurationPrograms.size < CF_CACHE_MAX) {
 +      cfDurationPrograms.set(fmt, program);
-+    }
-+  }
+     }
+   }
 +
 +  const { lits, fields, widths } = program;
 +  const collapsed = dur.shiftTo(...fields);
@@ -368,13 +377,10 @@ index ae6218e..de026e4 100644
 +    s += f.num(value, widths[i], signDisplay) + lits[i + 1];
 +  }
 +
-+  return s;
-+}
-+
- const macroTokenToFormatOpts = {
-   D: Formats.DATE_SHORT,
-   DD: Formats.DATE_MED,
-@@ -145,304 +501,14 @@ export default class Formatter {
+   return s;
+ }
+ 
+@@ -193,304 +536,14 @@ export default class Formatter {
    }
  
    formatDateTimeFromString(dt, fmt) {
