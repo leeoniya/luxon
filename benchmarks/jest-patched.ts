@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, relative, sep } from "node:path";
+import { delimiter, dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { patchedEntry, patchKeys, patchLetter } from "./lib/patches.ts";
 
@@ -11,12 +11,12 @@ const entry = fileURLToPath(await patchedEntry(patchKeys));
 const patchedSrc = dirname(entry);
 const patchedSrcRelative = relative(rootPath, patchedSrc).split(sep).join("/");
 const letters = patchKeys.map((key) => patchLetter.get(key)).join("");
+const jestScript = fileURLToPath(new URL("../scripts/jest", import.meta.url));
 
-let jest: string;
 let babelJest: string;
 
 try {
-  jest = require.resolve("jest/bin/jest");
+  require.resolve("jest/bin/jest");
   babelJest = require.resolve("babel-jest");
 } catch {
   throw new Error("the root Jest dependencies are not installed; restore them before running test:patched");
@@ -39,13 +39,11 @@ const config = {
 
 console.log(`running the native Jest suite against fully patched Luxon (${letters})`);
 
-const result = spawnSync(process.execPath, [jest, "--config", JSON.stringify(config), ...process.argv.slice(2)], {
+const result = spawnSync("sh", [jestScript, "--config", JSON.stringify(config), ...process.argv.slice(2)], {
   cwd: rootPath,
   env: {
     ...process.env,
-    TZ: "America/New_York",
-    NODE_ICU_DATA: fileURLToPath(new URL("node_modules/full-icu", root)),
-    LANG: "en_US.utf8",
+    PATH: `${join(rootPath, "node_modules/.bin")}${delimiter}${process.env.PATH ?? ""}`,
   },
   stdio: "inherit",
 });
