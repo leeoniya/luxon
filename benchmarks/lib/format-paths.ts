@@ -107,13 +107,26 @@ function easySystemZone(): EasySystemZone {
 
 export type FormatKey = "numeric" | "abbr" | "text" | "text fr";
 
-const FORMATS: Record<FormatKey, { moment: string; luxon: string; locale?: string }> = {
-  numeric: { moment: "YYYY-MM-DD HH:mm:ss", luxon: "yyyy-MM-dd HH:mm:ss" },
-  abbr: { moment: "YYYY-MM-DD HH:mm:ss z", luxon: "yyyy-MM-dd HH:mm:ss ZZZZ" },
-  text: { moment: "ddd, DD MMM YYYY HH:mm:ss ZZ", luxon: "EEE, dd LLL yyyy HH:mm:ss ZZZ" },
+const FORMATS: Record<FormatKey, { moment: string; luxon: string; dateFns: string; locale?: string }> = {
+  numeric: {
+    moment: "YYYY-MM-DD HH:mm:ss",
+    luxon: "yyyy-MM-dd HH:mm:ss",
+    dateFns: "yyyy-MM-dd HH:mm:ss",
+  },
+  abbr: {
+    moment: "YYYY-MM-DD HH:mm:ss z",
+    luxon: "yyyy-MM-dd HH:mm:ss ZZZZ",
+    dateFns: "yyyy-MM-dd HH:mm:ss",
+  },
+  text: {
+    moment: "ddd, DD MMM YYYY HH:mm:ss ZZ",
+    luxon: "EEE, dd LLL yyyy HH:mm:ss ZZZ",
+    dateFns: "EEE, dd MMM yyyy HH:mm:ss xx",
+  },
   "text fr": {
     moment: "ddd, DD MMM YYYY HH:mm:ss ZZ",
     luxon: "EEE, dd LLL yyyy HH:mm:ss ZZZ",
+    dateFns: "EEE, dd MMM yyyy HH:mm:ss xx",
     locale: "fr",
   },
 };
@@ -136,8 +149,9 @@ export function localeFor(fmt: FormatKey): string {
  */
 export const zoneFormatKeys: FormatKey[] = ["numeric", "abbr"];
 
-export function patternFor(variant: VariantId, fmt: FormatKey): string {
-  return variant === "moment" ? FORMATS[fmt].moment : FORMATS[fmt].luxon;
+export function patternFor(variant: VariantId | "date-fns", fmt: FormatKey): string {
+  const dialect = variant === "luxon-easytz" ? "luxon" : variant === "date-fns" ? "dateFns" : variant;
+  return FORMATS[fmt][dialect];
 }
 
 // ---- variants ---------------------------------------------------------------

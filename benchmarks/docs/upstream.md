@@ -79,8 +79,10 @@ segments and printed as one, and each states its own settings underneath.
 Nothing compares a column in one table against a column in another, which is what
 makes that free.
 
-A `--` is a build with no equivalent to run, which is now only moment: it ships
-no `Interval` and no `Duration#shiftTo`.
+A `--` is a build with no semantically honest equivalent to run. moment ships
+no `Interval` or `Duration#shiftTo`; date-fns has intervals and duration values,
+but no reusable compiled parser, ambiguous-offset enumeration, or Luxon-style
+Duration arithmetic and token formatting.
 
 The easy-tz rows carry every column, including the ones easy-tz cannot affect, so
 that what stock luxon with easy-tz bound to it costs can be read off one line
@@ -98,10 +100,11 @@ instance.
 patches.
 
 
-The baseline is moment-**timezone**, not moment: a named zone needs its packed
-offset table, and only its `z` token renders an abbreviation. moment core is
-underneath it doing the formatting, so both versions are reported — reproducing
-these numbers means installing the pair.
+The first baseline is moment-**timezone**, not moment: a named zone needs its
+packed offset table, and only its `z` token renders an abbreviation. moment core
+is underneath it doing the formatting, so both versions are reported. The next
+row is date-fns with its official `@date-fns/tz` integration, using `TZDate`,
+date-fns tokens, and explicit locale objects; stock luxon follows it.
 
 ### The moment row gets several moments
 

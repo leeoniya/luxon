@@ -29,6 +29,15 @@ import type { DateTimeParserClass, LuxonModule } from "./luxon-types.ts";
 
 type MomentTz = typeof moment;
 
+export interface DateFnsApi {
+  core: typeof import("date-fns");
+  tz: typeof import("@date-fns/tz");
+  locales: {
+    enUS: import("date-fns").Locale;
+    fr: import("date-fns").Locale;
+  };
+}
+
 // The same window the format and parse columns time over, so a case that appears
 // in both is comparable: January, one minute apart, in a zone with a DST rule.
 export const BASE_TS = Date.UTC(2024, 0, 1);
@@ -81,6 +90,7 @@ export interface ApiCase {
   key: string;
   band: ApiBand;
   luxon: (m: LuxonModule) => Work;
+  dateFns?: (api: DateFnsApi) => Work;
   /** omitted where moment has no equivalent to call; handed an instance nobody else has called */
   moment?: (mo: MomentTz) => Work;
   /**
@@ -130,6 +140,19 @@ function pool(m: LuxonModule, locale = LOCALE): DateTime[] {
   return Array.from({ length: POOL }, (_, i) =>
     m.DateTime.fromMillis(BASE_TS + i * STEP_MS, { zone: ZONE, locale })
   );
+}
+
+function dateFnsPool({ tz }: DateFnsApi) {
+  return Array.from({ length: POOL }, (_, i) => new tz.TZDate(BASE_TS + i * STEP_MS, ZONE));
+}
+
+function dateFnsDurationPool() {
+  return Array.from({ length: POOL }, (_, i) => ({
+    days: 1 + (i % 27),
+    hours: i % 24,
+    minutes: (i * 7) % 60,
+    seconds: (i * 13) % 60,
+  }));
 }
 
 /** Receivers for probes that need Duration construction outside the timed call. */
@@ -216,6 +239,16 @@ export const API_CASES: ApiCase[] = [
         { zone: ZONE }
       ).valueOf();
     },
+    dateFns: ({ tz }) => (ts) => {
+      const i = idx(ts);
+      return new tz.TZDate(
+        2024,
+        Math.floor(i / 672) % 12,
+        1 + (Math.floor(i / 24) % 28),
+        i % 24,
+        ZONE
+      ).valueOf();
+    },
     moment: (mo) => (ts) => {
       const i = idx(ts);
       return mo
@@ -230,6 +263,7 @@ export const API_CASES: ApiCase[] = [
     zoned: true,
     live: true,
     luxon: (m) => () => m.DateTime.now().setZone(ZONE).valueOf(),
+    dateFns: ({ tz }) => () => new tz.TZDate(Date.now(), ZONE).valueOf(),
     moment: (mo) => () => mo.tz(ZONE).valueOf(),
     momentShape: (mo) => mo.tz(ZONE),
   },
@@ -267,6 +301,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.plus({ days: 1 }).valueOf();
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.addDays(p[idx(ts)]!, 1).valueOf();
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.clone().add(1, "day").valueOf();
@@ -279,6 +317,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.minus({ months: 1 }).valueOf();
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.subMonths(p[idx(ts)]!, 1).valueOf();
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -293,6 +335,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.startOf("day").valueOf();
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.startOfDay(p[idx(ts)]!).valueOf();
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.clone().startOf("day").valueOf();
@@ -305,6 +351,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.startOf("month").valueOf();
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.startOfMonth(p[idx(ts)]!).valueOf();
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -319,6 +369,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.endOf("day").valueOf();
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.endOfDay(p[idx(ts)]!).valueOf();
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.clone().endOf("day").valueOf();
@@ -331,6 +385,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.endOf("week").valueOf();
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.endOfWeek(p[idx(ts)]!, { weekStartsOn: 1 }).valueOf();
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -345,6 +403,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.endOf("month").valueOf();
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.endOfMonth(p[idx(ts)]!).valueOf();
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.clone().endOf("month").valueOf();
@@ -357,6 +419,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.set({ hour: 9, minute: 30 }).valueOf();
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.set(p[idx(ts)]!, { hours: 9, minutes: 30 }).valueOf();
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -371,6 +437,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.diff(p[(idx(ts) + 137) % POOL]!, ["days", "hours"]).hours;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.differenceInMilliseconds(p[idx(ts)]!, p[(idx(ts) + 137) % POOL]!) / 3_600_000;
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.diff(p[(idx(ts) + 137) % POOL]!, "hours");
@@ -384,6 +454,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => +p[idx(ts)]!.hasSame(p[(idx(ts) + 137) % POOL]!, "day");
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => +api.core.isSameDay(p[idx(ts)]!, p[(idx(ts) + 137) % POOL]!);
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => +p[idx(ts)]!.isSame(p[(idx(ts) + 137) % POOL]!, "day");
@@ -396,6 +470,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.setZone(OTHER_ZONE).valueOf();
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => p[idx(ts)]!.withTimeZone(OTHER_ZONE).valueOf();
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -419,6 +497,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.offsetNameShort!.length;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.tz.tzName(ZONE, p[idx(ts)]!, "short").length;
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.zoneAbbr().length;
@@ -438,6 +520,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toFormat(LUX_NUMERIC).length;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.format(p[idx(ts)]!, "yyyy-MM-dd HH:mm:ss").length;
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.format(MO_NUMERIC).length;
@@ -451,6 +537,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toFormat("ZZZZ").length;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.tz.tzName(ZONE, p[idx(ts)]!, "short").length;
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.format("z").length;
@@ -462,6 +552,11 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toFormat(LUX_TEXT).length;
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) =>
+        api.core.format(p[idx(ts)]!, "EEEE, MMMM d, yyyy 'at' h:mm a", { locale: api.locales.enUS }).length;
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -476,6 +571,11 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m, OTHER_LOCALE);
       return (ts) => p[idx(ts)]!.toFormat(LUX_TEXT).length;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) =>
+        api.core.format(p[idx(ts)]!, "EEEE, MMMM d, yyyy 'at' h:mm a", { locale: api.locales.fr }).length;
+    },
     moment: (mo) => {
       const p = momentPool(mo, OTHER_LOCALE);
       return (ts) => p[idx(ts)]!.format(MO_TEXT).length;
@@ -488,6 +588,13 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toFormat(LUX_WIDE).length;
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) =>
+        api.core.format(p[idx(ts)]!, "yyyy-MM-dd HH:mm:ss.SSS xx II DDD Q RRRR", {
+          useAdditionalDayOfYearTokens: true,
+        }).length;
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -506,6 +613,11 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toRFC2822()!.length;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) =>
+        api.core.format(p[idx(ts)]!, "EEE, dd MMM yyyy HH:mm:ss xx", { locale: api.locales.enUS }).length;
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.format("ddd, DD MMM YYYY HH:mm:ss ZZ").length;
@@ -519,6 +631,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toHTTP()!.length;
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.formatRFC7231(p[idx(ts)]!).length;
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -534,6 +650,10 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toISO()!.length;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.formatRFC3339(p[idx(ts)]!, { fractionDigits: 3 }).length;
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.format().length;
@@ -545,6 +665,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toISODate()!.length;
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.formatISO(p[idx(ts)]!, { representation: "date" }).length;
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -558,6 +682,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = pool(m);
       return (ts) => p[idx(ts)]!.toLocaleString(m.DateTime.DATETIME_MED).length;
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => api.core.format(p[idx(ts)]!, "PPp", { locale: api.locales.enUS }).length;
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -576,6 +704,12 @@ export const API_CASES: ApiCase[] = [
       const base = m.DateTime.fromMillis(REL_BASE, { zone: ZONE });
       return (ts) => p[idx(ts)]!.toRelative({ base })!.length;
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      const base = new api.tz.TZDate(REL_BASE, ZONE);
+      return (ts) =>
+        api.core.formatDistance(p[idx(ts)]!, base, { addSuffix: true, locale: api.locales.enUS }).length;
+    },
     moment: (mo) => {
       const p = momentPool(mo);
       const base = mo.tz(REL_BASE, ZONE);
@@ -591,6 +725,11 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       const base = m.DateTime.fromMillis(REL_BASE, { zone: ZONE, locale: LOCALE });
       return (ts) => p[idx(ts)]!.toRelativeCalendar({ base })!.length;
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      const base = new api.tz.TZDate(REL_BASE, ZONE);
+      return (ts) => api.core.formatRelative(p[idx(ts)]!, base, { locale: api.locales.enUS }).length;
     },
     moment: (mo) => {
       const p = momentPool(mo);
@@ -651,6 +790,13 @@ export const API_CASES: ApiCase[] = [
     band: "other",
     approx: true,
     luxon: (m) => (ts) => m.Duration.fromObject({ hours: 1 + (idx(ts) % 9), minutes: 30 }).toHuman().length,
+    dateFns: (api) => (ts) =>
+      api.core
+        .formatDuration(
+          { hours: 1 + (idx(ts) % 9), minutes: 30 },
+          { locale: api.locales.enUS }
+        )
+        .length,
     moment: (mo) => (ts) => mo.duration({ hours: 1 + (idx(ts) % 9), minutes: 30 }).humanize().length,
   },
   {
@@ -660,6 +806,10 @@ export const API_CASES: ApiCase[] = [
     luxon: (m) => {
       const p = durationPool(m);
       return (ts) => p[idx(ts)]!.toHuman().length;
+    },
+    dateFns: (api) => {
+      const p = dateFnsDurationPool();
+      return (ts) => api.core.formatDuration(p[idx(ts)]!, { locale: api.locales.enUS }).length;
     },
     moment: (mo) => {
       const p = momentDurationPool(mo);
@@ -692,6 +842,13 @@ export const API_CASES: ApiCase[] = [
       const p = pool(m);
       return (ts) => m.Interval.fromDateTimes(p[idx(ts)]!, p[idx(ts)]!.plus({ months: 2 })).length("days");
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => {
+        const start = p[idx(ts)]!;
+        return api.core.differenceInMilliseconds(api.core.addMonths(start, 2), start) / 86_400_000;
+      };
+    },
   },
   {
     key: "Interval contains",
@@ -702,6 +859,16 @@ export const API_CASES: ApiCase[] = [
       return (ts) => {
         const start = p[idx(ts)]!;
         return +m.Interval.fromDateTimes(start, start.plus({ days: 30 })).contains(start.plus({ days: 3 }));
+      };
+    },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => {
+        const start = p[idx(ts)]!;
+        return +api.core.isWithinInterval(api.core.addDays(start, 3), {
+          start,
+          end: api.core.addDays(start, 30),
+        });
       };
     },
   },
@@ -734,6 +901,15 @@ export const API_CASES: ApiCase[] = [
       const p = intervalPool(m);
       return (ts) => p[idx(ts)]!.count("days");
     },
+    dateFns: (api) => {
+      const p = dateFnsPool(api);
+      return (ts) => {
+        const i = idx(ts);
+        const start = p[i]!;
+        const end = api.core.add(start, { months: 2, days: i % 7, minutes: i % 60 });
+        return api.core.differenceInCalendarDays(end, start) + 1;
+      };
+    },
   },
 
   // ---- Info: straight into the locale machinery ----
@@ -748,18 +924,39 @@ export const API_CASES: ApiCase[] = [
     key: "Info.months en",
     band: "other",
     luxon: (m) => () => m.Info.months("long", { locale: LOCALE }).length,
+    dateFns: (api) => () =>
+      api.core
+        .eachMonthOfInterval({
+          start: new Date(2024, 0, 1),
+          end: new Date(2024, 11, 1),
+        })
+        .map((month) => api.core.format(month, "MMMM", { locale: api.locales.enUS })).length,
     moment: (mo) => () => mo.localeData("en").months().length,
   },
   {
     key: "Info.months fr",
     band: "other",
     luxon: (m) => () => m.Info.months("long", { locale: OTHER_LOCALE }).length,
+    dateFns: (api) => () =>
+      api.core
+        .eachMonthOfInterval({
+          start: new Date(2024, 0, 1),
+          end: new Date(2024, 11, 1),
+        })
+        .map((month) => api.core.format(month, "MMMM", { locale: api.locales.fr })).length,
     moment: (mo) => () => mo.localeData(OTHER_LOCALE).months().length,
   },
   {
     key: "Info.weekdays fr",
     band: "other",
     luxon: (m) => () => m.Info.weekdays("long", { locale: OTHER_LOCALE }).length,
+    dateFns: (api) => () =>
+      api.core
+        .eachDayOfInterval({
+          start: new Date(2024, 0, 1),
+          end: new Date(2024, 0, 7),
+        })
+        .map((day) => api.core.format(day, "EEEE", { locale: api.locales.fr })).length,
     moment: (mo) => () => mo.localeData(OTHER_LOCALE).weekdays().length,
   },
 ];

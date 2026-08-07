@@ -88,19 +88,38 @@ export function momentRole(build: (m: MomentTz) => object): string {
 }
 
 export interface BuildSpec {
-  /** entry point of a patched src tree, or null for the moment-timezone baseline */
+  library: "luxon" | "moment-timezone" | "date-fns";
+  /** entry point of a patched src tree, or null for a package baseline */
   luxonEntry: string | null;
   /** resolve the zone through easy-tz's baked rules instead of Intl */
   easyZone: boolean;
   zone: string;
   locale: string;
+  formatKey: string;
   pattern: string;
 }
 
 export async function formatterFor(spec: BuildSpec): Promise<(ts: number) => string> {
-  const { luxonEntry, zone, pattern, locale } = spec;
+  const { library, zone, pattern, locale, formatKey } = spec;
 
-  if (luxonEntry === null) {
+  if (library === "date-fns") {
+    const [{ format }, { TZDate, tzName }, { enUS }, { fr }] = await Promise.all([
+      import("date-fns"),
+      import("@date-fns/tz"),
+      import("date-fns/locale/en-US"),
+      import("date-fns/locale/fr"),
+    ]);
+    const dateLocale = /^fr\b/i.test(locale) ? fr : enUS;
+
+    return (ts) => {
+      const date = new TZDate(ts, zone);
+      const rendered = format(date, pattern, { locale: dateLocale });
+
+      return formatKey === "abbr" ? `${rendered} ${tzName(zone, date, "short")}` : rendered;
+    };
+  }
+
+  if (library === "moment-timezone") {
     // a named zone needs moment-timezone's offset table; moment core has none
     //
     // moment ships English built in and lazily requires everything else, so an
@@ -196,6 +215,8 @@ export interface ParseCase {
   input: string;
   /** moment format that reads the same input; null uses moment.ISO_8601 */
   moment: string | null;
+  /** date-fns format that reads the same input; null uses parseISO */
+  dateFns: string | null;
   what: string;
 }
 
@@ -204,22 +225,31 @@ export const parseCases: readonly ParseCase[] = [
     key: "iso",
     input: "iso-local",
     moment: null,
+    dateFns: null,
     what: "ISO with no zone on it, so the zone has to place the local time",
   },
-  { key: "iso+off", input: "iso-offset", moment: null, what: "ISO carrying its own offset" },
+  { key: "iso+off", input: "iso-offset", moment: null, dateFns: null, what: "ISO carrying its own offset" },
   {
     key: "tokens",
     input: "yyyy-MM-dd HH:mm:ss",
     moment: "YYYY-MM-DD HH:mm:ss",
+    dateFns: "yyyy-MM-dd HH:mm:ss",
     what: "grafana's systemDateFormats.fullDate, no zone on it",
   },
   {
     key: "tokens+off",
     input: "yyyy-MM-dd'T'HH:mm:ss.SSSZZ",
     moment: "YYYY-MM-DDTHH:mm:ss.SSSZ",
+    dateFns: "yyyy-MM-dd'T'HH:mm:ss.SSSxxx",
     what: "grafana's URL-param format, offset included",
   },
-  { key: "millis", input: "millis", moment: null, what: "a timestamp: object creation with no parsing at all" },
+  {
+    key: "millis",
+    input: "millis",
+    moment: null,
+    dateFns: null,
+    what: "a timestamp: object creation with no parsing at all",
+  },
 ];
 
 /**
@@ -241,7 +271,26 @@ export async function parserFor(
 ): Promise<(ts: number, input: string) => number> {
   const { input } = kase;
 
-  if (spec.luxonEntry === null) {
+  if (spec.library === "date-fns") {
+    const [{ parse, parseISO }, { TZDate, tz }, { enUS }] = await Promise.all([
+      import("date-fns"),
+      import("@date-fns/tz"),
+      import("date-fns/locale/en-US"),
+    ]);
+    const context = tz(spec.zone);
+
+    if (input === "millis") {
+      return (ts) => new TZDate(ts, spec.zone).valueOf();
+    }
+
+    if (input === "iso-local" || input === "iso-offset") {
+      return (_ts, s) => parseISO(s, { in: context }).valueOf();
+    }
+
+    return (_ts, s) => parse(s, kase.dateFns!, new TZDate(0, spec.zone), { in: context, locale: enUS }).valueOf();
+  }
+
+  if (spec.library === "moment-timezone") {
     const { zone } = spec;
     const role =
       input === "millis"

@@ -50,7 +50,9 @@ inside its column's floor. Redirected output is never shaded.
 
 Columns for Luxon-only operations have no moment cell to shade against: moment
 ships no `Interval`, compiled format-parser API, `Duration#shiftTo`, or
-`Duration#toFormat`. Those take stock luxon as their baseline instead, so they
+`Duration#toFormat`. Date-fns fills its row only where its public API expresses
+the same operation; it is not a shading anchor. Missing moment cells take stock
+luxon as their baseline instead, so they
 are read as what the patches did to luxon rather than as a comparison between
 libraries — which is the question those columns can answer. The legend above the
 tables names both baselines; without it a coloured cell would not say which one
@@ -93,9 +95,10 @@ ones. So the floor errs wide. That is the safe direction for a threshold, but a
 constant calibrated against the old control does not carry across unchanged.
 
 Baseline columns are not controls and have not gone anywhere: moment,
-moment-timezone, stock luxon, the unpatched easy-tz zone, and stock luxon with a
-zone named are all still there. A control repeats a configuration to measure
-noise; a baseline is what the patches are being compared *to*.
+moment-timezone, date-fns with `@date-fns/tz`, stock luxon, the unpatched easy-tz
+zone, and stock luxon with a zone named are all still there. A control repeats a
+configuration to measure noise; a baseline is what the patches are being
+compared *to*.
 
 ## Pass sizing and scaling
 

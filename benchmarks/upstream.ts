@@ -69,7 +69,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { bakedRules, canResolve, getTimeZoneAt, tablesHost, yearStart } from "./lib/easy-tz.ts";
 import { makeEasyZoneClass } from "./lib/easy-zone.ts";
-import { API_CASES, defaultMomentShape, type ApiBand, type ApiCase } from "./lib/api-cases.ts";
+import {
+  API_CASES,
+  defaultMomentShape,
+  type ApiBand,
+  type ApiCase,
+  type DateFnsApi,
+} from "./lib/api-cases.ts";
 import {
   momentFor,
   momentRole,
@@ -94,7 +100,7 @@ import {
 } from "./lib/kernel.ts";
 import type { LuxonModule } from "./lib/luxon-types.ts";
 import type { IANAZone } from "luxon";
-import { allTables, cooldownMs, tables, withFootprint, withVerify } from "./lib/opts.ts";
+import { allTables, cooldownMs, requestedRow, tables, withFootprint, withVerify } from "./lib/opts.ts";
 import {
   droppedPatches,
   hasPatch,
@@ -306,7 +312,7 @@ interface Path {
   /** patches applied to the luxon instance, for the report */
   patches: readonly PatchKey[];
   /** whose bundle the bytes column reports */
-  ships: "luxon" | "moment-timezone";
+  ships: "luxon" | "moment-timezone" | "date-fns";
   /** false when the zone still comes from Intl */
   easyZone: boolean;
   /**
@@ -320,10 +326,12 @@ interface Path {
 
 function luxonPath(id: string, patches: readonly PatchKey[], easyZone: boolean): Path {
   const spec = async (fmt: FormatKey): Promise<BuildSpec> => ({
+    library: "luxon",
     luxonEntry: (await patchedEntry(patches)).pathname,
     easyZone,
     zone: ZONE,
     locale: localeFor(fmt),
+    formatKey: fmt,
     pattern: patternFor("luxon", fmt),
   });
 
@@ -364,6 +372,21 @@ async function shippedEntry(path: Path): Promise<URL> {
     );
   }
 
+  if (path.ships === "date-fns") {
+    return writeEntry(
+      "date-fns.ts",
+      `import { format } from 'date-fns';\n` +
+        `import { TZDate, tzName } from '@date-fns/tz';\n` +
+        `import { enUS } from 'date-fns/locale/en-US';\n` +
+        `import { fr } from 'date-fns/locale/fr';\n` +
+        `export const formatDate = (ts: number, zone: string, pattern: string, locale: string, abbr: boolean) => {\n` +
+        `  const date = new TZDate(ts, zone);\n` +
+        `  const rendered = format(date, pattern, { locale: locale === 'fr' ? fr : enUS });\n` +
+        `  return abbr ? rendered + ' ' + tzName(zone, date, 'short') : rendered;\n` +
+        `};\n`
+    );
+  }
+
   const entry = await patchedEntry(path.patches);
 
   if (!path.easyZone) {
@@ -384,11 +407,24 @@ async function shippedEntry(path: Path): Promise<URL> {
 
 const momentSpec = (fmt: FormatKey): Promise<BuildSpec> =>
   Promise.resolve({
+    library: "moment-timezone",
     luxonEntry: null,
     easyZone: false,
     zone: ZONE,
     locale: localeFor(fmt),
+    formatKey: fmt,
     pattern: patternFor("moment", fmt),
+  });
+
+const dateFnsSpec = (fmt: FormatKey): Promise<BuildSpec> =>
+  Promise.resolve({
+    library: "date-fns",
+    luxonEntry: null,
+    easyZone: false,
+    zone: ZONE,
+    locale: localeFor(fmt),
+    formatKey: fmt,
+    pattern: patternFor("date-fns", fmt),
   });
 
 // Every build here has a row. There used to be several that did not — one per
@@ -409,6 +445,14 @@ const paths: Path[] = [
     easyZone: false,
     spec: momentSpec,
     make: (fmt) => momentSpec(fmt).then(formatterFor),
+  },
+  {
+    id: "date-fns",
+    patches: [],
+    ships: "date-fns",
+    easyZone: false,
+    spec: dateFnsSpec,
+    make: (fmt) => dateFnsSpec(fmt).then(formatterFor),
   },
   luxonPath("luxon (stock)", [], false),
   ...LADDER.map((rung) => luxonPath(rung.id, rung.keys, false)),
@@ -440,7 +484,8 @@ let sink = 0;
 // reproducing these numbers means installing the pair.
 console.log(
   `luxon ${await pkgVersion()} (this fork's src/) vs moment-timezone ${await pkgVersion("moment-timezone")} ` +
-    `(on moment ${await pkgVersion("moment")})`
+    `(on moment ${await pkgVersion("moment")}) vs date-fns ${await pkgVersion("date-fns")} ` +
+    `+ @date-fns/tz ${await pkgVersion("@date-fns/tz")}`
 );
 console.log(`runtime: ${runtime()}, easy-tz tables: ${tablesHost}, host ICU ${process.versions["icu"] ?? "?"}`);
 // Each timed table states its own value count and pass count underneath itself,
@@ -580,7 +625,7 @@ const named = (id: string, label = id) => ({ id, label });
 // The ladder keeps only its letters, since the group it sits in is all luxon
 // builds; the group below it mixes luxon and easy-tz, so those keep the prefix.
 const groups = [
-  [named("moment", "moment-timezone"), named("luxon (stock)", "luxon")],
+  [named("moment", "moment-timezone"), named("date-fns"), named("luxon (stock)", "luxon")],
   LADDER.map((r) => named(r.id, r.id.replace("luxon ", ""))),
   // What binding easy-tz's offset() and offsetName() to luxon is worth, before
   // and after the patches: the same two zone methods either way, so the pair
@@ -589,12 +634,17 @@ const groups = [
 ];
 
 /** every build, in the order it is printed — `groups` supplies the labels */
-const rowPaths = groups.flat().map(({ id }) => pathById(id));
+const allRowPaths = groups.flat().map(({ id }) => pathById(id));
+const rowPaths = requestedRow === undefined ? allRowPaths : allRowPaths.filter(({ id }) => id === requestedRow);
+
+if (rowPaths.length === 0) {
+  throw new Error(`no row "${requestedRow}"; choose one of: ${allRowPaths.map(({ id }) => id).join(", ")}`);
+}
 
 // Every build measured is a build printed. That was not always so, and the
 // builds that were not printed cost as much to measure as the ones that were,
 // so this is checked rather than assumed.
-if (rowPaths.length !== paths.length) {
+if (requestedRow === undefined && rowPaths.length !== paths.length) {
   const extra = paths.filter((p) => !rowPaths.includes(p)).map((p) => p.id);
 
   throw new Error(`${extra.length} build(s) measured with no row to print them in: ${extra.join(", ")}`);
@@ -729,6 +779,17 @@ const apiCases: ApiCase[] = (["formatting", "parsing", "other"] as ApiBand[]).fl
  */
 const momentInstanceFor = (kase: ApiCase) => momentFor(momentRole(kase.momentShape ?? defaultMomentShape));
 
+let dateFnsApiPromise: Promise<DateFnsApi> | undefined;
+
+function loadDateFnsApi(): Promise<DateFnsApi> {
+  return (dateFnsApiPromise ??= Promise.all([
+    import("date-fns"),
+    import("@date-fns/tz"),
+    import("date-fns/locale/en-US"),
+    import("date-fns/locale/fr"),
+  ]).then(([core, tz, { enUS }, { fr }]) => ({ core, tz, locales: { enUS, fr } })));
+}
+
 const easyModules = new Map<string, Promise<LuxonModule>>();
 
 /**
@@ -842,7 +903,9 @@ if (tables.has("ladder")) {
       const work =
         path.ships === "moment-timezone"
           ? kase.moment?.(momentInstanceFor(kase))
-          : kase.luxon(await luxonFor(path));
+          : path.ships === "date-fns"
+            ? kase.dateFns?.(await loadDateFnsApi())
+            : kase.luxon(await luxonFor(path));
 
       if (work !== undefined) perKey.set(kase.key, work);
     }
@@ -1497,7 +1560,7 @@ if (tables.has("ladder") && withVerify) {
     // benchmark — more than every timed pass put together.
     const expect = Array.from({ length: PARITY_N }, (_, i) => reference(BASE_TS + i * PARITY_STEP));
 
-    for (const path of paths) {
+    for (const path of requestedRow === undefined ? paths : rowPaths) {
       // stock is what `expect` was rendered from, so comparing it against itself
       // costs a share of this section to prove an identity
       if (path.id === "luxon (stock)") {
@@ -1513,7 +1576,8 @@ if (tables.has("ladder") && withVerify) {
         }
       }
 
-      const expected = path.easyZone && fmt === "abbr" ? "by design" : "must be 0";
+      const expected =
+        path.ships === "date-fns" ? "library semantics" : path.easyZone && fmt === "abbr" ? "by design" : "must be 0";
 
       if (expected === "must be 0") {
         patchedMismatches += diff;
@@ -1533,7 +1597,7 @@ if (tables.has("ladder") && withVerify) {
   console.log(
     patchedMismatches === 0
       ? `\nall ${UPSTREAM.length} patches are output-identical to stock luxon; the only differences are the\n` +
-          `intended easy-tz abbreviations.`
+          `intended easy-tz abbreviations and independently reported date-fns semantics.`
       : `\nFAIL: ${patchedMismatches} unexpected mismatch(es) — a patch changed behavior.`
   );
 

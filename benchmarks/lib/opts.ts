@@ -73,6 +73,20 @@ export const allTables: boolean = asked.length === 0 || asked.length === TABLES.
  */
 export const withFootprint: boolean = process.argv.includes("--footprint");
 
+/** Run only one named build row in upstream.ts's ladder, primarily for focused validation. */
+export const requestedRow: string | undefined = (() => {
+  const at = process.argv.indexOf("--row");
+
+  if (at === -1) return undefined;
+
+  const row = process.argv[at + 1];
+  if (row === undefined || row.startsWith("--")) {
+    throw new Error(`--row wants a build id`);
+  }
+
+  return row;
+})();
+
 /**
  * How long to idle between one timed row and the next, in milliseconds.
  *

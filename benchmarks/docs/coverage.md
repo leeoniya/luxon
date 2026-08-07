@@ -42,16 +42,17 @@ and `Interval#splitBy`, and the other two tables have a column for none of those
 ## Reading the columns
 
 moment is the top row of the ladder and what every cell below it is shaded
-against, because it is the number the work is aimed at. Nobody adopts a date
-library to be a given multiple of its own previous self; the question a column
-answers is whether luxon is now something you would pick over the thing people
-already have. Stock luxon, the row under it, is the distance travelled rather
-than the target.
+against, because it is the number the work is aimed at. The date-fns +
+`@date-fns/tz` row follows as an independent idiomatic baseline, then stock
+luxon records the distance travelled by the patches. Where moment has no cell,
+stock luxon remains the shading anchor.
 
-A `--` is a build with no equivalent to run. moment ships no `Interval`, compiled
-format-parser API, `Duration#shiftTo`, or `Duration#toFormat`, so those columns are
-luxon-only and are shaded against stock luxon rather than against something
-moment did not do.
+A `--` is a build with no semantically honest equivalent to run. moment ships no
+`Interval`, compiled format-parser API, `Duration#shiftTo`, or
+`Duration#toFormat`; date-fns likewise leaves cells blank where matching them
+would benchmark a custom reimplementation rather than its public API. Those
+columns are shaded against stock luxon rather than against something a baseline
+did not do.
 
 ### Isolated and whole-operation columns
 
