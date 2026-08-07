@@ -29,7 +29,7 @@ const set: MutationSet = {
     },
     {
       name: "clone drops the invalid reason",
-      find: "+    invalid: alts.invalid === undefined ? current.invalid : alts.invalid,",
+      find: "+    invalid: current.invalid,",
       replace: "+    invalid: undefined,",
     },
     {

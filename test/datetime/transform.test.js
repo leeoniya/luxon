@@ -46,6 +46,18 @@ test("DateTime#toSeconds() returns NaN for invalid DateTimes", () => {
 });
 
 //------
+// #toUnixInteger()
+//------
+test("DateTime#toUnixInteger() floors positive and negative epoch seconds", () => {
+  expect(DateTime.fromMillis(1500).toUnixInteger()).toBe(1);
+  expect(DateTime.fromMillis(-1500).toUnixInteger()).toBe(-2);
+});
+
+test("DateTime#toUnixInteger() returns NaN for invalid DateTimes", () => {
+  expect(DateTime.invalid("reason").toUnixInteger()).toBe(NaN);
+});
+
+//------
 // #valueOf()
 //------
 test("DateTime#valueOf() just does toMillis()", () => {

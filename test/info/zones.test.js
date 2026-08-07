@@ -1,5 +1,7 @@
 /* global test expect */
 
+import vm from "node:vm";
+
 import {
   Info,
   FixedOffsetZone,
@@ -82,6 +84,27 @@ test("Info.normalizeZone returns Zone objects unchanged", () => {
   const systemZone = SystemZone.instance;
   expect(Info.normalizeZone(systemZone)).toBe(systemZone);
 });
+
+test("Info.normalizeZone preserves cross-realm duck-typed zones by identity", () => {
+  const duckZone = vm.runInNewContext(`({
+    offset() { return 90; },
+    get type() { return "cross-realm"; },
+    get name() { return "Elsewhere/Test"; },
+    get isValid() { return true; }
+  })`);
+
+  expect(Info.normalizeZone(duckZone)).toBe(duckZone);
+});
+
+test.each([{ offset: 60 }, { offset: null }, {}, Object.create(null)])(
+  "Info.normalizeZone rejects non-zones with malformed or missing offset methods",
+  (input) => {
+    const normalized = Info.normalizeZone(input);
+
+    expect(normalized).toBeInstanceOf(InvalidZone);
+    expect(normalized.isValid).toBe(false);
+  }
+);
 
 test.each([
   ["Local", SystemZone.instance],

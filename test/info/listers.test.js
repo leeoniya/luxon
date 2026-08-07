@@ -193,6 +193,10 @@ test("Info.months defaults to long names", () => {
   ]);
 });
 
+test("Info.months returns null for an unsupported length", () => {
+  expect(Info.months("bogus")).toBeNull();
+});
+
 //------
 // .monthsFormat()
 //------
@@ -347,6 +351,16 @@ test("Info.weekdaysFormat lists all the weekdays", () => {
     "Fri",
     "Sat",
     "Sun",
+  ]);
+
+  expect(Info.weekdaysFormat("long", { locale: "ru" })).toEqual([
+    "понедельник",
+    "вторник",
+    "среда",
+    "четверг",
+    "пятница",
+    "суббота",
+    "воскресенье",
   ]);
 });
 

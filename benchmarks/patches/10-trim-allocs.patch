@@ -45,11 +45,12 @@ index fd32d47..179875a 100644
 +  // `c` and `o` are not among them. The constructor never reads `config.c`, and
 +  // it reads `config.o` only when `config.old` is unset, which cannot happen
 +  // here. Both still reach it on `old`, which is where it looks for them.
++  // No clone call site replaces invalidity; it always comes from the receiver.
 +  return new DateTime({
 +    ts: alts.ts === undefined ? current.ts : alts.ts,
 +    zone: alts.zone === undefined ? current.zone : alts.zone,
 +    loc: alts.loc === undefined ? current.loc : alts.loc,
-+    invalid: alts.invalid === undefined ? current.invalid : alts.invalid,
++    invalid: current.invalid,
 +    wasHole: alts.wasHole === undefined ? current.wasHole : alts.wasHole,
 +    old: current,
 +  });

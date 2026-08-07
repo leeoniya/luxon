@@ -2,7 +2,7 @@
 import { DateTime } from "../../src/luxon";
 import Helpers, { cldrMajorVersion } from "../helpers";
 import Settings from "../../src/settings";
-import { ConflictingSpecificationError } from "../../src/errors";
+import { ConflictingSpecificationError, InvalidArgumentError } from "../../src/errors";
 
 //------
 // .fromFormat
@@ -1251,6 +1251,22 @@ test("DateTime.fromFormatParser behaves equivalently to DateTime.fromFormat", ()
 
   expect(ffP1).toEqual(ff1);
   expect(ffP1.isValid).toBe(true);
+});
+
+test("DateTime.fromFormatParser requires both text and a parser", () => {
+  const formatParser = DateTime.buildFormatParser("yyyy");
+
+  expect(() => DateTime.fromFormatParser(undefined, formatParser)).toThrow(InvalidArgumentError);
+  expect(() => DateTime.fromFormatParser("1982", undefined)).toThrow(InvalidArgumentError);
+});
+
+test("DateTime.fromFormatParser preserves semantic parse failures", () => {
+  const formatParser = DateTime.buildFormatParser("h:mm a");
+  const parsed = DateTime.fromFormatParser("18:30 AM", formatParser);
+
+  expect(parsed.isValid).toBe(false);
+  expect(parsed.invalidReason).toBe('the 12-hour value "18" is not in the [1, 12] range');
+  expect(parsed.invalidExplanation).toBeNull();
 });
 
 test("DateTime.fromFormatParser throws error when used with a different locale than it was created with", () => {

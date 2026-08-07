@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Luxon coverage test roadmap</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #21262d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --accent-bg: #0c2d4a;
+      --success: #3fb950;
+      --warning: #d29922;
+      --code: #f0f6fc;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff;
+        --surface: #f6f8fa;
+        --surface-2: #eef1f4;
+        --text: #1f2328;
+        --muted: #656d76;
+        --border: #d0d7de;
+        --accent: #0969da;
+        --accent-bg: #ddf4ff;
+        --success: #1a7f37;
+        --warning: #9a6700;
+        --code: #1f2328;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1500px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin: 32px 0 8px; font-size: 20px; }
+    h3 { margin: 0 0 8px; font-size: 15px; }
+    p { margin: 0; }
+    .lede, .section-note, .source { color: var(--muted); }
+    .lede { max-width: 900px; font-size: 15px; }
+
+    code {
+      color: var(--code);
+      background: var(--surface-2);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font: 0.92em/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .button, .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 10px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .pill.active {
+      border-color: var(--accent);
+      background: var(--accent-bg);
+      color: var(--accent);
+    }
+
+    .pill.resolved {
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 24px 0;
+    }
+
+    .stat {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .stat strong {
+      display: block;
+      color: var(--accent);
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .stat span { color: var(--muted); font-size: 12px; }
+
+    .callout {
+      padding: 16px;
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      background: var(--accent-bg);
+    }
+
+    .callout strong { display: block; margin-bottom: 4px; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .card header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .card .body { padding: 14px; }
+
+    .table-wrap {
+      margin-top: 12px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg);
+    }
+
+    th, td {
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    tbody tr:nth-child(even) { background: var(--surface); }
+    tbody tr:last-child td { border-bottom: 0; }
+    td:first-child { white-space: nowrap; }
+
+    .two-column {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 18px;
+      align-items: start;
+      margin-top: 28px;
+    }
+
+    .notes p + p { margin-top: 10px; }
+    .checklist { margin: 0; padding-left: 20px; }
+    .checklist li + li { margin-top: 6px; }
+    .source { margin-top: 28px; font-size: 12px; }
+
+    @media (max-width: 900px) {
+      .stats, .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .two-column { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      main { width: min(100% - 20px, 1500px); padding-top: 20px; }
+      .stats, .cards { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      :root {
+        --bg: #fff;
+        --surface: #f7f7f7;
+        --surface-2: #eee;
+        --text: #111;
+        --muted: #555;
+        --border: #bbb;
+        --accent: #0645ad;
+        --accent-bg: #eef6ff;
+        --success: #176b2c;
+        --code: #111;
+      }
+      main { width: 100%; padding: 0; }
+      .links { display: none; }
+      th { position: static; }
+      .table-wrap { overflow: visible; }
+      tr { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Luxon coverage test roadmap</h1>
+    <p class="lede">
+      Recommendations and final results from the stock and fully patched Jest coverage reports generated
+      August 6, 2026. Behavioral confidence comes first; patch-added paths are forced to 100% only after dead,
+      unreachable, and compatibility code is handled explicitly.
+    </p>
+    <nav class="links" aria-label="Related files">
+      <a class="button" href="../benchmarks/test/offset-scan-fixtures.test.ts">Offset fixtures</a>
+      <a class="button" href="../benchmarks/test/compile-format-fixtures.test.ts">Formatter fixtures</a>
+      <a class="button" href="coverage-patched/lcov-report/index.html">Patched report</a>
+      <a class="button" href="coverage/lcov-report/index.html">Stock report</a>
+    </nav>
+  </header>
+
+  <section class="stats" aria-label="Coverage summary">
+    <div class="stat"><strong>98.22%</strong><span>Patched statements</span></div>
+    <div class="stat"><strong>48</strong><span>Patched statements uncovered</span></div>
+    <div class="stat"><strong>98.05%</strong><span>Stock statements</span></div>
+    <div class="stat"><strong>45</strong><span>Stock statements uncovered</span></div>
+  </section>
+
+  <section class="callout">
+    <strong>Roadmap executed</strong>
+    <p>
+      The suite now covers inherited Duration keys, scanner refusal and fallback behavior, compiled token
+      families, cache ceilings, invalid conversion boundaries, and native relative formatting. Patch-added
+      functions are 83/83 and statements are 564/565; the sole missed statement preserves Luxon's existing
+      <code>Duration#as("__proto__")</code> failure and is intentionally not locked into Jest.
+    </p>
+  </section>
+
+  <section>
+    <h2>Small, high-signal additions</h2>
+    <p class="section-note">Specific branches closed without extensive mocking or private-state assertions.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Source</th><th>Contract</th><th>Input</th><th>Expected</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>datetime.js</code></td>
+            <td>Ignore inherited Duration units</td>
+            <td><code>Object.assign(Object.create({ days: 10 }), { hours: 2 })</code></td>
+            <td><code>plus</code> adds two hours; <code>minus</code> subtracts two hours.</td>
+          </tr>
+          <tr>
+            <td><code>formatter.js</code></td>
+            <td>Non-Gregorian numeric tokens</td>
+            <td><code>islamic.toFormat("d dd L LL M MM y yy yyyy yyyyyy G")</code></td>
+            <td><code>2 02 8 08 8 08 1402 02 1402 1402 AH</code></td>
+          </tr>
+          <tr>
+            <td><code>util.js</code></td>
+            <td>Complete Gregorian leap rule</td>
+            <td><code>DateTime.utc(2000, 2, 1).isInLeapYear</code></td>
+            <td><code>true</code></td>
+          </tr>
+          <tr>
+            <td><code>util.js</code></td>
+            <td>Reject bad week settings</td>
+            <td><code>firstDay: 0</code> with otherwise valid settings</td>
+            <td>Throws <code>Invalid week settings</code>.</td>
+          </tr>
+          <tr>
+            <td><code>zoneUtil.js</code></td>
+            <td>Duck-typed and malformed zones</td>
+            <td><code>Info.normalizeZone({ offset() {} })</code></td>
+            <td>Preserves valid duck types; malformed objects become invalid zones.</td>
+          </tr>
+          <tr>
+            <td><code>util.js</code></td>
+            <td>Ignore inherited date fields</td>
+            <td><code>DateTime.fromObject(Object.assign(Object.create({ invalidUnit: 42 }), validDate))</code></td>
+            <td><code>2024-05-25</code></td>
+          </tr>
+          <tr>
+            <td><code>formatter.js</code></td>
+            <td>Reuse system locale within one format</td>
+            <td><code>dt.toFormat("D D")</code></td>
+            <td><code>5/25/1982 5/25/1982</code></td>
+          </tr>
+          <tr>
+            <td><code>formatter.js</code></td>
+            <td>Cross bounded cache ceilings</td>
+            <td>Format 1,100 unique DateTime and Duration patterns.</td>
+            <td>Correct values at indices 0, 999, 1000, and 1099.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Path to 100% of patch-added behavior</h2>
+    <div class="cards">
+      <article class="card">
+        <header><span>Public parity first</span><span class="pill active">1</span></header>
+        <div class="body">
+          Compare stock and fully patched output, errors, invalid reasons, offsets, and cache-reset behavior for
+          every patch fixture.
+        </div>
+      </article>
+      <article class="card">
+        <header><span>Isolate global capabilities</span><span class="pill active">2</span></header>
+        <div class="body">
+          Replace global Intl capabilities before loading Luxon, isolate modules, and restore globals and caches
+          after every scanner fallback test.
+        </div>
+      </article>
+      <article class="card">
+        <header><span>Prove cache boundaries</span><span class="pill active">3</span></header>
+        <div class="body">
+          Cross each 1,000-entry ceiling and reset caches. Assert first and last values remain correct without
+          exposing private cache sizes.
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>Patched-code backlog</h2>
+    <p class="section-note">
+      Ordered by regression risk. Much of the remaining percentage gap is pre-existing stock behavior,
+      compatibility fallback code, dead code, or instrumentation-only counters.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Priority</th><th>Target</th><th>Public surface</th><th>Meaningful scenario</th><th>Observable assertion</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="pill active">P0</span></td>
+            <td>Inherited Duration keys</td>
+            <td><code>DateTime#plus / DateTime#minus</code></td>
+            <td>Prototype has <code>days: 10</code>; own property has <code>hours: 2</code>.</td>
+            <td>Only the own two-hour value is applied.</td>
+          </tr>
+          <tr>
+            <td><span class="pill active">P0</span></td>
+            <td>Offset scanner and transition boundaries</td>
+            <td><code>IANAZone.offset</code></td>
+            <td>Unfamiliar Intl layouts, BC, hour 24, negative sub-second timestamps, Date limits, and dense transitions.</td>
+            <td>Matches the slow decoder; out-of-range is NaN; reset rebuilds scanners.</td>
+          </tr>
+          <tr>
+            <td><span class="pill active">P0</span></td>
+            <td>Zone-name scanner refusal and fallback</td>
+            <td><code>parseZoneInfo / offsetName*</code></td>
+            <td>Moving layouts, missing names, format/parts disagreement, distinct zone/style/locale keys, and reset.</td>
+            <td>Returns complete native names without stale or cross-key answers.</td>
+          </tr>
+          <tr>
+            <td><span class="pill active">P0</span></td>
+            <td>Compiled DateTime token matrix</td>
+            <td><code>Formatter / DateTime#toFormat</code></td>
+            <td>All handler families across English, French, Persian, alternative calendars, BC, macros, literals, and unknown tokens.</td>
+            <td>Exact stock parity for first and repeated calls.</td>
+          </tr>
+          <tr>
+            <td><span class="pill active">P0</span></td>
+            <td>Compiled Duration programs</td>
+            <td><code>Duration#toFormat</code></td>
+            <td>Custom matrices, widths, literals, sign modes, negative zero, and more than 1,000 formats.</td>
+            <td>Exact stock parity, including after the cache ceiling.</td>
+          </tr>
+          <tr>
+            <td><span class="pill active">P0</span></td>
+            <td>Locale intern and formatter memos</td>
+            <td><code>Locale / Settings.resetCaches</code></td>
+            <td>Settings changes, alternatives, mutated options, old DateTimes, 1,001 locales, and reset.</td>
+            <td>No stale locale or formatter is reused.</td>
+          </tr>
+          <tr>
+            <td><span class="pill">P1</span></td>
+            <td>Token parser cache and dense handler walk</td>
+            <td><code>fromFormat / fromFormatParser</code></td>
+            <td>Multi-capture offsets, literals, cache-key dimensions, invalid tokens, and reset.</td>
+            <td>Cached parsing equals a fresh parser and preserves errors and offsets.</td>
+          </tr>
+          <tr>
+            <td><span class="pill">P1</span></td>
+            <td>Numeric fast-path boundaries</td>
+            <td><code>fromMillis / toFormat</code></td>
+            <td>Negative fractional epochs, leap centuries, extreme years, punctuation, non-latn digits, options, and signs.</td>
+            <td>Exact stock parity at calendar and representable-range boundaries.</td>
+          </tr>
+          <tr>
+            <td><span class="pill">P2</span></td>
+            <td>Platform fallback decoder</td>
+            <td><code>partsOffset / hackyOffset / SystemZone</code></td>
+            <td>Controlled Intl implementations with malformed layouts or unavailable modern methods.</td>
+            <td>Public offset/name APIs match the reference or reject safely.</td>
+          </tr>
+          <tr>
+            <td><span class="pill resolved">Resolved</span></td>
+            <td>Unused formatter interpreter</td>
+            <td><code>stringifyTokens</code></td>
+            <td>K now requires G and removes the helper when compiled runners replace both call sites.</td>
+            <td>Generated G+K and fully patched sources contain no definition.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Stock coverage improvements</h2>
+    <p class="section-note">Public contracts, invalid inputs, boundaries, and capability fallbacks without private-cache assertions.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Value</th><th>Target</th><th>Scenario</th><th>Suggested home</th></tr></thead>
+        <tbody>
+          <tr><td>High</td><td><code>DateTime#getPossibleOffsets</code></td><td>True fixed UTC+2, invalid DateTime, and normalized Berlin spring hole.</td><td><code>test/datetime/zone.test.js</code></td></tr>
+          <tr><td>High</td><td><code>DateTime.fromFormatParser</code></td><td>Missing arguments and semantic rejection of <code>18:30 AM</code> with <code>h:mm a</code>.</td><td><code>test/datetime/tokenParse.test.js</code></td></tr>
+          <tr><td>High</td><td><code>conversion validators</code></td><td>Non-integer week, ordinal, and Gregorian years plus second 60 with exact explanations.</td><td><code>test/datetime/create.test.js</code></td></tr>
+          <tr><td>High</td><td><code>native relative formatting</code></td><td>French plus/minus one day and relative-calendar output with native RelativeTimeFormat.</td><td><code>test/datetime/relative.test.js</code></td></tr>
+          <tr><td>High</td><td><code>malformed Unicode locale fallback</code></td><td><code>en-US-u-ca-</code> falls back to en-US, Gregorian, and latn without throwing.</td><td><code>test/datetime/create.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>DateTime#toUnixInteger</code></td><td>Positive, negative, and invalid values distinguish floor from truncation.</td><td><code>test/datetime/transform.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>week-settings validation</code></td><td>Reject malformed first day, minimal days, and weekend definitions; restore settings.</td><td><code>test/datetime/localeWeek.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>cross-realm zone normalization</code></td><td>Preserve a node:vm zone with <code>offset()</code>; reject malformed objects.</td><td><code>test/info/zones.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>basic positive ISO offset</code></td><td>UTC+5:30 in basic format produces <code>053000.000+0530</code>.</td><td><code>test/datetime/format.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>Duration#toISOTime</code></td><td>An invalid Duration returns null.</td><td><code>test/duration/invalid.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>basic ISO precision</code></td><td>Basic month and minute precision produce <code>198205</code> and <code>0923Z</code>.</td><td><code>test/datetime/format.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>formatted non-English weekdays</code></td><td>Russian format-context weekdays return all seven expected names.</td><td><code>test/info/listers.test.js</code></td></tr>
+          <tr><td>Medium</td><td><code>invalid Interval metadata</code></td><td>Invalid lastDateTime and explanation; omitted <code>set()</code> preserves endpoints.</td><td><code>test/interval/getters.test.js</code></td></tr>
+          <tr><td>Low</td><td><code>SystemZone#formatOffset</code></td><td>Pinned New York winter and summer offset rendering.</td><td><code>test/zones/local.test.js</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="two-column">
+    <div class="notes">
+      <h2>What not to force</h2>
+      <p>
+        DateTime format-preset getters are constant aliases. Calling every getter raises a percentage without
+        protecting behavior.
+      </p>
+      <p>
+        Debug-only <code>util.inspect.custom</code> hooks remain untested, following the suite's established
+        prototype-access pattern without introducing Node-specific inspect calls.
+      </p>
+      <p>
+        Unreachable branches include the non-finite <code>diff</code> day delta for valid DateTimes and the
+        <code>Duration#as("__proto__")</code> compatibility fallback. Document them rather than fabricate internal
+        objects or lock a known prototype bug into Jest.
+      </p>
+      <p>
+        Legacy <code>formatToParts</code> shims, old <code>Intl.Locale.weekInfo</code> variants, source-map artifacts,
+        and the unreachable <code>Interval#splitAt</code> clamp belong in a compatibility matrix or narrow exclusion.
+      </p>
+    </div>
+    <article class="card">
+      <header><span>Definition of done</span><span class="pill resolved">Complete</span></header>
+      <div class="body">
+        <ul class="checklist">
+          <li>Patch-added functions: 83/83.</li>
+          <li>Patch-added statements: 564/565 plus one documented compatibility exclusion.</li>
+          <li>Patch-added branches: 412/414 plus two documented exclusions.</li>
+          <li>Stock and patched Jest: 1,261/1,261.</li>
+          <li>All 204 mutation verdicts remain expected.</li>
+          <li>No production-only test hooks.</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <p class="source">
+    Sources: <code>build/coverage/coverage-final.json</code>,
+    <code>build/coverage-patched/coverage-final.json</code>, current source, and mutation-backed fixture catalogs.
+    This HTML file is self-contained and uses no external assets.
+  </p>
+</main>
+</body>
+</html>

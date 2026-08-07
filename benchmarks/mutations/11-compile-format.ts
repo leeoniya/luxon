@@ -148,8 +148,8 @@ const set: MutationSet = {
     },
     {
       name: "drops Duration literal runs",
-      find: "+    if (field === undefined) {\n+      lit += token.val;\n+    } else {",
-      replace: "+    if (field === undefined) {\n+    } else {",
+      find: "+    if (field === undefined) {\n+      lit += token.val;\n     } else {",
+      replace: "+    if (field === undefined) {\n     } else {",
     },
     {
       name: "leaves secondary negative Duration fields negative",

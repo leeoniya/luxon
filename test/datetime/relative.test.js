@@ -4,6 +4,11 @@ const Helpers = require("../helpers");
 
 /* global expect test */
 
+const hasNativeFrenchRTF =
+  typeof Intl.RelativeTimeFormat === "function" &&
+  Intl.RelativeTimeFormat.supportedLocalesOf("fr").length > 0;
+const nativeRTFTest = hasNativeFrenchRTF ? test : test.skip;
+
 //------
 // #toRelative()
 //-------
@@ -27,6 +32,15 @@ test("DateTime#toRelative works down through the units", () => {
   expect(base.minus({ days: 3 }).toRelative({ base })).toBe("3 days ago");
   expect(base.minus({ months: 5 }).toRelative({ base })).toBe("5 months ago");
   expect(base.minus({ months: 15 }).toRelative({ base })).toBe("1 year ago");
+});
+
+nativeRTFTest("DateTime relative formatting uses native French day phrases", () => {
+  const base = DateTime.fromISO("2020-05-15T12:00:00Z", { setZone: true, locale: "fr" });
+
+  expect(base.plus({ days: 1 }).toRelative({ base, unit: "days" })).toBe("dans 1 jour");
+  expect(base.minus({ days: 1 }).toRelative({ base, unit: "days" })).toBe("il y a 1 jour");
+  expect(base.plus({ days: 1 }).toRelativeCalendar({ base })).toBe("demain");
+  expect(base.minus({ days: 1 }).toRelativeCalendar({ base })).toBe("hier");
 });
 
 test("DateTime#toRelative allows padding", () => {

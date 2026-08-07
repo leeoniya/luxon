@@ -136,6 +136,10 @@ test("Duration#toISOTime returns null if the value is outside the range of one d
   expect(Duration.fromObject({ milliseconds: -1 }).toISOTime()).toBe(null);
 });
 
+test("Duration#toISOTime returns null for invalid durations", () => {
+  expect(Duration.invalid("because").toISOTime()).toBe(null);
+});
+
 test("Duration#toISOTime is not influenced by the locale", () => {
   expect(Duration.fromObject({ hours: 3, minutes: 10 }, { locale: "ar-QA" }).toISOTime()).toBe(
     "03:10:00.000"
@@ -276,6 +280,20 @@ test("Duration#toFormat accepts the deprecated 'round' option", () => {
   expect(dur().toFormat("d", { round: false })).toBe("435.17");
   expect(dur().toFormat("M", { round: false })).toBe("14.356");
   expect(dur().toFormat("y", { round: false })).toBe("1.195");
+});
+
+test("Duration#toFormat remains correct past the formatter cache ceiling", () => {
+  const duration = Duration.fromObject({ seconds: 7 });
+  const results = Array.from({ length: 1100 }, (_, index) =>
+    duration.toFormat(`'literal ${index}:' s`)
+  );
+
+  expect([results[0], results[999], results[1000], results[1099]]).toEqual([
+    "literal 0: 7",
+    "literal 999: 7",
+    "literal 1000: 7",
+    "literal 1099: 7",
+  ]);
 });
 
 test("Duration#toFormat leaves in zeros", () => {

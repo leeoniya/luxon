@@ -21,3 +21,14 @@ test("Interval.end gets the end", () => {
 test("Interval.end returns null for invalid intervals", () => {
   expect(invalid.end).toBe(null);
 });
+
+test("Interval.lastDateTime returns null for invalid intervals", () => {
+  expect(invalid.lastDateTime).toBe(null);
+});
+
+test("Interval.invalidExplanation returns invalid details", () => {
+  const detailed = Interval.invalid("because", "the end preceded the start");
+
+  expect(detailed.invalidReason).toBe("because");
+  expect(detailed.invalidExplanation).toBe("the end preceded the start");
+});

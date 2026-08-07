@@ -37,6 +37,34 @@ test("DateTime.now accepts the default time zone", () => {
   withDefaultZone("Europe/Paris", () => expect(DateTime.now().zoneName).toBe("Europe/Paris"));
 });
 
+test("Settings.defaultWeekSettings rejects malformed inputs and restores the prior value", () => {
+  const original = Settings.defaultWeekSettings;
+  const valid = { firstDay: 1, minimalDays: 4, weekend: [6, 7] };
+  const invalidSettings = [
+    "not an object",
+    {},
+    { ...valid, firstDay: 0 },
+    { ...valid, firstDay: 1.5 },
+    { ...valid, minimalDays: 8 },
+    { ...valid, minimalDays: 1.5 },
+    { ...valid, weekend: 6 },
+    { ...valid, weekend: [0, 7] },
+    { ...valid, weekend: [6, 7.5] },
+  ];
+
+  try {
+    for (const input of invalidSettings) {
+      expect(() => {
+        Settings.defaultWeekSettings = input;
+      }).toThrow();
+    }
+  } finally {
+    Settings.defaultWeekSettings = original;
+  }
+
+  expect(Settings.defaultWeekSettings).toEqual(original);
+});
+
 //------
 // .local()
 //------
@@ -538,6 +566,37 @@ test("DateTime.fromObject() reject invalid values", () => {
   expect(DateTime.fromObject({ millisecond: new Date() }).isValid).toBe(false);
 });
 
+test.each([
+  [
+    "week year",
+    { weekYear: 2020.5, weekNumber: 1 },
+    "you specified 2020.5 (of type number) as a weekYear, which is invalid",
+  ],
+  [
+    "ordinal year",
+    { year: 2020.5, ordinal: 1 },
+    "you specified 2020.5 (of type number) as a year, which is invalid",
+  ],
+  [
+    "Gregorian year",
+    { year: 2020.5, month: 1, day: 1 },
+    "you specified 2020.5 (of type number) as a year, which is invalid",
+  ],
+  [
+    "second",
+    { year: 2020, month: 1, day: 1, second: 60 },
+    "you specified 60 (of type number) as a second, which is invalid",
+  ],
+])(
+  "DateTime.fromObject() reports the first invalid %s conversion",
+  (_label, input, explanation) => {
+    const dt = DateTime.fromObject(input);
+
+    expect(dt.invalidReason).toBe("unit out of range");
+    expect(dt.invalidExplanation).toBe(explanation);
+  }
+);
+
 test("DateTime.fromObject() defaults high-order values to the current date", () => {
   const dateTime = DateTime.fromObject({}),
     now = DateTime.now();
@@ -823,6 +882,14 @@ test("DateTime.fromObject accepts a locale string with weird junk in it", () => 
     expect(res.outputCalendar === "gregory" || res.outputCalendar === "coptic").toBe(true);
     expect(res.numberingSystem).toBe("latn");
   });
+});
+
+test("DateTime.fromObject falls back from a malformed Unicode calendar extension", () => {
+  const res = DateTime.fromObject({}, { locale: "en-US-u-ca-" });
+
+  expect(res.locale).toBe("en-US");
+  expect(res.outputCalendar).toBe("gregory");
+  expect(res.numberingSystem).toBe("latn");
 });
 
 test("DateTime.fromObject overrides the locale string with explicit settings", () => {

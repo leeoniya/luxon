@@ -32,16 +32,34 @@
 //      bun --test benchmarks/test/        (the same, on JavaScriptCore)
 
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
-import { loadLuxon, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
+import {
+  loadLuxon,
+  patchedEntry,
+  patchKey,
+  patchKeys,
+  withNeeds,
+  type PatchKey,
+} from "../lib/patches.ts";
 import type { LuxonModule } from "../lib/luxon-types.ts";
 
+const compileFormat = patchKey("compileFormat");
+const numericPath = patchKey("numericPath");
 const VARIANTS: [string, PatchKey[]][] = [
-  ["compileFormat", [patchKey("compileFormat")]],
+  ["compileFormat", [compileFormat]],
   ["every patch", [...patchKeys]],
 ];
 
 const stock = await loadLuxon([]);
+
+test("compileFormat replaces numericPath's formatter interpreter", async () => {
+  assert.deepEqual(withNeeds([compileFormat]), [numericPath, compileFormat]);
+
+  const entry = await patchedEntry([compileFormat]);
+  const formatter = await readFile(new URL("impl/formatter.js", entry), "utf8");
+  assert.doesNotMatch(formatter, /\bstringifyTokens\b/);
+});
 
 // One representative per formatter-relevant locale class: English's direct
 // tables, grammatical context, non-Gregorian calendars, CJK, RTL and non-Latin

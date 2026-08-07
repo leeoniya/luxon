@@ -6,10 +6,10 @@ Summary: Formatter: compile formats once, read shifted Duration fields directly,
 Description: benchmarks/docs/pr/11-compile-format.md
 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
-index 4c80d34..364e2f8 100644
+index 4c80d34..a68bc57 100644
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -2,18 +2,361 @@ import * as English from "./english.js";
+@@ -2,18 +2,362 @@ import * as English from "./english.js";
  import * as Formats from "./formats.js";
  import { padStart, roundTo } from "./util.js";
  
@@ -91,7 +91,8 @@ index 4c80d34..364e2f8 100644
 +      return "Z";
 +    }
 +
-+    return dt.isValid ? dt.zone.formatOffset(dt.ts, format) : "";
++    // DateTime#toFormat returns before constructing a formatter when invalid.
++    return dt.zone.formatOffset(dt.ts, format);
 +  };
 +}
 +
@@ -328,8 +329,8 @@ index 4c80d34..364e2f8 100644
 +      lit = "";
 +      fields.push(field);
 +      widths.push(token.val.length);
-+    }
-+  }
+     }
+   }
 +
 +  lits.push(lit);
 +
@@ -344,8 +345,8 @@ index 4c80d34..364e2f8 100644
 +
 +    if (cfDurationPrograms.size < CF_CACHE_MAX) {
 +      cfDurationPrograms.set(fmt, program);
-     }
-   }
++    }
++  }
 +
 +  const { lits, fields, widths } = program;
 +  const collapsed = dur.shiftTo(...fields);
@@ -380,7 +381,7 @@ index 4c80d34..364e2f8 100644
    return s;
  }
  
-@@ -193,304 +536,14 @@ export default class Formatter {
+@@ -193,304 +537,14 @@ export default class Formatter {
    }
  
    formatDateTimeFromString(dt, fmt) {

@@ -96,6 +96,21 @@ test("DateTime#plus(multiple) adds the right amount of time", () => {
   expect(later.minute).toBe(41);
 });
 
+test("DateTime#plus ignores inherited duration units", () => {
+  const amount = Object.create({ days: 10 });
+  amount.hours = 2;
+
+  expect(DateTime.utc(2020, 1, 1).plus(amount).toISO()).toBe("2020-01-01T02:00:00.000Z");
+});
+
+test("DateTime#plus and #minus ignore nullish duration values", () => {
+  const dt = DateTime.utc(2020, 1, 1);
+  const amount = { days: null, hours: undefined };
+
+  expect(dt.plus(amount)).toEqual(dt);
+  expect(dt.minus(amount)).toEqual(dt);
+});
+
 test("DateTime#plus maintains invalidity", () => {
   expect(DateTime.invalid("because").plus({ day: 1 }).isValid).toBe(false);
 });
@@ -197,6 +212,13 @@ test("DateTime#minus({ months: 13 }) at the end of the month", () => {
   expect(earlier.day).toBe(29);
   expect(earlier.month).toBe(2);
   expect(earlier.year).toBe(2016);
+});
+
+test("DateTime#minus ignores inherited duration units", () => {
+  const amount = Object.create({ days: 10 });
+  amount.hours = 2;
+
+  expect(DateTime.utc(2020, 1, 1).minus(amount).toISO()).toBe("2019-12-31T22:00:00.000Z");
 });
 
 test("DateTime#minus maintains invalidity", () => {
@@ -533,4 +555,5 @@ test("DateTime#endOf maintains invalidity", () => {
 
 test("DateTime#endOf throws on invalid units", () => {
   expect(() => DateTime.fromISO("2016-03-12T10:00").endOf("splork")).toThrow();
+  expect(() => DateTime.fromISO("2016-03-12T10:00").endOf(null)).toThrow();
 });

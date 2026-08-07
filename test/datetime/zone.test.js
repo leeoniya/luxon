@@ -245,16 +245,22 @@ test("DateTime#isInDST() returns true for 1974 whole year in USA- from January 6
 //------
 // #getPossibleOffsets()
 //------
-test("DateTime#getPossibleOffsets() returns the same DateTime for fixed zones", () => {
-  const fixedZoned = dt().setZone("+02:00");
+test("DateTime#getPossibleOffsets() returns the same DateTime for a fixed UTC+2 zone", () => {
+  const fixedZoned = dt().setZone("UTC+2");
   const possibleOffsets = fixedZoned.getPossibleOffsets();
+  expect(fixedZoned.isOffsetFixed).toBe(true);
+  expect(fixedZoned.offset).toBe(120);
   expect(possibleOffsets).toHaveLength(1);
   expect(possibleOffsets[0]).toBe(fixedZoned);
 });
 
-test("DateTime#getPossibleOffsets() returns the same DateTime when not at an ambiguous local time", () => {
-  const zoned = DateTime.fromISO("2023-01-01T15:00", { zone: "Europe/Berlin" });
+test("DateTime#getPossibleOffsets() keeps a normalized Berlin spring-hole time unambiguous", () => {
+  const zoned = DateTime.fromObject(
+    { year: 2023, month: 3, day: 26, hour: 2, minute: 30 },
+    { zone: "Europe/Berlin" }
+  );
   const possibleOffsets = zoned.getPossibleOffsets();
+  expect(zoned.toISO()).toBe("2023-03-26T03:30:00.000+02:00");
   expect(possibleOffsets).toHaveLength(1);
   expect(possibleOffsets[0]).toBe(zoned);
 });
@@ -265,6 +271,14 @@ test("DateTime#getPossibleOffsets() returns the possible DateTimes when at an am
   expect(possibleOffsets).toHaveLength(2);
   expect(possibleOffsets[0].toISO()).toBe("2023-10-29T02:30:00.000+02:00");
   expect(possibleOffsets[1].toISO()).toBe("2023-10-29T02:30:00.000+01:00");
+});
+
+test("DateTime#getPossibleOffsets() returns the invalid DateTime unchanged", () => {
+  const invalid = DateTime.invalid("because");
+  const possibleOffsets = invalid.getPossibleOffsets();
+
+  expect(possibleOffsets).toHaveLength(1);
+  expect(possibleOffsets[0]).toBe(invalid);
 });
 
 //------

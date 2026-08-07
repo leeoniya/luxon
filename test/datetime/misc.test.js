@@ -87,6 +87,18 @@ test("DateTime#isInLeapYear returns the whether the DateTime's year is in a leap
   expect(DateTime.local(2020, 5, 25).isInLeapYear).toBe(true);
 });
 
+test("DateTime Gregorian leap-year rules distinguish 2000 from 1900", () => {
+  const leapCentury = DateTime.local(2000, 2, 1);
+  const commonCentury = DateTime.local(1900, 2, 1);
+
+  expect(leapCentury.isInLeapYear).toBe(true);
+  expect(leapCentury.daysInYear).toBe(366);
+  expect(leapCentury.daysInMonth).toBe(29);
+  expect(commonCentury.isInLeapYear).toBe(false);
+  expect(commonCentury.daysInYear).toBe(365);
+  expect(commonCentury.daysInMonth).toBe(28);
+});
+
 test("DateTime#isInLeapYear returns false for invalid DateTimes", () => {
   expect(DateTime.invalid("because").isInLeapYear).toBe(false);
 });

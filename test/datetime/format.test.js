@@ -87,6 +87,12 @@ test("DateTime#toISO() shows the offset, unless explicitly asked", () => {
 
 test("DateTime#toISO() supports the 'basic' format", () => {
   expect(dt.toISO({ format: "basic" })).toBe("19820525T092354.123Z");
+  expect(dt.toUTC(6 * 60).toISO({ format: "basic" })).toBe("19820525T152354.123+0600");
+});
+
+test("DateTime#toISO() combines basic format with month and minute precision", () => {
+  expect(dt.toISO({ format: "basic", precision: "months" })).toBe("198205Z");
+  expect(dt.toISO({ format: "basic", precision: "minute" })).toBe("19820525T0923Z");
 });
 
 test("DateTime#toISO() suppresses [milli]seconds", () => {
@@ -525,9 +531,7 @@ test("DateTime#toLocaleString() does the best it can with unsupported fixed-offs
 });
 
 test("DateTime#toLocaleString() does the best it can with unsupported fixed-offset zone with timeStyle full", () => {
-  expect(
-    dt.setZone("UTC+4:30").toLocaleString({ timeStyle: "full" })
-  ).toMatchIgnoringWeirdSpaces(
+  expect(dt.setZone("UTC+4:30").toLocaleString({ timeStyle: "full" })).toMatchIgnoringWeirdSpaces(
     "1:53:54\u202FPM UTC+4:30"
   );
 });

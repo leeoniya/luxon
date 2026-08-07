@@ -28,6 +28,10 @@ test("DateTime#toFormat accepts the locale from the DateTime or the options", ()
   expect(dt.setLocale("pt").toFormat("LLLL", { locale: "fr" })).toBe("mai");
 });
 
+test("DateTime#toFormat reuses the system locale for repeated macro tokens", () => {
+  expect(dt.toFormat("D D")).toBe("5/25/1982 5/25/1982");
+});
+
 test("DateTime#toFormat('u') returns fractional seconds", () => {
   expect(dt.toFormat("u")).toBe("123");
   expect(dt.set({ millisecond: 82 }).toFormat("u")).toBe("082");
@@ -540,6 +544,26 @@ test("DateTime#toFormat() uses the numbering system", () => {
 test("DateTime#toFormat() uses the output calendar", () => {
   expect(dt.reconfigure({ outputCalendar: "islamic" }).toFormat("MMMM yyyy")).toBe("Shaʻban 1402");
   expect(dt.toFormat("MMMM yyyy", { outputCalendar: "islamic" })).toBe("Shaʻban 1402");
+});
+
+test("DateTime#toFormat() uses alternative-calendar values for numeric tokens", () => {
+  expect(dt.toFormat("d dd L LL M MM y yy yyyy yyyyyy G", { outputCalendar: "islamic" })).toBe(
+    "2 02 8 08 8 08 1402 02 1402 1402 AH"
+  );
+  expect(dt.toFormat("LL")).toBe("05");
+});
+
+test("DateTime#toFormat remains correct past the formatter cache ceiling", () => {
+  const results = Array.from({ length: 1100 }, (_, index) =>
+    dt.toFormat(`'literal ${index}:' yyyy`)
+  );
+
+  expect([results[0], results[999], results[1000], results[1099]]).toEqual([
+    "literal 0: 1982",
+    "literal 999: 1982",
+    "literal 1000: 1982",
+    "literal 1099: 1982",
+  ]);
 });
 
 test("DateTime#toFormat() returns something different for invalid DateTimes", () => {
