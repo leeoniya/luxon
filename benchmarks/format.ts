@@ -38,7 +38,7 @@
 
 import { spawnSync } from "node:child_process";
 import moment from "moment-timezone";
-import { colorEnabled, colorLegend, shade } from "./lib/color.ts";
+import { shade } from "./lib/color.ts";
 import { canResolve, irregularZones, tablesHost, yearStart, zones } from "./lib/easy-tz.ts";
 import {
   zoneFormatKeys,
@@ -158,11 +158,7 @@ function timingRow(label: string, ms: Map<VariantId, number>): string[] {
 // state. The variants of a zone — which is what these rows compare — keep the
 // tight interleaved window they always had.
 for (const fmt of zoneFormatKeys) {
-  console.log(
-    `${fmt} format (${patternFor("moment", fmt)}) -- ms per ${N} values, ratio vs moment` +
-      (colorEnabled ? `\n${colorLegend("this zone's moment")}` : ``) +
-      `\n`
-  );
+  console.log(`${fmt} format (${patternFor("moment", fmt)}) -- ms per ${N} values, ratio vs moment\n`);
 
   const table = streamTable(["zone", "moment", "luxon", "luxon+easytz", "luxon", "luxon+easytz"], {
     minWidths: { 0: 20, 1: 9, 2: 9, 3: 12, 4: 7 },

@@ -23,11 +23,8 @@ const STEPS = [0.15, 0.5, 1, 2];
 
 /**
  * Below this the cell is left alone. Roughly a tenth, which is the neighbourhood
- * of these benches' own noise floors — colouring a difference smaller than the
- * table can resolve would be inventing a result. The floors are per column and
- * measured, and this is neither, so it is deliberately the looser of the two:
- * a cell that clears this can still be inside its column's floor, and the floors
- * printed under each table remain the thing to read a margin against.
+ * of these benches' own noise floors — colouring smaller differences would make
+ * noise look significant.
  */
 const DEAD = STEPS[0]!;
 
@@ -86,26 +83,4 @@ export function shade(text: string, value: number, anchor: number | undefined): 
 export function visibleWidth(text: string): number {
   // eslint-disable-next-line no-control-regex
   return text.replace(/\u001b\[[0-9;]*m/g, "").length;
-}
-
-/**
- * One line naming what the colours mean, for the foot of a table that uses them.
- * Empty when nothing was coloured, so a redirected run does not explain an
- * encoding it did not use.
- *
- * `fallback` is for tables whose baseline row cannot answer every column: naming
- * it matters, because a reader with no way to tell which baseline a cell was
- * shaded against cannot read the colour at all. It goes in its own sentence
- * rather than as a clause on the first, which put it between "green faster
- * than" and "red slower".
- */
-export function colorLegend(baseline: string, fallback?: string): string {
-  if (!colorEnabled) return "";
-
-  const dead = Math.round((2 ** DEAD - 1) * 100);
-
-  return (
-    `colour: green faster than the baseline, red slower, both by log scale; within ${dead}% left plain.\n` +
-    `baseline: ${baseline}${fallback === undefined ? "" : `, and ${fallback}`}.`
-  );
 }

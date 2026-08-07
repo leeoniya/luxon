@@ -28,6 +28,8 @@
 import { visibleWidth } from "./color.ts";
 
 export interface StreamTableOpts {
+  /** title spanning the full table width */
+  title?: string;
   /** columns to left-align, beyond column 0 which always is */
   leftCols?: readonly number[];
   /** per-column minimum width, by index, for columns whose values outgrow their header */
@@ -72,6 +74,11 @@ export function streamTable(headers: string[], opts: StreamTableOpts = {}): Stre
       })
       .join("  ")
       .trimEnd();
+
+  if (opts.title !== undefined) {
+    const title = `${"-".repeat(5)} ${opts.title} `;
+    console.log(title + "-".repeat(Math.max(0, separator.length - title.length)));
+  }
 
   if (opts.groups !== undefined && opts.groups.length > 0) {
     const groups = new Map(opts.groups.map((group) => [group.start, group]));
