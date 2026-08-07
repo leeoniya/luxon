@@ -60,6 +60,7 @@ for (const [label, keys] of VARIANTS) {
   describe(`trimAllocs fixtures > ${label}`, () => {
     // ---- as() ----
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as agrees exactly with shifting to one unit"
     test("as() answers what shiftTo().get() answers", async () => {
       const m = await loadLuxon(keys);
 
@@ -129,6 +130,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as preserves unit normalization and rejection behavior"
     test("as() of an invalid duration is NaN, and of a unit it cannot place is what it always was", async () => {
       const m = await loadLuxon(keys);
       const bad = m.Duration.invalid("because");
@@ -189,6 +191,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/accuracy.test.js — "There are slightly more than 365 days in a year"
     test("as() reads the accuracy the duration carries, not a default", async () => {
       const m = await loadLuxon(keys);
       const shape = { days: 365 };
@@ -198,6 +201,7 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(casual, longterm, "both matrices gave the same answer, so neither was consulted");
     });
 
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/duration/customMatrix.test.js — "Duration#as follows a custom matrix in every conversion direction"
     test("as() follows every conversion direction in a custom matrix", async () => {
       const m = await loadLuxon(keys);
       const seed = m.Duration.fromObject({});
@@ -233,6 +237,7 @@ for (const [label, keys] of VARIANTS) {
 
     // ---- endOf ----
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf agrees with plus().startOf().minus() at boundary dates"
     test("endOf answers what plus().startOf().minus() answers", async () => {
       const m = await loadLuxon(keys);
 
@@ -266,6 +271,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/math.test.js — "DateTime#endOf remains stable across repeated calls and receivers"
     test("the cached unit object is not consumed by the call that used it", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-03-10T01:30:00.000", { zone: ZONE });
@@ -310,6 +316,7 @@ for (const [label, keys] of VARIANTS) {
       assert.throws(() => dt.endOf("year", null as never), TypeError);
     });
 
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/math.test.js — "DateTime#endOf preserves DST and locale-week boundaries"
     test("endOf preserves DST and locale-week calendar boundaries", async () => {
       const m = await loadLuxon(keys);
       const cases = [
@@ -363,6 +370,7 @@ for (const [label, keys] of VARIANTS) {
 
     // ---- diff ----
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/diff.test.js — "DateTime#diff with one lower-order unit is reversible across transition edges"
     test("diff with one lower-order unit matches stock", async () => {
       const [m, stock] = await Promise.all([loadLuxon(keys), loadLuxon([])]);
       const pairs = [
@@ -408,6 +416,7 @@ for (const [label, keys] of VARIANTS) {
 
     // ---- clone ----
 
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/set.test.js — "DateTime clone-backed setters preserve unchanged fields"
     test("every field clone forwards survives the methods that change one", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-03-10T01:30:00.000", { zone: ZONE, locale: "en-US" });
@@ -474,6 +483,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/set.test.js — "DateTime clone-backed setters preserve and replace wasHole"
     test("wasHole survives a clone that was not asked to change it", async () => {
       const m = await loadLuxon(keys);
       // 2:30 does not exist on this date in this zone
@@ -498,6 +508,8 @@ for (const [label, keys] of VARIANTS) {
       assert.equal((outOf as unknown as { wasHole: boolean }).wasHole, false, "set() out of the hole");
     });
 
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/invalid.test.js — "Explicitly invalid dates are invalid"
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/set.test.js — "invalid DateTimes stay invalid through clone-backed methods"
     test("an invalid DateTime stays invalid through the methods that clone it", async () => {
       const m = await loadLuxon(keys);
       const bad = m.DateTime.invalid("because");

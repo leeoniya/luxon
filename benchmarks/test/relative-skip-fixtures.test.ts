@@ -51,6 +51,7 @@ for (const [label, keys] of VARIANTS) {
     // The extremes of tzdata, one per floored unit. Each is a span of exactly one
     // unit that takes much less real time than a naive floor would allow, because
     // the zone jumped forward inside it.
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelative reports units shortened by historical zone jumps"
     test("a unit whose span was shortened by a large jump is still reported as that unit", async () => {
       const m = await loadLuxon(keys);
 
@@ -87,6 +88,7 @@ for (const [label, keys] of VARIANTS) {
 
     // A floor is a lower bound, so the interesting spans are the ones just above
     // it, where skipping would be wrong for the first time.
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelative does not skip spans that only just reach a unit"
     test("a span that only just reaches a unit is not skipped", async () => {
       const m = await loadLuxon(keys);
       const zone = "UTC";
@@ -115,6 +117,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelative falls through for spans just under a unit in both directions"
     test("a span a hair under a unit falls through to the next one down", async () => {
       const m = await loadLuxon(keys);
       const zone = "UTC";
@@ -132,6 +135,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/relative.test.js — "DateTime#toRelative falls through for spans just under a unit in both directions"
     test("a span reaching backwards is measured the same way", async () => {
       const m = await loadLuxon(keys);
       const zone = "America/New_York";
@@ -190,6 +194,7 @@ for (const [label, keys] of VARIANTS) {
 
     // The calendary path counts boundary crossings, not elapsed time, so no
     // amount of closeness implies anything and the skip has to stay out of it.
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelativeCalendar keeps calendary boundary semantics"
     test("two hours either side of local midnight is still yesterday and tomorrow", async () => {
       const m = await loadLuxon(keys);
       const zone = "America/New_York";
@@ -207,6 +212,7 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(eve.toRelativeCalendar({ base: ny }), "last year");
     });
 
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelative padding crosses a day boundary in either direction"
     test("padding still moves the answer", async () => {
       const m = await loadLuxon(keys);
       const zone = "UTC";
@@ -222,6 +228,7 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(ago.toRelative({ base, padding: 2 * 3600000 }), "1 day ago");
     });
 
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelative handles unknown and zero-valued unit lists"
     test("a unit with no floor is still asked, and still throws if it is not a unit", async () => {
       const m = await loadLuxon(keys);
       const zone = "UTC";
@@ -231,6 +238,7 @@ for (const [label, keys] of VARIANTS) {
       assert.throws(() => at.toRelative({ base, unit: ["fortnights"] } as never), /Invalid unit/);
     });
 
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelative handles unknown and zero-valued unit lists"
     test("identical instants report zero of the last unit asked for", async () => {
       const m = await loadLuxon(keys);
       const zone = "Europe/Berlin";

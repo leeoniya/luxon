@@ -56,6 +56,9 @@ const partOf = (dt: DT, opts: object, type: string) =>
 
 for (const [label, keys] of VARIANTS) {
   describe(`compileFormat fixtures > ${label}`, () => {
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toFormat preserves adjacent fields, widths, literals, and unknown tokens"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toFormat preserves fractional and sign option behavior"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toFormat accepts the deprecated 'round' option"
     test("compiled Duration programs preserve fields, widths, literals and sign modes", async () => {
       const m = await loadLuxon(keys);
       const shapes = [
@@ -136,6 +139,7 @@ for (const [label, keys] of VARIANTS) {
 
     // ---- the memo, one entry per distinct field value ----
 
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat name tokens agree with locale parts for every field value"
     test("every month, weekday, era and hour of a non-English locale renders unmemoized", async () => {
       const m = await loadLuxon(keys);
 
@@ -210,6 +214,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/toFormat.test.js — "DateTime#toFormat name tokens agree with locale parts for every field value"
     test("two locales asking for the same token do not share an answer", async () => {
       const m = await loadLuxon(keys);
       const at = (locale: string) =>
@@ -230,6 +235,7 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(fr.toFormat("MMMM"), de.toFormat("MMMM"), "fr and de agreed, so nothing was distinguished");
     });
 
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat preserves Russian month contexts and widths"
     test("the widths and the two contexts keep separate answers", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromObject(
@@ -253,6 +259,7 @@ for (const [label, keys] of VARIANTS) {
 
     // ---- the calendar the names come out of ----
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/toFormat.test.js — "DateTime#toFormat follows resolved and explicit non-Gregorian calendars"
     test("a locale whose resolved calendar is not gregorian is not memoized by gregorian month", async () => {
       const m = await loadLuxon(keys);
 
@@ -292,6 +299,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat follows resolved and explicit non-Gregorian calendars"
     test("an explicit non-gregorian outputCalendar still goes through extract", async () => {
       const m = await loadLuxon(keys);
 
@@ -316,6 +324,7 @@ for (const [label, keys] of VARIANTS) {
 
     // The Japanese calendar changes era within living memory, so an era memo
     // keyed by the sign of the year would answer Heisei for a Reiwa date.
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat follows Japanese era changes within positive years"
     test("a calendar whose era changes inside one sign of the year is not memoized by that sign", async () => {
       const m = await loadLuxon(keys);
       // the calendar rides on the locale string rather than on outputCalendar,
@@ -338,6 +347,7 @@ for (const [label, keys] of VARIANTS) {
 
     // ---- the seam between literals and handlers ----
 
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat keeps literal, unknown, adjacent, and escaped token placement"
     test("literals, quoted text and unrecognized tokens land where they were", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromObject(
@@ -366,6 +376,7 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(dt.toFormat("'''HH'''"), "'HH'");
     });
 
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat macro tokens equal their locale presets in every position"
     test("macro tokens are still macros, and still keep their place", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromObject(
@@ -407,6 +418,14 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('Z') returns the narrow offset"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('ZZ') returns the padded offset"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('ZZZ') returns a numerical offset"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('ZZZZ') returns the short offset name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('ZZZZZ') returns the full offset name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('z') returns the zone name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/format.test.js — "DateTime#toISO() shows 'Z' for UTC"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/format.test.js — "DateTime#toISO() shows the offset, unless explicitly asked"
     test("the offset tokens read the formatter's own allowZ", async () => {
       const m = await loadLuxon(keys);
       const utc = m.DateTime.fromObject({ year: 2024, month: 3, day: 5 }, { zone: "utc" });
@@ -565,6 +584,14 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('MMM') returns the short format month name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('MMMM') returns the full format month name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('MMMMM' || 'LLLLL') returns the narrow month name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('ccc') returns short standalone weekday name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('cccc') returns the full standalone weekday name"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('a') returns the meridiem"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('G') returns the short era"
+    // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat('GG') returns the full era"
     test("English still comes off the constant arrays", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromObject(

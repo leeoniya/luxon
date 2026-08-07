@@ -23,6 +23,7 @@ const ZONES = ["America/New_York", "Asia/Kathmandu", "Australia/Lord_Howe", "UTC
 const TS = Date.UTC(2024, 6, 15, 23);
 
 describe("zoneInfoCache", () => {
+  // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl for every supported style and varied locale layout"
   test("the cached formatter is the one parseZoneInfo asked for", async () => {
     const m = await loadLuxon([patchKey("zoneInfoCache")]);
 

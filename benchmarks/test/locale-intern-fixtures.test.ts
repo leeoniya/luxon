@@ -43,6 +43,7 @@ for (const [label, keys] of VARIANTS) {
     // Each of these is a field the key either names or refuses to intern on. The
     // pair is run both ways round because whichever is asked for first is the
     // one that would be handed to the other.
+    // JEST-MIRROR (sync until localeIntern merges, then remove): test/datetime/reconfigure.test.js — "DateTime#reconfigure() keeps each locale configuration independent"
     test("a locale carrying extra configuration is not served to one that is not", async () => {
       const m = await loadLuxon(keys);
       const at = (opts: object) => m.DateTime.fromMillis(TS).reconfigure(opts as never);
@@ -146,6 +147,7 @@ for (const [label, keys] of VARIANTS) {
 
     // toFormat with options is the one caller that passes alts, and the memo is
     // only good for the call that passed none.
+    // JEST-MIRROR (sync until localeIntern merges, then remove): test/datetime/reconfigure.test.js — "DateTime#toFormat options do not change later default formatting"
     test("the no-alts memo is not served to toFormat with options", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromMillis(TS);
@@ -165,6 +167,7 @@ for (const [label, keys] of VARIANTS) {
 
     // Every field Locale.create() falls back to Settings for. Each is read once
     // to get an interned Locale on the books, then moved, then read again.
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/reconfigure.test.js — "a DateTime created before a default locale change observes the new setting"
     test("a Settings change is seen by locales interned before it", async () => {
       const m = await loadLuxon(keys);
       const S = m.Settings as unknown as Record<string, unknown>;
@@ -228,6 +231,9 @@ for (const [label, keys] of VARIANTS) {
     // Duration#toHuman hangs two formatters off the Locale. They are only good
     // for the call that passed no options, and they have to go when the caches
     // they were built from do.
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toHuman formats out a list"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toHuman keeps locale-specific units separate across calls"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toHuman keeps option-specific output out of the default call"
     test("toHuman's memoized formatters answer for the call that passed nothing", async () => {
       const m = await loadLuxon(keys);
       const d = m.Duration.fromObject({ hours: 2, minutes: 30 });
@@ -289,6 +295,7 @@ for (const [label, keys] of VARIANTS) {
     // The memos hang off a Locale, and a DateTime built earlier is still
     // holding the one it had. A settings change empties the intern, which is
     // what a later caller sees, but this one has to notice on its own.
+    // JEST-MIRROR (sync until localeIntern merges, then remove): test/datetime/reconfigure.test.js — "a DateTime created before a default locale change observes the new setting"
     test("a DateTime built before a Settings change still follows it", async () => {
       const m = await loadLuxon(keys);
       const S = m.Settings as unknown as Record<string, unknown>;
@@ -311,6 +318,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-MIRROR (sync until localeIntern merges, then remove): test/duration/format.test.js — "Settings.resetCaches reaches formatting state held by an existing Duration"
     test("Settings.resetCaches() reaches the memos on a Duration already built", async () => {
       const m = await loadLuxon(keys);
       const d = m.Duration.fromObject({ hours: 2, minutes: 30 });

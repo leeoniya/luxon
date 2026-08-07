@@ -47,6 +47,7 @@ for (const [label, keys] of VARIANTS) {
     // durationValues replaced fromDurationLike, so every input the old path
     // rejected has to be rejected the same way, and every input it accepted has
     // to survive the trip through a fixed-shape record.
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/math.test.js — "DateTime#plus preserves duration argument validation and own-property semantics"
     test("the arguments plus and minus accept and reject", async () => {
       const { m, dt } = await load();
       const iso = (d: unknown) => (d as { toISO(): string | null }).toISO();
@@ -80,6 +81,7 @@ for (const [label, keys] of VARIANTS) {
 
     // minus negates all nine fields by hand now, so each one needs to be seen
     // moving in the right direction at least once
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/math.test.js — "DateTime#minus negates every duration unit"
     test("every unit negates", async () => {
       const { dt } = await load();
       const want: [string, string][] = [
@@ -99,6 +101,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/math.test.js — "Duration arithmetic reads and combines every supported unit"
     test("Duration arithmetic reads unit values directly", async () => {
       const { m } = await load();
       const a = m.Duration.fromObject({
@@ -161,6 +164,7 @@ for (const [label, keys] of VARIANTS) {
 
     // the sum replaces a Duration round trip only when all nine values are whole
     // and the result stays finite, and both halves of that are load-bearing
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/math.test.js — "DateTime arithmetic distinguishes fractional, elapsed, and calendar amounts"
     test("the whole-value guard", async () => {
       const { m, dt } = await load();
 
@@ -180,6 +184,7 @@ for (const [label, keys] of VARIANTS) {
 
     // the calendar-free early return skips fixOffset entirely, so anything that
     // sets a calendar field has to keep reaching it
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime arithmetic distinguishes fractional, elapsed, and calendar amounts"
     test("the calendar-free fast path", async () => {
       const { dt } = await load();
 
@@ -195,6 +200,7 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(dt.set({ weekyears: 2 } as never).toISO(), "0002-03-10T01:59:59.000-04:56");
     });
 
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/math.test.js — "DateTime calendar arithmetic preserves proleptic and 400-year boundaries"
     test("calendar arithmetic preserves proleptic and 400-year boundaries", async () => {
       const { m } = await load();
       const utc = (year: number, month: number, day: number) =>
@@ -207,6 +213,9 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(utc(2000, 2, 29).minus({ years: 400 }).toISO(), "1600-02-29T00:00:00.000Z");
     });
 
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/dst.test.js — "calendar and elapsed arithmetic differ across Lord Howe's half-hour transition"
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/dst.test.js — "calendar arithmetic resolves Samoa's skipped day"
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/dst.test.js — "fold alternatives and calendar arithmetic preserve both possible offsets"
     test("calendar arithmetic survives non-hour and whole-day transitions", async () => {
       const { m } = await load();
 
@@ -245,6 +254,7 @@ for (const [label, keys] of VARIANTS) {
     // the early return reports wasHole false without consulting fixOffset. That
     // is right because reading a hole resolution's civil time back out lands
     // outside the hole — but only the receiver can still be in one.
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/dst.test.js — "adding from a resolved DST hole clears wasHole"
     test("a receiver constructed into a DST hole", async () => {
       const { m } = await load();
       const hole = m.DateTime.fromObject(
@@ -259,6 +269,7 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(holeOf(hole.plus({ hours: 1 })), false);
     });
 
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/math.test.js — "DateTime relative calendar wording preserves lastable and non-lastable units"
     test("the hoisted relative-time tables", async () => {
       const { dt } = await load();
       const rel = (d: unknown, opts: Record<string, unknown>) =>
@@ -285,6 +296,8 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(cal(dt.plus({ days: 1 }), "days"), "tomorrow");
     });
 
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff walks mixed calendar and elapsed units across DST"
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff handles day differences from years 0 through 99"
     test("dayDiff", async () => {
       const { m, dt } = await load();
 
@@ -298,6 +311,8 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(dt.diff(y1, "days").toISO(), "P738954.0869444445D");
     });
 
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff preserves exact milliseconds across zones and directions"
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/interval/info.test.js — "Interval#toDuration preserves exact millisecond differences"
     test("exact millisecond diff", async () => {
       const { m, dt } = await load();
       const other = m.DateTime.fromMillis(TS + 123_456_789, { zone: "Europe/Paris" });
@@ -318,6 +333,7 @@ for (const [label, keys] of VARIANTS) {
     // SystemZone#offset reuses one Date across calls, so the oracle is the
     // expression it replaced. Interleaved, because a probe that is never reset
     // answers the first timestamp correctly forever.
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/zones/local.test.js — "SystemZone.offset stays correct across repeated and interleaved timestamps"
     test("the shared system-zone probe", async () => {
       const { m } = await load();
       const sys = m.DateTime.fromMillis(TS).zone;

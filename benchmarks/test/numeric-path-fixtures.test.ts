@@ -72,6 +72,7 @@ function startOfUTCYear(year: number): number {
 
 for (const [label, keys] of VARIANTS) {
   describe(`numericPath fixtures > ${label}`, () => {
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/create.test.js — "DateTime.fromMillis reads proleptic and TimeClip boundary fields like Date"
     test("the civil fields are the ones Date reads", async () => {
       const m = await loadLuxon(keys);
 
@@ -100,6 +101,7 @@ for (const [label, keys] of VARIANTS) {
     // that can be right for most of a month and wrong on one day of it — the
     // constant in mp only moves the answer on the last day of February's
     // March-based year, which no scattered set of instants is likely to land on.
+    // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime.fromMillis preserves dates across Gregorian 4, 100, and 400-year boundaries"
     test("every day across Gregorian 4, 100 and 400-year boundaries", async () => {
       const m = await loadLuxon(keys);
 
@@ -124,6 +126,7 @@ for (const [label, keys] of VARIANTS) {
 
     // The same, through a zone with an offset, since the offset is added before
     // the arithmetic and moves every one of the boundaries above.
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/create.test.js — "DateTime.fromMillis applies zone offsets before reading boundary fields"
     test("the civil fields are the ones Date reads, offset too", async () => {
       const m = await loadLuxon(keys);
 
@@ -146,6 +149,8 @@ for (const [label, keys] of VARIANTS) {
 
     // new Date() ran TimeClip before any field was read, so both of these used
     // to be handled by the constructor and now have to be done by hand.
+    // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime.fromSeconds keeps fractional instants while truncating displayed fields"
+    // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime arithmetic enforces the TimeClip boundary"
     test("a fractional timestamp is truncated and an out-of-range one is invalid", async () => {
       const m = await loadLuxon(keys);
 
@@ -183,6 +188,7 @@ for (const [label, keys] of VARIANTS) {
     // padStart's table is only good for two-digit non-negative integers, and
     // luxon's ISO writer asks it for four- and six-wide years, three-wide
     // milliseconds, and offsets that go negative.
+    // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime ISO output pads ordinary and expanded years and fixed offsets"
     test("padding matches String#padStart wherever the table does not apply", async () => {
       const m = await loadLuxon(keys);
 
@@ -227,6 +233,7 @@ for (const [label, keys] of VARIANTS) {
     // Two of the guards are about who is allowed onto the direct numeric path:
     // a locale that does not render latn digits, and a formatter carrying
     // options that change what a number looks like.
+    // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime formatting preserves numbering systems, literals, and memoized formats"
     test("a locale with its own digits does not take the direct path", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromMillis(1710053999000, { zone: "utc" });
@@ -237,6 +244,8 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(dt.reconfigure({ locale: "th-TH", numberingSystem: "thai" }).toFormat("MM"), "๐๓");
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toFormat preserves adjacent fields, widths, literals, and unknown tokens"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/format.test.js — "Duration#toFormat preserves fractional and sign option behavior"
     test("Duration#toFormat keeps its own padding, flooring and rounding", async () => {
       const m = await loadLuxon(keys);
 
@@ -261,6 +270,7 @@ for (const [label, keys] of VARIANTS) {
 
     // A token with no letters in it cannot match any case in the formatter, so
     // it is passed through — but only if it really has no letters.
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/create.test.js — "DateTime formatting preserves numbering systems, literals, and memoized formats"
     test("punctuation passes through and anything with a letter does not", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromMillis(1710053999000, { zone: "utc" });
@@ -279,6 +289,7 @@ for (const [label, keys] of VARIANTS) {
 
     // parseFormat is memoized, so the same string has to keep meaning the same
     // thing and different strings have to keep meaning different things.
+    // JEST-MIRROR (sync until numericPath merges, then remove): test/datetime/create.test.js — "DateTime formatting preserves numbering systems, literals, and memoized formats"
     test("a memoized format keeps its meaning", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromMillis(1710053999000, { zone: "utc" });

@@ -58,6 +58,8 @@ for (const [label, keys] of VARIANTS) {
   describe(`transitionInterval fixtures > ${label}`, () => {
     // A span is built around whatever was asked for first and then reused for
     // whatever comes next, so the order of the questions is part of the case.
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "stays correct across forward, backward, and interleaved access"
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl on both sides of every New York transition in a decade"
     test("the value is the same whatever order it is asked in", async () => {
       const m = await loadLuxon(keys);
 
@@ -88,6 +90,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "stays correct when reads cross transitions in either direction"
     test("the zone name is the same whatever order it is asked in", async () => {
       const m = await loadLuxon(keys);
       const styles: NameStyle[] = ["short", "long", "shortGeneric"];
@@ -119,6 +122,8 @@ for (const [label, keys] of VARIANTS) {
     // A span starts empty, and "empty" has to be a range no instant falls in.
     // The epoch is the one that a lo/hi of 0/0 would swallow, and it would come
     // back as the null a fresh span carries rather than an offset.
+    // JEST-MIRROR (sync until transitionInterval merges, then remove): test/zones/IANA.test.js — "matches Intl across calendar, range, and sub-second partitions"
+    // JEST-MIRROR (sync until transitionInterval merges, then remove): test/zones/IANA.test.js — "handles the epoch and representable Date edges"
     test("the epoch is not inside a span nothing has been asked for yet", async () => {
       const m = await loadLuxon(keys);
 
@@ -139,6 +144,8 @@ for (const [label, keys] of VARIANTS) {
     // the end of representable time puts the probe past it. The offset side
     // answers NaN there and the widening stops on its own; the name side calls
     // format(), which throws.
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl across calendar, range, and sub-second partitions"
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "handles the epoch and representable Date edges"
     test("asking at the edge of representable time does not probe past it", async () => {
       const m = await loadLuxon(keys);
       const name = "America/New_York";
@@ -161,6 +168,7 @@ for (const [label, keys] of VARIANTS) {
     // Spans are held per zone, and two zones asked about the same instants in
     // turn is the pattern that finds one that is not — the second zone's lookup
     // lands inside the first's span and is answered with the first's value.
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "keeps alternating zones independent at the same instants"
     test("two zones asked about the same instants do not share a span", async () => {
       const m = await loadLuxon(keys);
       const a = "America/New_York";
@@ -177,6 +185,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "does not step over a transition after warming on quiet dates"
     test("a transition is never stepped over, however wide the span has grown", async () => {
       const m = await loadLuxon(keys);
 

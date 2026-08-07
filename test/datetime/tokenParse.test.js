@@ -1338,3 +1338,30 @@ test("DateTime.fromFormat preserves failed and invalid parsing semantics across 
     expect(parsed.invalidReason).toBe("unparsable");
   }
 });
+
+test("DateTime format parsers remain correct across different week settings", () => {
+  const format = "kkkk-'W'WW-c";
+  const input = "2024-W11-7";
+  const options = [
+    {
+      locale: "en-US",
+      weekSettings: { firstDay: 1, minimalDays: 4, weekend: [6, 7] },
+    },
+    {
+      locale: "en-US",
+      weekSettings: { firstDay: 7, minimalDays: 1, weekend: [6, 7] },
+    },
+  ];
+
+  for (const opts of options) {
+    const cached = DateTime.fromFormat(input, format, opts);
+    const fresh = DateTime.fromFormatParser(
+      input,
+      DateTime.buildFormatParser(format, opts),
+      opts
+    );
+
+    expect(cached.isValid).toBe(true);
+    expect(cached.valueOf()).toBe(fresh.valueOf());
+  }
+});

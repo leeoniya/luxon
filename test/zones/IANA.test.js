@@ -454,6 +454,60 @@ describe("IANAZone.offset public behavior contracts", () => {
     }
   });
 
+  test("matches Intl on both sides of every New York transition in a decade", () => {
+    IANAZone.resetCache();
+    const zoneName = "America/New_York";
+    const zone = IANAZone.create(zoneName);
+    const firstSunday = (year, month) => {
+      const firstWeekday = new Date(Date.UTC(year, month, 1)).getUTCDay();
+      return 1 + ((7 - firstWeekday) % 7);
+    };
+
+    for (let year = 2015; year < 2025; year++) {
+      const spring = Date.UTC(year, 2, firstSunday(year, 2) + 7, 7);
+      const fall = Date.UTC(year, 10, firstSunday(year, 10), 6);
+
+      for (const transition of [spring, fall]) {
+        for (const ts of [
+          transition - 3_600_000,
+          transition - 1,
+          transition,
+          transition + 1,
+          transition + 3_600_000,
+        ]) {
+          expect(zone.offset(ts)).toBe(intlOffset(zoneName, ts));
+        }
+      }
+    }
+  });
+
+  test("does not step over a transition after warming on quiet dates", () => {
+    IANAZone.resetCache();
+    const zoneName = "America/New_York";
+    const zone = IANAZone.create(zoneName);
+
+    for (
+      let ts = Date.UTC(2024, 0, 1);
+      ts < Date.UTC(2024, 2, 1);
+      ts += 6 * 3_600_000
+    ) {
+      expect(zone.offset(ts)).toBe(intlOffset(zoneName, ts));
+    }
+
+    const transition = Date.UTC(2024, 2, 10, 7);
+    for (const ts of [
+      transition - 86_400_000,
+      transition - 3_600_000,
+      transition - 1,
+      transition,
+      transition + 1,
+      transition + 3_600_000,
+      transition + 86_400_000,
+    ]) {
+      expect(zone.offset(ts)).toBe(intlOffset(zoneName, ts));
+    }
+  });
+
   test("keeps alternating zones independent at the same instants", () => {
     const zoneNames = ["America/New_York", "Australia/Lord_Howe"];
     const zonesByName = zoneNames.map((name) => IANAZone.create(name));

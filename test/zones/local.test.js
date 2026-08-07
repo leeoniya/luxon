@@ -1,5 +1,5 @@
 /* global test expect */
-import { SystemZone } from "../../src/luxon";
+import { IANAZone, SystemZone } from "../../src/luxon";
 
 test("SystemZone.instance returns a singleton", () => {
   expect(SystemZone.instance).toBe(SystemZone.instance);
@@ -21,4 +21,22 @@ test("SystemZone.instance provides valid ...", () => {
 test("SystemZone.formatOffset reflects winter and summer offsets", () => {
   expect(SystemZone.instance.formatOffset(Date.UTC(2024, 0, 15, 12), "short")).toBe("-05:00");
   expect(SystemZone.instance.formatOffset(Date.UTC(2024, 6, 15, 12), "techie")).toBe("-0400");
+});
+
+test("SystemZone.offset stays correct across repeated and interleaved timestamps", () => {
+  const system = SystemZone.instance;
+  const other = IANAZone.create("Asia/Kolkata");
+  const instants = [
+    Date.UTC(2024, 2, 10, 6, 59, 59),
+    Date.UTC(2024, 2, 10, 7),
+    0,
+    -86_400_000 * 400,
+    Date.UTC(2024, 10, 3, 6),
+  ];
+
+  for (const ts of [...instants, ...[...instants].reverse()]) {
+    expect(system.offset(ts)).toBe(-new Date(ts).getTimezoneOffset());
+    other.offset(ts);
+    expect(system.offset(ts)).toBe(-new Date(ts).getTimezoneOffset());
+  }
 });

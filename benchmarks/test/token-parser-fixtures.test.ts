@@ -58,6 +58,10 @@ const LOCALES = [
 
 for (const [label, keys] of VARIANTS) {
   describe(`tokenParserCache fixtures > ${label}`, () => {
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormatParser behaves equivalently to DateTime.fromFormat"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat round-trips numeric, name, era, meridiem, offset, and macro tokens"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat distinguishes numbering systems and output calendars"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat preserves failed and invalid parsing semantics across repeated calls"
     test("a cached parser answers what a fresh one does", async () => {
       const m = await loadLuxon(keys);
 
@@ -90,6 +94,7 @@ for (const [label, keys] of VARIANTS) {
     // The key names four fields of a Locale and leaves weekSettings out, which
     // is only safe if no parser reads them. Same locale, same format, different
     // week rules, and a format made of nothing but week tokens.
+    // JEST-MIRROR (sync until tokenParserCache merges, then remove): test/datetime/tokenParse.test.js — "DateTime format parsers remain correct across different week settings"
     test("week settings do not change what a parser reads", async () => {
       const m = await loadLuxon(keys);
       const fmt = "kkkk-'W'WW-c";

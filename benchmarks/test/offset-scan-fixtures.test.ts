@@ -63,6 +63,7 @@ const INSTANTS = [
 
 for (const [label, keys] of VARIANTS) {
   describe(`offsetScan fixtures > ${label}`, () => {
+    // JEST-MIRROR (sync until offsetScan merges, then remove): test/zones/IANA.test.js — "matches Intl across calendar, range, and sub-second partitions"
     test("the decoded offset matches the expression it replaced", async () => {
       const m = await loadLuxon(keys);
 
@@ -86,6 +87,7 @@ for (const [label, keys] of VARIANTS) {
     // by at most one day. They are stable historical rule changes rather than
     // projections, and the expected offsets are stated independently of the
     // stock implementation used by the broad sweep above.
+    // JEST-MIRROR (sync until offsetScan merges, then remove): test/zones/IANA.test.js — "preserves historical non-hour transitions at the exact boundary"
     test("historical second, quarter-hour and skipped-day transitions", async () => {
       const m = await loadLuxon(keys);
       const cases: [string, number, number, number][] = [
@@ -118,6 +120,7 @@ for (const [label, keys] of VARIANTS) {
     // Every real transition of one dense zone, either side to the millisecond.
     // A decoder that is right at an arbitrary instant and wrong at a boundary is
     // the failure this is for, and boundaries are cheap to enumerate.
+    // JEST-MIRROR (sync until offsetScan merges, then remove): test/zones/IANA.test.js — "matches Intl on both sides of every New York transition in a decade"
     test("either side of every transition of a dense zone", async () => {
       const m = await loadLuxon(keys);
       const name = "America/New_York";
@@ -141,6 +144,7 @@ for (const [label, keys] of VARIANTS) {
     // NOT from the sweep. B measures the field order once per zone and refuses
     // anything it does not recognise, and no ICU produces one it does not — so
     // the refusal is reached by making one.
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "IANAZone.offset falls back safely for an unsupported scanner layout"
     test("an unfamiliar field order is refused rather than decoded", async () => {
       const m = await loadLuxon(keys);
       const Real = Intl.DateTimeFormat;

@@ -1,6 +1,6 @@
 /* global test expect */
 
-import { DateTime } from "../../src/luxon";
+import { DateTime, Settings } from "../../src/luxon";
 
 const dt = DateTime.fromObject(
   {},
@@ -96,4 +96,22 @@ test("DateTime#toFormat options do not change later default formatting", () => {
   expect(original.toFormat("MMMM")).toBe("March");
   expect(original.toFormat("MMMM", { locale: "de-DE" })).toBe("März");
   expect(original.toFormat("MMMM")).toBe("March");
+});
+
+test("a DateTime created before a default locale change observes the new setting", () => {
+  const previousLocale = Settings.defaultLocale;
+  Settings.defaultLocale = null;
+  Settings.resetCaches();
+  const original = DateTime.fromISO("2024-03-10T18:30:00Z", { zone: "UTC" });
+
+  try {
+    expect(original.toFormat("MMMM")).toBe("March");
+    Settings.defaultLocale = "de-DE";
+    expect(original.toFormat("MMMM")).toBe("März");
+    Settings.defaultLocale = null;
+    expect(original.toFormat("MMMM")).toBe("March");
+  } finally {
+    Settings.defaultLocale = previousLocale;
+    Settings.resetCaches();
+  }
 });

@@ -1,5 +1,5 @@
 /* global test expect */
-import { Duration } from "../../src/luxon";
+import { Duration, Settings } from "../../src/luxon";
 
 const dur = () =>
   Duration.fromObject({
@@ -560,6 +560,31 @@ test("Duration#toHuman keeps option-specific output out of the default call", ()
   expect(duration.toHuman()).toBe("2 hours, 30 minutes");
   expect(duration.toHuman({ unitDisplay: "narrow" })).toBe("2h, 30m");
   expect(duration.toHuman()).toBe("2 hours, 30 minutes");
+});
+
+test("Settings.resetCaches reaches formatting state held by an existing Duration", () => {
+  const duration = Duration.fromObject({ hours: 2, minutes: 30 });
+  const NativeNumberFormat = Intl.NumberFormat;
+
+  expect(duration.toHuman()).toBe("2 hours, 30 minutes");
+
+  try {
+    Intl.NumberFormat = function (...args) {
+      const formatter = new NativeNumberFormat(...args);
+      const format = formatter.format.bind(formatter);
+      Object.defineProperty(formatter, "format", {
+        configurable: true,
+        value: (number) => `<${format(number)}>`,
+      });
+      return formatter;
+    };
+    Settings.resetCaches();
+
+    expect(duration.toHuman()).toBe("<2 hours>, <30 minutes>");
+  } finally {
+    Intl.NumberFormat = NativeNumberFormat;
+    Settings.resetCaches();
+  }
 });
 
 test("Duration#toHuman handles quarters", () => {
