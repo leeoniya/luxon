@@ -6,6 +6,7 @@ Summary: IANAZone.offset: read dtf.format() digits instead of formatToParts + pa
 Description: benchmarks/docs/pr/02-offset-scan.md
 
 diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
+index dea03c9..b5235ba 100644
 --- a/src/zones/IANAZone.js
 +++ b/src/zones/IANAZone.js
 @@ -2,6 +2,82 @@ import { formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/

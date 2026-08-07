@@ -6,6 +6,7 @@ Summary: six fast paths along the route a numeric token takes
 Description: benchmarks/docs/pr/07-numeric-path.md
 
 diff --git a/src/datetime.js b/src/datetime.js
+index fd32d47..cbe5009 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
 @@ -129,18 +129,39 @@ function fixOffset(localTS, o, tz) {
@@ -59,6 +60,7 @@ diff --git a/src/datetime.js b/src/datetime.js
  }
  
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
+index ae6218e..4c80d34 100644
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
 @@ -1,11 +1,14 @@
@@ -152,6 +154,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
  
      if (p > 0) {
 diff --git a/src/impl/util.js b/src/impl/util.js
+index 32a5d9d..32505a9 100644
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
 @@ -122,7 +122,14 @@ export function floorMod(x, n) {

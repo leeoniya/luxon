@@ -6,9 +6,12 @@ Summary: two calls toRelative makes that cannot affect its answer
 Description: benchmarks/docs/pr/09-relative-skip.md
 
 diff --git a/src/datetime.js b/src/datetime.js
+index fd32d47..2009215 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -470,6 +540,42 @@ function normalizeUnit(unit) {
+@@ -469,6 +469,33 @@ function quickDT(obj, opts) {
+   return new DateTime({ ts, zone, loc, o, wasHole });
+ }
  
 +// UPSTREAM-I: the least real time one step of each unit can span, so that two
 +// instants closer together than this cannot be one of that unit apart and the
@@ -38,24 +41,27 @@ diff --git a/src/datetime.js b/src/datetime.js
 +};
 +
  function diffRelative(start, end, opts) {
-@@ -494,7 +590,17 @@ function diffRelative(start, end, opts) {
+   const round = isUndefined(opts.round) ? true : opts.round,
+     rounding = isUndefined(opts.rounding) ? "trunc" : opts.rounding,
+@@ -491,7 +518,15 @@ function diffRelative(start, end, opts) {
+     return format(differ(opts.unit), opts.unit);
+   }
  
--  for (const unit of opts.units) {
 +  // -1 disables the skip for the calendary path, where a unit counts boundary
 +  // crossings rather than elapsed time: 23:00 and 01:00 are two hours apart and
 +  // one day apart, so no spread implies anything there.
 +  const spread = opts.calendary ? -1 : Math.abs(end.ts - start.ts);
 +
-+  for (const unit of opts.units) {
+   for (const unit of opts.units) {
 +    // skipping a diff whose result is already known, not deciding it differently
 +    if (spread >= 0 && spread < relativeFloor[unit]) continue;
 +
      const count = differ(unit);
      if (Math.abs(count) >= 1) {
        return format(count, unit);
-     }
-   }
-@@ -2298,7 +2404,9 @@ export default class DateTime {
+@@ -2295,7 +2330,9 @@ export default class DateTime {
+       units = options.unit;
+       unit = undefined;
      }
 -    return diffRelative(base, this.plus(padding), {
 +    // UPSTREAM-I: padding is 0 unless the caller asked for it, and plus(0) is a

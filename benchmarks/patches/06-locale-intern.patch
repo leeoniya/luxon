@@ -6,6 +6,7 @@ Summary: Locale: intern Locales, and memoize the three things rebuilt per value 
 Description: benchmarks/docs/pr/06-locale-intern.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
+index 76f08a7..05e57d7 100644
 --- a/src/impl/locale.js
 +++ b/src/impl/locale.js
 @@ -331,6 +331,36 @@ class PolyRelFormatter {
@@ -101,7 +102,7 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
      intlDTCache.clear();
      intlNumCache.clear();
      intlRelCache.clear();
-@@ -423,5 +490,17 @@ export default class Locale {
+@@ -423,6 +490,18 @@ export default class Locale {
    }
  
    redefaultToEN(alts = {}) {
@@ -119,8 +120,8 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
 +
      return this.clone({ ...alts, defaultToEN: true });
    }
-@@ -524,6 +591,42 @@ export default class Locale {
-   listFormatter(opts = {}) {
+ 
+@@ -525,6 +604,47 @@ export default class Locale {
      return getCachedLF(this.intl, opts);
    }
  
@@ -169,18 +170,14 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
      return (
        this.locale === "en" ||
 diff --git a/src/duration.js b/src/duration.js
+index ed27f9c..27343c5 100644
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -514,29 +514,39 @@ export default class Duration {
-   toHuman(opts = {}) {
+@@ -524,30 +524,42 @@ export default class Duration {
      if (!this.isValid) return INVALID;
  
      const showZeros = opts.showZeros !== false;
-+    // UPSTREAM-F: any option at all is spread into both formatters' options
-+    // below, so the memo is only good for the call that passed none — which is
-+    // the call toHuman() makes.
-+    const memo = Object.keys(opts).length === 0 ? this.loc.humanFormatters() : null;
- 
+-
 -    const l = orderedUnits
 -      .map((unit) => {
 -        const convertUnit = humanizeUnitConversion[unit];
@@ -191,6 +188,14 @@ diff --git a/src/duration.js b/src/duration.js
 -          if (val2) {
 -            val = (val ?? 0) + val2 * this.matrix[convertUnit][unit];
 -          }
+-        }
+-        if (isUndefined(val) || (val === 0 && !showZeros)) {
+-          return null;
++    // UPSTREAM-F: any option at all is spread into both formatters' options
++    // below, so the memo is only good for the call that passed none — which is
++    // the call toHuman() makes.
++    const memo = Object.keys(opts).length === 0 ? this.loc.humanFormatters() : null;
++
 +    // UPSTREAM-F: build the short output list directly instead of allocating
 +    // the eight-element intermediate array that map().filter() discarded.
 +    const l = [];
@@ -204,14 +209,15 @@ diff --git a/src/duration.js b/src/duration.js
 +        if (val2) {
 +          val = (val ?? 0) + val2 * this.matrix[convertUnit][unit];
          }
--        if (isUndefined(val) || (val === 0 && !showZeros)) {
--          return null;
--        }
 -        return this.loc
 -          .numberFormatter({ style: "unit", unitDisplay: "long", ...opts, unit: unit.slice(0, -1) })
 -          .format(val);
 -      })
 -      .filter((n) => n);
+-
+-    return this.loc
+-      .listFormatter({ type: "conjunction", style: opts.listStyle || "narrow", ...opts })
+-      .format(l);
 +      }
 +      if (isUndefined(val) || (val === 0 && !showZeros)) {
 +        continue;
@@ -224,13 +230,12 @@ diff --git a/src/duration.js b/src/duration.js
 +        ).format(val)
 +      );
 +    }
- 
--    return this.loc
--      .listFormatter({ type: "conjunction", style: opts.listStyle || "narrow", ...opts })
--      .format(l);
++
 +    return (
 +      memo === null
 +        ? this.loc.listFormatter({ type: "conjunction", style: opts.listStyle || "narrow", ...opts })
 +        : memo.humanListFormatter()
 +    ).format(l);
    }
+ 
+   /**

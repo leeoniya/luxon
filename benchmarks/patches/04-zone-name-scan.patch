@@ -6,6 +6,7 @@ Summary: parseZoneInfo: read the name from dtf.format() instead of formatToParts
 Description: benchmarks/docs/pr/04-zone-name-scan.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
+index 2ab615e..fd442ee 100644
 --- a/src/impl/locale.js
 +++ b/src/impl/locale.js
 @@ -1,4 +1,11 @@
@@ -30,9 +31,10 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
  
    static fromObject({ locale, numberingSystem, outputCalendar, weekSettings } = {}) {
 diff --git a/src/impl/util.js b/src/impl/util.js
+index a28dd04..a2d21d7 100644
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
-@@ -248,7 +248,85 @@ export function untruncateYear(year) {
+@@ -244,7 +244,85 @@ export function untruncateYear(year) {
  
  // PARSING
  

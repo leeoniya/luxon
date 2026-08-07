@@ -6,9 +6,10 @@ Summary: fromFormat: reuse the parser it builds per call, the way buildFormatPar
 Description: benchmarks/docs/pr/03-token-parser-cache.md
 
 diff --git a/src/impl/tokenParser.js b/src/impl/tokenParser.js
+index db93f98..8bf60bb 100644
 --- a/src/impl/tokenParser.js
 +++ b/src/impl/tokenParser.js
-@@ -479,9 +479,41 @@ export class TokenParser {
+@@ -487,9 +487,41 @@ export class TokenParser {
    }
  }
  
@@ -53,6 +54,7 @@ diff --git a/src/impl/tokenParser.js b/src/impl/tokenParser.js
  
  export function parseFromTokens(locale, input, format) {
 diff --git a/src/settings.js b/src/settings.js
+index 5356dd6..2cab0b4 100644
 --- a/src/settings.js
 +++ b/src/settings.js
 @@ -6,6 +6,7 @@ import DateTime from "./datetime.js";

@@ -6,6 +6,7 @@ Summary: parseZoneInfo: reuse the existing DTF cache instead of building one per
 Description: benchmarks/docs/pr/01-zone-info-cache.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
+index 76f08a7..2ab615e 100644
 --- a/src/impl/locale.js
 +++ b/src/impl/locale.js
 @@ -18,7 +18,7 @@ function getCachedLF(locString, opts = {}) {
@@ -18,6 +19,7 @@ diff --git a/src/impl/locale.js b/src/impl/locale.js
    let dtf = intlDTCache.get(key);
    if (dtf === undefined) {
 diff --git a/src/impl/util.js b/src/impl/util.js
+index 32a5d9d..a28dd04 100644
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
 @@ -7,6 +7,7 @@

@@ -968,6 +968,7 @@ class FixedOffsetZone extends Zone {
   constructor(offset) {
     super();
     this.fixed = offset;
+    this.valid = Number.isInteger(offset);
   }
   get type() {
     return "fixed";
@@ -998,7 +999,7 @@ class FixedOffsetZone extends Zone {
     return otherZone.type === "fixed" && otherZone.fixed === this.fixed;
   }
   get isValid() {
-    return true;
+    return this.valid;
   }
 }
 
@@ -1440,8 +1441,11 @@ function dateTimeFromMatches(matches) {
   if (!isUndefined(matches.q)) {
     matches.M = (matches.q - 1) * 3 + 1;
   }
+  let hourInvalidReason;
   if (!isUndefined(matches.h)) {
-    if (matches.h < 12 && matches.a === 1) {
+    if (!isUndefined(matches.a) && (matches.h < 1 || matches.h > 12)) {
+      hourInvalidReason = `the 12-hour value "${matches.h}" is not in the [1, 12] range`;
+    } else if (matches.h < 12 && matches.a === 1) {
       matches.h += 12;
     } else if (matches.h === 12 && matches.a === 0) {
       matches.h = 0;
@@ -1460,7 +1464,7 @@ function dateTimeFromMatches(matches) {
     }
     return r;
   }, {});
-  return [vals, zone, specificOffset];
+  return [vals, zone, specificOffset, hourInvalidReason];
 }
 var dummyDateTimeCache = null;
 function getDummyDateTime() {
@@ -1501,7 +1505,7 @@ class TokenParser {
     if (!this.isValid) {
       return { input, tokens: this.tokens, invalidReason: this.invalidReason };
     } else {
-      const [rawMatches, matches] = match(input, this.regex, this.handlers), [result, zone, specificOffset] = matches ? dateTimeFromMatches(matches) : [null, null, undefined];
+      const [rawMatches, matches] = match(input, this.regex, this.handlers), [result, zone, specificOffset, parseInvalidReason] = matches ? dateTimeFromMatches(matches) : [null, null, undefined, undefined];
       if (hasOwnProperty(matches, "a") && hasOwnProperty(matches, "H")) {
         throw new ConflictingSpecificationError("Can't include meridiem when specifying 24-hour format");
       }
@@ -1513,7 +1517,8 @@ class TokenParser {
         matches,
         result,
         zone,
-        specificOffset
+        specificOffset,
+        invalidReason: parseInvalidReason
       };
     }
   }
@@ -2444,7 +2449,11 @@ function cfRunDuration(f, dur, fmt) {
     const field = fields[i];
     const secondaryNegative = signMode === "negativeLargestOnly" && negative && field !== largest;
     const signDisplay = signMode === "negativeLargestOnly" && field !== largest ? "never" : signMode === "all" ? "always" : "auto";
-    s2 += f.num(collapsed.get(field) * (secondaryNegative ? -1 : 1), widths[i], signDisplay) + lits[i + 1];
+    let value = collapsed.get(field) * (secondaryNegative ? -1 : 1);
+    if (signMode === "negativeLargestOnly" && field === largest && negative && value === 0) {
+      value = -0;
+    }
+    s2 += f.num(value, widths[i], signDisplay) + lits[i + 1];
   }
   return s2;
 }
@@ -2682,6 +2691,7 @@ function extractISODuration(match2) {
 }
 var obsOffsets = {
   GMT: 0,
+  UT: 0,
   EDT: -4 * 60,
   EST: -5 * 60,
   CDT: -5 * 60,
@@ -2958,6 +2968,10 @@ function removeZeroes(vals) {
   }
   return newVals;
 }
+function toISONumber(value) {
+  const str = `${value}`;
+  return str.includes("e") ? value.toFixed(20).replace(/\.?0+$/, "") : str;
+}
 
 class Duration {
   constructor(config) {
@@ -3081,21 +3095,21 @@ class Duration {
       return null;
     let s2 = "P";
     if (this.years !== 0)
-      s2 += this.years + "Y";
+      s2 += toISONumber(this.years) + "Y";
     if (this.months !== 0 || this.quarters !== 0)
-      s2 += this.months + this.quarters * 3 + "M";
+      s2 += toISONumber(this.months + this.quarters * 3) + "M";
     if (this.weeks !== 0)
-      s2 += this.weeks + "W";
+      s2 += toISONumber(this.weeks) + "W";
     if (this.days !== 0)
-      s2 += this.days + "D";
+      s2 += toISONumber(this.days) + "D";
     if (this.hours !== 0 || this.minutes !== 0 || this.seconds !== 0 || this.milliseconds !== 0)
       s2 += "T";
     if (this.hours !== 0)
-      s2 += this.hours + "H";
+      s2 += toISONumber(this.hours) + "H";
     if (this.minutes !== 0)
-      s2 += this.minutes + "M";
+      s2 += toISONumber(this.minutes) + "M";
     if (this.seconds !== 0 || this.milliseconds !== 0)
-      s2 += roundTo(this.seconds + this.milliseconds / 1000, 3) + "S";
+      s2 += toISONumber(roundTo(this.seconds + this.milliseconds / 1000, 3)) + "S";
     if (s2 === "P")
       s2 += "T0S";
     return s2;
@@ -3475,7 +3489,9 @@ class Interval {
     return Math.floor(end.diff(start, unit).get(unit)) + (end.valueOf() !== this.end.valueOf());
   }
   hasSame(unit) {
-    return this.isValid ? this.isEmpty() || this.e.minus(1).hasSame(this.s, unit) : false;
+    if (!this.isValid)
+      return false;
+    return this.isEmpty() ? this.s.hasSame(this.e, unit) : this.e.minus(1).hasSame(this.s, unit);
   }
   isEmpty() {
     return this.s.valueOf() === this.e.valueOf();
@@ -5037,15 +5053,15 @@ function friendlyDateTime(dateTimeish) {
 // benchmarks/.tmp/builds/arithDirect+compileFormat+localeIntern+numericPath+offsetScan+relativeSkip+tokenParserCache+transitionInterval+trimAllocs+zoneInfoCache+zoneNameScan/src/luxon.js
 var VERSION = "3.7.2";
 export {
-  Zone,
-  VERSION,
-  SystemZone,
-  Settings,
-  InvalidZone,
-  Interval,
-  Info,
-  IANAZone,
-  FixedOffsetZone,
+  DateTime,
   Duration,
-  DateTime
+  FixedOffsetZone,
+  IANAZone,
+  Info,
+  Interval,
+  InvalidZone,
+  Settings,
+  SystemZone,
+  VERSION,
+  Zone
 };

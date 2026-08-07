@@ -6,9 +6,10 @@ Summary: Formatter: compile DateTime and Duration format strings once, and memoi
 Description: benchmarks/docs/pr/11-compile-format.md
 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
+index ae6218e..de026e4 100644
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -14,6 +14,284 @@ function stringifyTokens(splits, tokenToString) {
+@@ -14,6 +14,362 @@ function stringifyTokens(splits, tokenToString) {
    return s;
  }
  
@@ -354,7 +355,15 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +          ? "always"
 +          : "auto";
 +
-+    s += f.num(collapsed.get(field) * (secondaryNegative ? -1 : 1), widths[i], signDisplay) + lits[i + 1];
++    let value = collapsed.get(field) * (secondaryNegative ? -1 : 1);
++
++    // Keep upstream's negative-zero fix when the largest unit rounds to zero:
++    // "auto" otherwise drops the only sign on a negative duration.
++    if (signMode === "negativeLargestOnly" && field === largest && negative && value === 0) {
++      value = -0;
++    }
++
++    s += f.num(value, widths[i], signDisplay) + lits[i + 1];
 +  }
 +
 +  return s;
@@ -363,7 +372,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
  const macroTokenToFormatOpts = {
    D: Formats.DATE_SHORT,
    DD: Formats.DATE_MED,
-@@ -145,6 +349,5 @@ export default class Formatter {
+@@ -145,304 +501,14 @@ export default class Formatter {
    }
  
    formatDateTimeFromString(dt, fmt) {
@@ -636,7 +645,21 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 -            // "auto" and "negative" are the same, but "auto" has better support
 -            signDisplay = "auto";
 -          }
--          return this.num(lildur.get(mapped) * inversionFactor, token.length, signDisplay);
+-          let value = lildur.get(mapped) * inversionFactor;
+-          // When the negative sign is only shown on the largest unit (signMode
+-          // "negativeLargestOnly") and that unit rounds to zero, "auto" sign display
+-          // would drop the sign entirely (positive zero formats without a sign),
+-          // making a negative duration indistinguishable from a positive one. Use
+-          // negative zero so the sign is preserved on the largest unit.
+-          if (
+-            this.opts.signMode === "negativeLargestOnly" &&
+-            mapped === info.largestUnit &&
+-            info.isNegativeDuration &&
+-            value === 0
+-          ) {
+-            value = -0;
+-          }
+-          return this.num(value, token.length, signDisplay);
 -        } else {
 -          return token;
 -        }

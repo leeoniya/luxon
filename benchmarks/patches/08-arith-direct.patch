@@ -6,17 +6,21 @@ Summary: arithmetic paths that built or normalized temporary objects per call to
 Description: benchmarks/docs/pr/08-arith-direct.md
 
 diff --git a/src/datetime.js b/src/datetime.js
+index fd32d47..c674ee0 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -18,6 +18,8 @@ import {
-   normalizeObject,
+@@ -19,6 +19,8 @@ import {
    roundTo,
    objToLocalTS,
    padStart,
 +  asNumber,
 +  hasOwnProperty,
  } from "./impl/util.js";
-@@ -151,29 +172,113 @@ function objToTS(obj, offset, zone) {
+ import { normalizeZone } from "./impl/zoneUtil.js";
+ import diff from "./impl/diff.js";
+@@ -149,31 +151,197 @@ function objToTS(obj, offset, zone) {
+   return fixOffset(objToLocalTS(obj), offset, zone);
+ }
  
 +// UPSTREAM-H: the nine numbers adjustTime reads, produced without the Duration
 +// that used to carry them. plus and minus called Duration.fromDurationLike on
@@ -119,27 +123,6 @@ diff --git a/src/datetime.js b/src/datetime.js
 -  const oPre = inst.o,
 -    year = inst.c.year + Math.trunc(dur.years),
 -    month = inst.c.month + Math.trunc(dur.months) + Math.trunc(dur.quarters) * 3,
--    c = {
--      ...inst.c,
--      year,
--      month,
--      day:
--        Math.min(inst.c.day, daysInMonth(year, month)) +
--        Math.trunc(dur.days) +
--        Math.trunc(dur.weeks) * 7,
--    },
--    millisToAdd = Duration.fromObject({
--      years: dur.years - Math.trunc(dur.years),
--      quarters: dur.quarters - Math.trunc(dur.quarters),
--      months: dur.months - Math.trunc(dur.months),
--      weeks: dur.weeks - Math.trunc(dur.weeks),
--      days: dur.days - Math.trunc(dur.days),
--      hours: dur.hours,
--      minutes: dur.minutes,
--      seconds: dur.seconds,
--      milliseconds: dur.milliseconds,
--    }).as("milliseconds"),
--    localTS = objToLocalTS(c);
 +  // UPSTREAM-H: each of these was a getter call repeated two or three
 +  // times below.
 +  const ic = inst.c,
@@ -208,10 +191,14 @@ diff --git a/src/datetime.js b/src/datetime.js
 +    month = ic.month + Math.trunc(durMonths) + Math.trunc(durQuarters) * 3,
 +    // UPSTREAM-H: was a spread of inst.c. inst.c is always tsToObj
 +    // output, so these are its keys, in its order.
-+    c = {
-+      year,
-+      month,
-+      day:
+     c = {
+-      ...inst.c,
+       year,
+       month,
+       day:
+-        Math.min(inst.c.day, daysInMonth(year, month)) +
+-        Math.trunc(dur.days) +
+-        Math.trunc(dur.weeks) * 7,
 +        Math.min(ic.day, daysInMonth(year, month)) +
 +        Math.trunc(durDays) +
 +        Math.trunc(durWeeks) * 7,
@@ -219,7 +206,18 @@ diff --git a/src/datetime.js b/src/datetime.js
 +      minute: ic.minute,
 +      second: ic.second,
 +      millisecond: ic.millisecond,
-+    },
+     },
+-    millisToAdd = Duration.fromObject({
+-      years: dur.years - Math.trunc(dur.years),
+-      quarters: dur.quarters - Math.trunc(dur.quarters),
+-      months: dur.months - Math.trunc(dur.months),
+-      weeks: dur.weeks - Math.trunc(dur.weeks),
+-      days: dur.days - Math.trunc(dur.days),
+-      hours: dur.hours,
+-      minutes: dur.minutes,
+-      seconds: dur.seconds,
+-      milliseconds: dur.milliseconds,
+-    }).as("milliseconds"),
 +    millisToAdd = Number.isFinite(wholeSum * 1000)
 +      ? wholeSum
 +      : Duration.fromObject({
@@ -233,20 +231,10 @@ diff --git a/src/datetime.js b/src/datetime.js
 +          seconds: durSeconds,
 +          milliseconds: durMilliseconds,
 +        }).as("milliseconds"),
-+    localTS = objToLocalTS(c);
+     localTS = objToLocalTS(c);
  
    let [ts, o, wasHole] = fixOffset(localTS, oPre, inst.zone);
- 
-   if (millisToAdd !== 0) {
-     ts += millisToAdd;
-     // that could have changed the offset by going over a DST, but we want to keep the ts the same
-     o = inst.zone.offset(ts);
-   }
- 
-   return { ts, o, wasHole };
- }
- 
-@@ -342,33 +408,37 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
+@@ -342,33 +510,37 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
    orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
  
  // standardize case and plurality in units
@@ -310,7 +298,8 @@ diff --git a/src/datetime.js b/src/datetime.js
  
    if (!normalized) throw new InvalidUnitError(unit);
  
-@@ -1714,13 +1848,13 @@ export default class DateTime {
+@@ -1713,8 +1885,9 @@ export default class DateTime {
+    */
    plus(duration) {
      if (!this.isValid) return this;
 -    const dur = Duration.fromDurationLike(duration);
@@ -321,10 +310,7 @@ diff --git a/src/datetime.js b/src/datetime.js
    }
  
    /**
-    * Subtract a period of time to this DateTime and return the resulting DateTime
-    * See {@link DateTime#plus}
-    * @param {Duration|Object|number} duration - The amount to subtract. Either a Luxon Duration, a number of milliseconds, the object argument to Duration.fromObject()
-    @return {DateTime}
+@@ -1725,8 +1898,9 @@ export default class DateTime {
     */
    minus(duration) {
      if (!this.isValid) return this;
@@ -335,7 +321,9 @@ diff --git a/src/datetime.js b/src/datetime.js
 +    return clone(this, adjustTime(this, durationValues(duration, true)));
    }
  
+   /**
 diff --git a/src/duration.js b/src/duration.js
+index ed27f9c..2d997e3 100644
 --- a/src/duration.js
 +++ b/src/duration.js
 @@ -118,6 +118,29 @@ const reverseUnits = orderedUnits.slice(0).reverse();
@@ -368,7 +356,7 @@ diff --git a/src/duration.js b/src/duration.js
  const humanizeUnitConversion = {
    months: "quarters",
    quarters: null,
-@@ -406,26 +429,7 @@ export default class Duration {
+@@ -415,26 +438,7 @@ export default class Duration {
     * @private
     */
    static normalizeUnit(unit) {
@@ -396,26 +384,23 @@ diff --git a/src/duration.js b/src/duration.js
  
      if (!normalized) throw new InvalidUnitError(unit);
  
-@@ -671,12 +675,15 @@ export default class Duration {
-   plus(duration) {
+@@ -682,11 +686,14 @@ export default class Duration {
      if (!this.isValid) return this;
  
--    const dur = Duration.fromDurationLike(duration),
-+    const dur = Duration.fromDurationLike(duration),
+     const dur = Duration.fromDurationLike(duration),
 +      mine = this.values,
 +      theirs = dur.values,
        result = {};
  
      for (const k of orderedUnits) {
--      if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
+       if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
 -        result[k] = dur.get(k) + this.get(k);
-+      if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
 +        // UPSTREAM-H: get() normalizes a known constant before this same read.
 +        result[k] = (theirs[k] || 0) + (mine[k] || 0);
        }
      }
  
-@@ -691,8 +698,22 @@ export default class Duration {
+@@ -701,8 +708,21 @@ export default class Duration {
    minus(duration) {
      if (!this.isValid) return this;
  
@@ -440,16 +425,13 @@ diff --git a/src/duration.js b/src/duration.js
  
    /**
 diff --git a/src/impl/diff.js b/src/impl/diff.js
+index ebd129e..6790fd3 100644
 --- a/src/impl/diff.js
 +++ b/src/impl/diff.js
 @@ -1,9 +1,35 @@
  import Duration from "../duration.js";
 +import { objToLocalTS } from "./util.js";
- 
--function dayDiff(earlier, later) {
--  const utcDayStart = (dt) => dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
--    ms = utcDayStart(later) - utcDayStart(earlier);
--  return Math.floor(Duration.fromMillis(ms).as("days"));
++
 +// UPSTREAM-H: was dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
 +// inline in dayDiff. Both steps clone, and both clones reconstruct, so reading
 +// one number cost four DateTimes. What the expression asks for is the UTC
@@ -467,8 +449,11 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
 +    second: 0,
 +    millisecond: 0,
 +  });
-+
-+function dayDiff(earlier, later) {
+ 
+ function dayDiff(earlier, later) {
+-  const utcDayStart = (dt) => dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
+-    ms = utcDayStart(later) - utcDayStart(earlier);
+-  return Math.floor(Duration.fromMillis(ms).as("days"));
 +  const ms = utcDayStart(later) - utcDayStart(earlier);
 +  // UPSTREAM-H: was Math.floor(Duration.fromMillis(ms).as("days")) — a Duration
 +  // built and converted to reach one division, since shiftTo puts a lone
@@ -482,7 +467,7 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
  }
  
  function highOrderDiffs(cursor, later, units) {
-@@ -67,6 +93,12 @@ function highOrderDiffs(cursor, later, units) {
+@@ -65,6 +91,12 @@ function highOrderDiffs(cursor, later, units) {
  }
  
  export default function (earlier, later, units, opts) {
@@ -496,6 +481,7 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
  
    const remainingMillis = later - cursor;
 diff --git a/src/impl/english.js b/src/impl/english.js
+index cf93798..cb0ac8c 100644
 --- a/src/impl/english.js
 +++ b/src/impl/english.js
 @@ -124,19 +124,25 @@ export function eraForDateTime(dt, length) {
@@ -537,6 +523,7 @@ diff --git a/src/impl/english.js b/src/impl/english.js
    if (numeric === "auto" && lastable) {
      const isDay = unit === "days";
 diff --git a/src/zones/systemZone.js b/src/zones/systemZone.js
+index 533e663..29b4d0b 100644
 --- a/src/zones/systemZone.js
 +++ b/src/zones/systemZone.js
 @@ -3,6 +3,10 @@ import Zone from "../zone.js";

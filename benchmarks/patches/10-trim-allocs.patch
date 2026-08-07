@@ -6,13 +6,13 @@ Summary: objects built to be read once and dropped: clone's config, as()'s Durat
 Description: benchmarks/docs/pr/10-trim-allocs.md
 
 diff --git a/src/datetime.js b/src/datetime.js
+index fd32d47..179875a 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -53,6 +53,22 @@ import Invalid from "./impl/invalid.js";
- 
+@@ -54,6 +54,22 @@ import Invalid from "./impl/invalid.js";
  const INVALID = "Invalid DateTime";
  const MAX_DATE = 8.64e15;
-+
+ 
 +// UPSTREAM-J: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
 +// A Map rather than an object because the key is whatever the caller passed:
 +// oneOf["__proto__"] on an object finds Object.prototype, which is truthy, and
@@ -28,9 +28,10 @@ diff --git a/src/datetime.js b/src/datetime.js
 +
 +  return one;
 +}
- 
++
  function unsupportedZone(zone) {
    return new Invalid("unsupported zone", `the zone "${zone.name}" is not supported`);
+ }
 @@ -97,7 +113,22 @@ function clone(inst, alts) {
      invalid: inst.invalid,
      wasHole: inst.wasHole,
@@ -55,7 +56,8 @@ diff --git a/src/datetime.js b/src/datetime.js
  }
  
  // find the right offset a given local time. The o input is our guess, which determines which
-@@ -1807,7 +1839,28 @@ export default class DateTime {
+@@ -1806,11 +1837,57 @@ export default class DateTime {
+    * @return {DateTime}
     */
    endOf(unit, opts) {
 -    return this.isValid
@@ -114,11 +116,14 @@ diff --git a/src/datetime.js b/src/datetime.js
 +
 +    // UPSTREAM-J: was this.plus({ [unit]: 1 }); see oneOf() at the top of the file
 +    return this.plus(oneOf(unit)).startOf(unit, opts).minus(1);
+   }
+ 
+   // OUTPUT
 diff --git a/src/duration.js b/src/duration.js
+index ed27f9c..4e35b4c 100644
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -756,8 +756,52 @@ export default class Duration {
-    * @example Duration.fromObject({hours: 60}).as('days') //=> 2.5
+@@ -767,7 +767,51 @@ export default class Duration {
     * @return {number}
     */
    as(unit) {
@@ -172,6 +177,7 @@ diff --git a/src/duration.js b/src/duration.js
  
    /**
 diff --git a/src/impl/diff.js b/src/impl/diff.js
+index ebd129e..2cd7d59 100644
 --- a/src/impl/diff.js
 +++ b/src/impl/diff.js
 @@ -83,6 +83,17 @@ export default function (earlier, later, units, opts) {
