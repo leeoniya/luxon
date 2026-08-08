@@ -103,7 +103,7 @@ const set: MutationSet = {
     // ---- the toHuman memos ----
     {
       name: "serves the memoized formatters to a caller that passed options",
-      find: "+    const memo = Object.keys(opts).length === 0 ? this.loc.humanFormatters() : null;",
+      find: "+    const memo = hasOpts ? null : this.loc.humanFormatters();",
       replace: "+    const memo = this.loc.humanFormatters();",
     },
     {

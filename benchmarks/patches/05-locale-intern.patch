@@ -176,7 +176,7 @@ diff --git a/src/duration.js b/src/duration.js
 index ed27f9c..27343c5 100644
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -524,30 +524,42 @@ export default class Duration {
+@@ -524,30 +524,50 @@ export default class Duration {
      if (!this.isValid) return INVALID;
  
      const showZeros = opts.showZeros !== false;
@@ -196,8 +196,16 @@ index ed27f9c..27343c5 100644
 -          return null;
 +    // UPSTREAM-E: any option at all is spread into both formatters' options
 +    // below, so the memo is only good for the call that passed none — which is
-+    // the call toHuman() makes.
-+    const memo = Object.keys(opts).length === 0 ? this.loc.humanFormatters() : null;
++    // the call toHuman() makes. for-in rather than Object.keys, which would
++    // allocate an array per call just to answer empty-or-not.
++    let hasOpts = false;
++
++    for (const k in opts) {
++      hasOpts = true;
++      break;
++    }
++
++    const memo = hasOpts ? null : this.loc.humanFormatters();
 +
 +    // UPSTREAM-E: build the short output list directly instead of allocating
 +    // the eight-element intermediate array that map().filter() discarded.
