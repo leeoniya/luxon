@@ -46,7 +46,7 @@ index 76f08a7..05e57d7 100644
  const fallbackWeekSettings = {
    firstDay: 1,
    minimalDays: 4,
-@@ -352,17 +382,54 @@ export default class Locale {
+@@ -352,17 +382,57 @@ export default class Locale {
    }
  
    static create(locale, numberingSystem, outputCalendar, weekSettings, defaultToEN = false) {
@@ -68,6 +68,9 @@ index 76f08a7..05e57d7 100644
 +          ? gregoryLocaleCache
 +          : localeCache;
 +
++    // the "!" prefix keeps the two defaultToEN families apart: they resolve a
++    // missing locale differently (en-US versus the system locale), so the same
++    // locale string must not share an entry across them
 +    const cacheKey = cache === null ? null : defaultToEN ? "!" + (locale || "") : locale || "";
 +
 +    if (cache !== null) {

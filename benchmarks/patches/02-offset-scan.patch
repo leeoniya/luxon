@@ -9,7 +9,7 @@ diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
 index dea03c9..b5235ba 100644
 --- a/src/zones/IANAZone.js
 +++ b/src/zones/IANAZone.js
-@@ -2,6 +2,82 @@ import { formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/
+@@ -2,6 +2,87 @@ import { formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/
  import Zone from "../zone.js";
  
  const dtfCache = new Map();
@@ -20,8 +20,8 @@ index dea03c9..b5235ba 100644
 +  y -= m <= 2 ? 1 : 0;
 +  const era = Math.floor(y / 400);
 +  const yoe = y - era * 400;
-+  const doy = ((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) | 0;
-+  const doe = yoe * 365 + ((yoe / 4) | 0) - ((yoe / 100) | 0) + doy + d - 1;
++  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5);
++  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy + d - 1;
 +  return era * 146097 + doe - 719468;
 +}
 +
@@ -47,12 +47,15 @@ index dea03c9..b5235ba 100644
 +      acc = -1,
 +      bc = false;
 +
++    // acc is -1 between digit runs. The loop runs one index past the end of the
++    // string, with a fake NUL, so the last digit run flushes like every other.
 +    for (let i = 0; i <= s.length; i++) {
 +      const c = i < s.length ? s.charCodeAt(i) : 0;
 +
 +      if (c >= 48 && c <= 57) {
 +        acc = (acc < 0 ? 0 : acc * 10) + (c - 48);
 +      } else {
++        // 66 is "B": the era field renders as "BC" for years before year 1
 +        if (c === 66) bc = true;
 +        if (acc >= 0) {
 +          if (run === 0) month = acc;
@@ -68,7 +71,7 @@ index dea03c9..b5235ba 100644
 +    }
 +
 +    if (run !== 6) return NaN;
-+    if (bc) year = -Math.abs(year) + 1;
++    if (bc) year = 1 - year;
 +    if (hour === 24) hour = 0;
 +
 +    const asUTC = (daysFromCivil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second) * 1000;
@@ -78,6 +81,8 @@ index dea03c9..b5235ba 100644
 +    // stock's answer depends on the sign of the zone's offset. The integer math
 +    // above has no such trouble, and the true offset it computes is the better
 +    // answer; that divergence, at exactly two instants per zone, is deliberate.
++    // floored, not truncated: % gives a negative remainder for negative t, and
++    // the correction picks the whole second at or below t either way
 +    const over = t % 1000;
 +
 +    return (asUTC - (t - (over >= 0 ? over : 1000 + over))) / 60000;

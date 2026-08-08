@@ -84,13 +84,13 @@ index a2d21d7..fcd33d4 100644
 +
 +  for (let k = 1; k <= side; k++) {
 +    const p = t + k * INTERVAL_PROBE_MS;
-+    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;
++    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;
 +    st.hi0 = p;
 +  }
 +
 +  for (let k = 1; k <= side; k++) {
 +    const p = t - k * INTERVAL_PROBE_MS;
-+    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;
++    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;
 +    st.lo0 = p;
 +  }
 +

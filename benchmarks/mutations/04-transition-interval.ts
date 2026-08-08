@@ -21,17 +21,17 @@ const set: MutationSet = {
     },
     {
       name: "widens the span without checking what is out there",
-      find: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;",
-      replace: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (!(Math.abs(p) <= INTERVAL_MAX_TS)) break;",
+      find: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;",
+      replace: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS) break;",
     },
     {
       name: "widens backwards without checking what is back there",
-      find: "+    const p = t - k * INTERVAL_PROBE_MS;\n+    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;",
-      replace: "+    const p = t - k * INTERVAL_PROBE_MS;\n+    if (!(Math.abs(p) <= INTERVAL_MAX_TS)) break;",
+      find: "+    const p = t - k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;",
+      replace: "+    const p = t - k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS) break;",
     },
     {
       name: "probes past the end of the representable range",
-      find: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;",
+      find: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;",
       replace: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (lookup(ctx, p) !== val) break;",
     },
     {
@@ -84,7 +84,7 @@ const set: MutationSet = {
       find: nl(
         "+  for (let k = 1; k <= side; k++) {",
         "+    const p = t - k * INTERVAL_PROBE_MS;",
-        "+    if (!(Math.abs(p) <= INTERVAL_MAX_TS) || lookup(ctx, p) !== val) break;",
+        "+    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;",
         "+    st.lo0 = p;",
         "+  }"
       ),

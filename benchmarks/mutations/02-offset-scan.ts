@@ -26,8 +26,8 @@ const set: MutationSet = {
     },
     {
       name: "drops the century rule from the leap-day count",
-      find: "+  const doe = yoe * 365 + ((yoe / 4) | 0) - ((yoe / 100) | 0) + doy + d - 1;",
-      replace: "+  const doe = yoe * 365 + ((yoe / 4) | 0) + doy + d - 1;",
+      find: "+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy + d - 1;",
+      replace: "+  const doe = yoe * 365 + Math.floor(yoe / 4) + doy + d - 1;",
     },
     {
       name: "gets the epoch shift wrong",
@@ -53,8 +53,8 @@ const set: MutationSet = {
     },
     {
       name: "reads a BC year without the proleptic shift",
-      find: "+    if (bc) year = -Math.abs(year) + 1;",
-      replace: "+    if (bc) year = -Math.abs(year);",
+      find: "+    if (bc) year = 1 - year;",
+      replace: "+    if (bc) year = -year;",
     },
     {
       name: "leaves hour 24 as it found it",
