@@ -148,19 +148,14 @@ test.each(badInputs)("Interval.fromISO will return invalid for [%s]", (s) => {
 test.each([
   ["duration", "P1X"],
   ["end", "2020-13-40"],
-])(
-  "Interval.fromISO rejects a valid start with an invalid %s",
-  (_, remainder) => {
-    const text = `2020-01-01/${remainder}`;
-    const interval = Interval.fromISO(text);
+])("Interval.fromISO rejects a valid start with an invalid %s", (_, remainder) => {
+  const text = `2020-01-01/${remainder}`;
+  const interval = Interval.fromISO(text);
 
-    expect(interval.isValid).toBe(false);
-    expect(interval.invalidReason).toBe("unparsable");
-    expect(interval.invalidExplanation).toBe(
-      `the input "${text}" can't be parsed as ISO 8601`
-    );
-  }
-);
+  expect(interval.isValid).toBe(false);
+  expect(interval.invalidReason).toBe("unparsable");
+  expect(interval.invalidExplanation).toBe(`the input "${text}" can't be parsed as ISO 8601`);
+});
 
 describe("Interval.fromISO defaults missing values in end to start", () => {
   test("Gregorian, end just time", () => {

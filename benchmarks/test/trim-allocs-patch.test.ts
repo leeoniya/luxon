@@ -12,15 +12,18 @@
 //
 // as() computes the sum shiftTo would have walked to. The risk is floating point:
 // shiftTo splits its running total into an integer and a remainder and adds them
-// back together, which is not the identity, and its getter ends in `|| 0`, which
-// is not the identity either. So that sweep is organised by input — fractions
-// chosen so the split does not reassemble, values past 2^53, non-finite sums,
-// both conversion accuracies — and compares with Object.is so that NaN and -0
-// have to agree and not merely compare equal.
+// back together, which is not the identity. So that sweep is organised by input —
+// fractions chosen so the split does not reassemble, values past 2^53, both
+// conversion accuracies — and compares with Object.is so that NaN and -0 have to
+// agree and not merely compare equal. Non-finite and overflowing shapes are not
+// in it: stock's `|| 0` getter answered 0 for those, the patch deliberately
+// answers NaN, and the fixtures pin that divergence instead.
 //
 // endOf memoizes `{ [unit]: 1 }` on the string it was handed and combines the
 // fixed calendar boundaries' plus().startOf() pair. The sweep asks for every
-// real unit, aliases, offset edges and object-prototype names, and compares with stock.
+// real unit, aliases and offset edges, and compares with stock. Prototype-key
+// names are in the fixtures rather than here, because with arithDirect applied
+// they are a deliberate divergence (InvalidUnitError rather than stock's leak).
 // diff's single-lower-unit merge is covered by the focused cross-zone fixtures.
 //
 // Run: node --test 'benchmarks/test/*.test.ts'
@@ -62,7 +65,12 @@ const DT_UNITS = [
   "millisecond", "milliseconds", "Month", "DAY",
 ];
 
-const NOT_UNITS = ["", "fortnight", "dayz", "week "];
+// the ones luxon rejects the same way on stock and patched builds. "__proto__"
+// and "constructor" are not here: stock's table leaked inherited values for
+// them, patched builds reject them like any other non-unit, and the fixtures
+// pin that divergence.
+// prettier-ignore
+const NOT_UNITS = ["", "fortnight", "dayz", "week ", "toString", "valueOf", "hasOwnProperty"];
 
 // What as() has to get right, grouped by what each one exercises.
 const DURATIONS: Record<string, number>[] = [
@@ -80,10 +88,10 @@ const DURATIONS: Record<string, number>[] = [
   { hours: -204.63316678596144 }, { minutes: -0.003974581243864517 },
   { seconds: -248.3538081770198 }, { milliseconds: 334.2807337622956 },
 
-  // large enough that summation order would show, then past the end of the range
+  // large enough that summation order would show. Nothing non-finite or
+  // overflowing: stock's `|| 0` getter turned those sums into 0, the patch
+  // deliberately answers NaN, and the fixtures pin that divergence.
   { seconds: Number.MAX_SAFE_INTEGER }, { years: 1e6 }, { hours: 1e15, milliseconds: 1 },
-  { hours: Infinity }, { days: -Infinity }, { seconds: 1e308 },
-  { seconds: 1e308, milliseconds: -1e308 },
 ];
 
 const stock = await loadLuxon([]);
@@ -223,32 +231,11 @@ describe("trimAllocs is invisible", () => {
       test("Duration#as over every unit and every shape, both accuracies", async () => {
         const patched = await loadLuxon(keys);
 
-        // fromObject rejects a non-finite field, so the shapes that hold one are
-        // built the way a caller reaches them: by adding two Durations, which
-        // writes the sum straight into the values without going back through
-        // normalizeObject
-        const build = (m: any, shape: Record<string, number>, opts: object) => {
-          const half: Record<string, number> = {};
-          let doubled = false;
-
-          for (const [k, v] of Object.entries(shape)) {
-            if (Number.isFinite(v)) half[k] = v;
-            else {
-              half[k] = v === Infinity ? 1e308 : -1e308;
-              doubled = true;
-            }
-          }
-
-          const d = m.Duration.fromObject(half, opts);
-
-          return doubled ? d.plus(d).plus(d) : d;
-        };
-
         for (const shape of DURATIONS) {
           for (const accuracy of ["casual", "longterm"] as const) {
             const opts = { conversionAccuracy: accuracy };
-            const w = build(stock, shape, opts);
-            const g = build(patched, shape, opts);
+            const w = stock.Duration.fromObject(shape, opts);
+            const g = patched.Duration.fromObject(shape, opts);
 
             for (const unit of [...DUR_UNITS, ...NOT_UNITS]) {
               const a = outcome(() => g.as(unit as DurationUnit));

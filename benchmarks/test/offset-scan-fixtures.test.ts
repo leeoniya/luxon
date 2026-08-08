@@ -48,9 +48,7 @@ const INSTANTS = [
   -149990079995,
   -1538845061110,
   -62587360024261, // BC, where a truncated era and a floored one part company
-  8.64e15, // the last instant Date accepts
-  -8.64e15,
-  8.64e15 + 1, // and the first it does not
+  8.64e15 + 1, // the first instant past the Date range
   -8640000000000000 - 1,
   1710053999999,
   -1,
@@ -78,6 +76,32 @@ for (const [label, keys] of VARIANTS) {
             Object.is(got, want) || got === want,
             `${name} @${ts}: got ${got}, expected ${want}`
           );
+        }
+      }
+    });
+
+    // PATCH-ONLY: a deliberate divergence. Stock decodes through Date.UTC,
+    // which overflows to NaN when the *local* wall time at exactly ±8.64e15
+    // falls outside the Date range — so stock's answer at the edges depended
+    // on the sign of the zone's offset. The integer decoder has no such
+    // trouble and answers the true offset at both edges.
+    test("the exact Date-range edges get real offsets", async () => {
+      const m = await loadLuxon(keys);
+      const edges = [
+        [8.64e15, 8.64e15 - 86400000],
+        [-8.64e15, -8.64e15 + 86400000],
+      ] as const;
+
+      for (const name of ZONES) {
+        const zone = m.IANAZone.create(name);
+
+        // a day inside the edge is far from any projected transition for every
+        // zone in the list, so the edge has to agree with it
+        for (const [edge, inside] of edges) {
+          const got = zone.offset(edge);
+
+          assert.ok(Number.isFinite(got), `${name} @${edge} is finite`);
+          assert.equal(got, zone.offset(inside), `${name} @${edge} agrees with a day inside`);
         }
       }
     });
@@ -144,7 +168,7 @@ for (const [label, keys] of VARIANTS) {
     // NOT from the sweep. B measures the field order once per zone and refuses
     // anything it does not recognise, and no ICU produces one it does not — so
     // the refusal is reached by making one.
-    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "IANAZone.offset falls back safely for an unsupported scanner layout"
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "IANAZone.offset handles reordered Intl parts safely"
     test("an unfamiliar field order is refused rather than decoded", async () => {
       const m = await loadLuxon(keys);
       const Real = Intl.DateTimeFormat;

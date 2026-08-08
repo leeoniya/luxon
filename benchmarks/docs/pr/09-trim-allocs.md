@@ -23,30 +23,34 @@ unset, which `clone` never leaves unset. Both still reach it on `old`, which is
 where it looks for them when the instant and zone have not moved.
 
 **`as` is the fiddly one**, because `shiftTo` is not the plain sum it reduces to.
-Two things are copied out of it rather than simplified away. The
+One thing is copied out of it rather than simplified away — the
 trunc-and-remainder split: `shiftTo` takes the integer part of the running total
 and carries `(own * 1000 - whole * 1000) / 1000` as the remainder, then adds it
 back, which is not the identity in floating point and *is* the number callers
 have been getting — `Duration.fromObject({ hours: 40.599848099943756 })` differs
-in the last bit between the two. And the `|| 0` that the unit getter ends in, so
-that this answers what `get()` answers; nothing a valid `Duration` can hold
-reaches it, since `asNumber` refuses everything but a finite number.
+in the last bit between the two. The `|| 0` that the unit getter ends in is
+*not* copied, and that is a deliberate divergence: nothing a `Duration` built
+through `fromObject` can hold reaches it, since `asNumber` refuses everything
+but a finite number — but `Duration#plus` writes sums directly, so an
+`Infinity` field (or a conversion that overflows) produced a `NaN` sum that the
+getter silently turned into `0`. The rewritten `as` answers `NaN` for those; an
+infinite duration is not 0 minutes long.
 
-**One quirk found rather than reasoned about, and left intact.** `as("__proto__")`
-does not throw `InvalidUnitError`. `Duration.normalizeUnit` looks its argument up
+**Two quirks corrected rather than preserved.** Stock's `as("__proto__")` did
+not throw `InvalidUnitError`: `Duration.normalizeUnit` looked its argument up
 in an object literal, where `"__proto__"` finds `Object.prototype` and
 `"constructor"` finds a function, both truthy enough to pass the check meant to
-reject them; `shiftTo` then indexes the conversion matrix with it and throws a
-`TypeError` instead. The sum here has no such fixed point, so anything
-`normalizeUnit` answers that is not one of the nine ordered units falls back to
-`shiftTo` and throws the same way. Correcting `normalizeUnit` is the better fix
-and a different patch.
+reject them; `shiftTo` then indexed the conversion matrix with it and threw a
+`TypeError`. Here, any unit `normalizeUnit` answers that is not one of the nine
+ordered units throws `InvalidUnitError` — and with patch G's null-prototype
+tables applied, `normalizeUnit` itself already throws it, so the branch is
+belt-and-braces on the full ladder.
 
-`endOf`'s memo needs a `Map` and not an object for the same reason from the other
-direction: the key is whatever string the caller passed, and `oneOf["__proto__"]`
-on a plain object finds `Object.prototype`, which is truthy and would be handed to
-`plus()` in place of the `{ __proto__: 1 }` that was asked for, changing the
-answer. Year, quarter and month take a larger shared shortcut: each sets the
+`endOf`'s memo is a null-prototype bag rather than a literal for the same
+reason from the other direction: the key is whatever string the caller passed,
+and `oneOf["constructor"]` on a literal would find `Object` off its own
+prototype — before the cache was ever written to — and hand `plus()` a
+function. Year, quarter and month take a larger shared shortcut: each sets the
 first civil millisecond of its next month boundary directly and keeps the
 existing `minus(1)`. That removes one `DateTime` while preserving the old answer
 at offset transitions. Week is excluded because its boundary may be locale-based.

@@ -42,6 +42,15 @@ const set: MutationSet = {
       find: "+    resetTokenParserCache();",
       replace: "",
     },
+    {
+      name: "lets the parser cache grow without a ceiling",
+      find: "+    if (parserCache.size < PARSER_CACHE_MAX) parserCache.set(key, parser);",
+      replace: "+    parserCache.set(key, parser);",
+      survives:
+        "a bound on memory, which no output reveals. A parser past the cap is " +
+        "rebuilt per call and answers identically, and parser identity is not " +
+        "reachable through the public API, so this can only be read in the diff.",
+    },
   ],
 };
 

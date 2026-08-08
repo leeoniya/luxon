@@ -22,3 +22,11 @@ into the wrong slots.
 
 The scanner preserves offsets across transitions, sub-hour offsets and negative
 years. Unexpected field layouts use the original `formatToParts()` path.
+
+**One deliberate divergence at the very edges.** Stock decoded through
+`Date.UTC`, which overflows to `NaN` when the *local* wall time at exactly
+±8.64e15 falls outside the Date range — so stock's answer at each edge depended
+on the sign of the zone's offset (New York and Kolkata behaved oppositely). The
+integer math has no such trouble, and the scanner answers the true offset at
+both edges. Timestamps beyond the range still answer `NaN`, matching the
+documented contract.

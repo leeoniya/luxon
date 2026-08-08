@@ -14,16 +14,16 @@ index fd32d47..179875a 100644
  const MAX_DATE = 8.64e15;
  
 +// UPSTREAM-I: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
-+// A Map rather than an object because the key is whatever the caller passed:
-+// oneOf["__proto__"] on an object finds Object.prototype, which is truthy, and
-+// endOf("__proto__") would then behave like startOf instead of throwing.
-+const oneOfCache = new Map();
++// A null-prototype bag rather than a literal because the key is whatever the
++// caller passed: on a literal, oneOf["constructor"] would find Object before
++// the cache was ever written to, and hand plus() a function.
++const oneOfCache = Object.create(null);
 +
 +function oneOf(unit) {
-+  let one = oneOfCache.get(unit);
++  let one = oneOfCache[unit];
 +
 +  if (one === undefined) {
-+    oneOfCache.set(unit, (one = { [unit]: 1 }));
++    one = oneOfCache[unit] = { [unit]: 1 };
 +  }
 +
 +  return one;
@@ -136,19 +136,18 @@ index ed27f9c..4e35b4c 100644
 +    // single target unit shiftTo's loop is the sum below: everything ordered
 +    // above the target converted up into it, everything below divided into it.
 +    //
-+    // Two things are copied out of shiftTo rather than simplified away. Its
++    // One thing is copied out of shiftTo rather than simplified away: its
 +    // trunc-and-remainder split is not the identity in floating point, and
-+    // whole + remainder is the number callers get today. And get() reads through
-+    // the unit getter, which ends in `|| 0`, so a NaN answers 0 today.
++    // whole + remainder is the number callers get today.
 +    const u = Duration.normalizeUnit(unit);
 +    const at = orderedUnits.indexOf(u);
 +
-+    // normalizeUnit does not always answer with a unit: its table is an object
-+    // literal, so "__proto__" resolves to Object.prototype and "constructor" to
-+    // a function, both truthy enough to get past its own check. shiftTo then
-+    // indexes the conversion matrix with it and throws a TypeError. That is
-+    // luxon's answer today and this is not the patch that changes it.
-+    if (at < 0) return this.shiftTo(unit).get(unit);
++    // With patch G's null-prototype table, normalizeUnit answers every non-unit
++    // with a throw and `at` is always a real index. Without it, stock's table
++    // leaks Object.prototype values for "__proto__" and "constructor", and
++    // shiftTo's answer for those was a TypeError out of the conversion matrix.
++    // An InvalidUnitError is the deliberate replacement for that accident.
++    if (at < 0) throw new InvalidUnitError(unit);
 +
 +    const vals = this.values;
 +    const matrix = this.matrix;
@@ -164,16 +163,14 @@ index ed27f9c..4e35b4c 100644
 +
 +    const whole = Math.trunc(own);
 +    const rest = (own * 1000 - whole * 1000) / 1000;
-+    let out = whole;
-+
-+    if (rest !== 0) out += rest;
++    let out = whole + rest;
 +
 +    for (let i = at + 1; i < orderedUnits.length; i++) {
 +      const lower = orderedUnits[i];
 +      if (isNumber(vals[lower]) && vals[lower] !== 0) out += vals[lower] / matrix[u][lower];
 +    }
 +
-+    return out || 0;
++    return out;
    }
  
    /**

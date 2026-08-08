@@ -150,9 +150,23 @@ for (const [label, keys] of VARIANTS) {
       const m = await loadLuxon(keys);
       const name = "America/New_York";
 
-      for (const ts of [8.64e15, 8.64e15 - 86400000, -8.64e15, -8.64e15 + 86400000]) {
+      for (const ts of [8.64e15 - 86400000, -8.64e15 + 86400000]) {
         m.Settings.resetCaches();
         assert.equal(m.IANAZone.create(name).offset(ts), stockOffset(name, ts), `offset @${ts}`);
+      }
+
+      // At exactly ±8.64e15 the offsetScan patch deliberately answers the true
+      // offset where stock's Date.UTC overflowed for one sign, so the oracle
+      // here is structural: the edge agrees with the instant a day inside it,
+      // which also proves the widening probes never stepped past the edge.
+      for (const [edge, inside] of [
+        [8.64e15, 8.64e15 - 86400000],
+        [-8.64e15, -8.64e15 + 86400000],
+      ] as const) {
+        m.Settings.resetCaches();
+        const zone = m.IANAZone.create(name);
+
+        assert.equal(zone.offset(edge), zone.offset(inside), `offset @${edge}`);
       }
 
       for (const ts of [8.64e15 - 86400000, -8.64e15 + 86400000]) {

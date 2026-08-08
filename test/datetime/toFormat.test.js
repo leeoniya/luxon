@@ -672,6 +672,16 @@ test("DateTime#toFormat name tokens agree with locale parts for every field valu
       }
     }
   }
+
+  // Absolute anchors: a locale-resolution bug that poisoned toFormat and
+  // toLocaleParts symmetrically would slip through the parity sweep above.
+  const anchor = (month, locale) =>
+    DateTime.fromObject({ year: 2024, month, day: 15 }, { zone: "America/New_York", locale });
+
+  expect(anchor(7, "fr").toFormat("MMMM")).toBe("juillet");
+  expect(anchor(3, "de").toFormat("MMMM")).toBe("März");
+  expect(anchor(3, "ru").toFormat("MMMM")).toBe("марта");
+  expect(anchor(3, "ru").toFormat("LLLL")).toBe("март");
 });
 
 test("DateTime#toFormat preserves Russian month contexts and widths", () => {
@@ -798,6 +808,13 @@ test("DateTime#toFormat macro tokens equal their locale presets in every positio
 test("DateTime#toFormat keeps interleaved French and German compiled names separate", () => {
   const dateTime = DateTime.fromObject({ year: 2024, month: 3, day: 5, hour: 14 }, { zone: "UTC" });
 
+  // Pinned substrings keep this meaningful even if a locale-resolution bug
+  // poisoned toFormat and toLocaleParts symmetrically.
+  const anchors = {
+    fr: ["mars", "ap. J.-C."],
+    de: ["März", "n. Chr."],
+  };
+
   for (const locale of ["fr", "de", "fr", "de"]) {
     const localized = dateTime.reconfigure({ locale });
     const part = (options, type) =>
@@ -809,7 +826,12 @@ test("DateTime#toFormat keeps interleaved French and German compiled names separ
       part({ era: "short" }, "era"),
     ].join(" ");
 
-    expect(localized.toFormat("cccc LLLL a G")).toBe(expected);
+    const rendered = localized.toFormat("cccc LLLL a G");
+    expect(rendered).toBe(expected);
+
+    for (const anchor of anchors[locale]) {
+      expect(rendered).toContain(anchor);
+    }
   }
 });
 

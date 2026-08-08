@@ -92,8 +92,11 @@ function instants(zone: string): number[] {
     }
   }
 
-  // the edges of the Date range, where luxon's Date.UTC round trip overflows
-  out.push(NaN, 8.64e15, -8.64e15, 8.64e15 + 1, -8.64e15 - 1, Infinity, -Infinity);
+  // past the edges of the Date range, where both builds answer NaN. The exact
+  // edges are not here: stock's Date.UTC round trip overflows there for one
+  // offset sign per zone, the patch deliberately answers the true offset, and
+  // the fixtures pin that divergence.
+  out.push(NaN, 8.64e15 + 1, -8.64e15 - 1, Infinity, -Infinity);
 
   return out;
 }

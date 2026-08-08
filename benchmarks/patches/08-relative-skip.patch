@@ -37,7 +37,6 @@ index fd32d47..2009215 100644
 +  hours: 3600000,
 +  minutes: 60000,
 +  seconds: 1000,
-+  milliseconds: 1,
 +};
 +
  function diffRelative(start, end, opts) {

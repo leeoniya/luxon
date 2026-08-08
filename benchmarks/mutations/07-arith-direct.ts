@@ -55,16 +55,8 @@ const set: MutationSet = {
       replace: "+    true",
     },
     {
-      name: "negates a zero field into -0",
-      find: "+    v.days = v.days === 0 ? 0 : -v.days;",
-      replace: "+    v.days = -v.days;",
-      survives:
-        "a -0 field reaches adjustTime only as a term of a sum or an addend to " +
-        "an integer, and x + -0 is x for every x. Argued in the diff.",
-    },
-    {
       name: "leaves one unit unnegated",
-      find: "+    v.milliseconds = v.milliseconds === 0 ? 0 : -v.milliseconds;\n",
+      find: "+    v.milliseconds = -v.milliseconds;\n",
       replace: "",
     },
     {
@@ -97,16 +89,16 @@ const set: MutationSet = {
       replace: "durMinutes * 6000",
     },
     {
-      name: "keeps the fast sum when the result overflows",
-      find: "+    millisToAdd = Number.isFinite(wholeSum * 1000)",
-      replace: "+    millisToAdd = !Number.isNaN(wholeSum)",
+      name: "takes the precomputed sum for a fractional duration",
+      find: "+    millisToAdd = !Number.isNaN(wholeSum)",
+      replace: "+    millisToAdd = true",
     },
 
     // ---- adjustTime: the calendar-free fast path ----
     {
       name: "takes the fast path with days set",
-      find: nl("+    durDays === 0 &&", "+    Number.isFinite"),
-      replace: "+    Number.isFinite",
+      find: nl("+    durDays === 0 &&", "+    !Number.isNaN"),
+      replace: "+    !Number.isNaN",
     },
     {
       name: "takes the fast path with weeks set",
@@ -114,9 +106,9 @@ const set: MutationSet = {
       replace: "",
     },
     {
-      name: "takes the fast path when the sum overflows",
-      find: nl("+    Number.isFinite(wholeSum * 1000)", "+  ) {"),
-      replace: nl("+    wholeSum === wholeSum", "+  ) {"),
+      name: "takes the fast path for a fractional duration",
+      find: nl("+    !Number.isNaN(wholeSum)", "+  ) {"),
+      replace: nl("+    true", "+  ) {"),
     },
     {
       name: "lands the fast path one millisecond out",
@@ -152,6 +144,16 @@ const set: MutationSet = {
       name: "loses a unit alias from Duration's table",
       find: '+  quarters: "quarters",\n',
       replace: "",
+    },
+    {
+      name: "builds DateTime's unit table with Object.prototype behind it",
+      find: nl("+const normalizedUnits = Object.assign(Object.create(null), {", '+  year: "year",'),
+      replace: nl("+const normalizedUnits = Object.assign({}, {", '+  year: "year",'),
+    },
+    {
+      name: "builds Duration's unit table with Object.prototype behind it",
+      find: nl("+const normalizedUnits = Object.assign(Object.create(null), {", '+  year: "years",'),
+      replace: nl("+const normalizedUnits = Object.assign({}, {", '+  year: "years",'),
     },
     {
       name: "loses a relative-time abbreviation",

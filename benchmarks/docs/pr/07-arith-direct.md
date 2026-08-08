@@ -26,10 +26,12 @@ zero and `shiftTo`'s accumulator reduces to the same left-to-right sum. Its
 trunc-and-remainder split then round-trips exactly, which it does not do in
 general. Anything fractional still takes the old path.
 
-**Range.** When the sum leaves the finite range `shiftTo`'s remainder goes `NaN`,
-and the milliseconds getter's `|| 0` turns that into zero — so
-`plus({ seconds: 1e308 })` adds nothing rather than going invalid. That looks
-like a bug and correcting it is a separate argument, so the guard preserves it.
+**Range.** Stock's `shiftTo` detour went through thousandths, so a sum past
+~1.8e305 overflowed to `NaN` and the milliseconds getter's `|| 0` silently
+dropped the whole addition — `plus({ seconds: 1e308 })` added nothing. That was
+a bug, and this patch corrects rather than preserves it: an overflowing sum
+flows into the timestamp and produces an invalid DateTime. The `NaN` check on
+`wholeSum` is only the fractional-field sentinel, not an overflow guard.
 
 **Legacy years.** `utcDayStart` goes through `objToLocalTS` and not `Date.UTC`,
 which is the same call with the same arguments except that `objToLocalTS` reverts
@@ -57,13 +59,14 @@ offset to preserve its own contract.
 
 `durationValues` is what `Duration.fromObject` does to an object, minus the
 object it returns. Every input `fromObject` rejects is still rejected, with the
-same error and the same message. Two places it could quietly diverge, both
+same error and the same message. One place it could quietly diverge is
 commented in the diff: `normalizeObject` writes
 `normalized[normalizer(u)] = asNumber(v)` and a member expression is evaluated
 before the value assigned to it, so an object with both a bad unit and a bad
 value reports the *unit* — writing the two calls in reading order would report
-the value. And `negate()` guards its zeros, because `-0` is falsy and the getters
-`minus` read through turned a negated zero back into zero.
+the value. `negate()`'s `-0` guard is not carried over: a negated zero only
+ever enters a sum, and `x + -0` is `x` for every `x`, so plain negation is
+indistinguishable.
 
 The other half is shape rather than allocation: `normalizeObject`'s result has
 computed keys and a layout that depends on which units the caller named, so
@@ -84,9 +87,16 @@ direction and options and also serves `Interval#toDuration("milliseconds")`.
 ## Four constants
 
 Each was being built inside the function that reads it, and is moved to module
-scope unchanged: `datetime.js` `normalizeUnit` (24 keys), `duration.js`
-`normalizeUnit` (18 keys), `english.js` `formatRelativeTime` (an 8-key table and
-the nine arrays inside it), and `systemZone.js` `offset` (one `Date` per lookup,
-now one reused — JS is single threaded and `getTimezoneOffset` reads it on the
-next line, so the instance cannot be observed in between). None captures
-anything, so each is a move rather than a rewrite.
+scope: `datetime.js` `normalizeUnit` (24 keys), `duration.js` `normalizeUnit`
+(18 keys), `english.js` `formatRelativeTime` (an 8-key table and the nine
+arrays inside it), and `systemZone.js` `offset` (one `Date` per lookup, now one
+reused — JS is single threaded and `getTimezoneOffset` reads it on the next
+line, so the instance cannot be observed in between). None captures anything.
+
+The two unit tables also become null-prototype, which is this patch's one
+deliberate behavior change. The per-call literals leaked inherited values past
+`normalizeUnit`'s truthiness check for unit names that are `Object.prototype`
+keys: `endOf("__proto__")` quietly acted like `startOf`, and
+`as("__proto__")` threw a `TypeError` out of the conversion matrix. With the
+tables null-prototype, those names miss the lookup and throw `InvalidUnitError`
+like any other non-unit.

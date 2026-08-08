@@ -73,11 +73,11 @@ index dea03c9..b5235ba 100644
 +
 +    const asUTC = (daysFromCivil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second) * 1000;
 +
-+    // integer math has no trouble here, but objToLocalTS goes through Date.UTC,
-+    // which overflows to NaN past the Date range — match that rather than
-+    // start returning offsets stock luxon does not
-+    if (!(Math.abs(asUTC) <= 8.64e15)) return NaN;
-+
++    // Stock went through Date.UTC here, which overflows to NaN when the decoded
++    // *local* wall time falls outside the Date range — so at exactly ±8.64e15,
++    // stock's answer depends on the sign of the zone's offset. The integer math
++    // above has no such trouble, and the true offset it computes is the better
++    // answer; that divergence, at exactly two instants per zone, is deliberate.
 +    const over = t % 1000;
 +
 +    return (asUTC - (t - (over >= 0 ? over : 1000 + over))) / 60000;

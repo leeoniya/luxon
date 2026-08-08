@@ -50,23 +50,23 @@ const set: MutationSet = {
     // ---- endOf ----
     {
       name: "endOf steps by the wrong unit",
-      find: "+    oneOfCache.set(unit, (one = { [unit]: 1 }));",
-      replace: '+    oneOfCache.set(unit, (one = { ["day"]: 1 }));',
+      find: "+    one = oneOfCache[unit] = { [unit]: 1 };",
+      replace: '+    one = oneOfCache[unit] = { ["day"]: 1 };',
     },
     {
       name: "endOf steps by two of the unit",
-      find: "+    oneOfCache.set(unit, (one = { [unit]: 1 }));",
-      replace: "+    oneOfCache.set(unit, (one = { [unit]: 2 }));",
+      find: "+    one = oneOfCache[unit] = { [unit]: 1 };",
+      replace: "+    one = oneOfCache[unit] = { [unit]: 2 };",
     },
     {
       name: "endOf hands every unit the same object",
-      find: "+  let one = oneOfCache.get(unit);",
-      replace: '+  let one = oneOfCache.get("day");',
+      find: "+  let one = oneOfCache[unit];",
+      replace: '+  let one = oneOfCache["day"];',
     },
     {
-      name: "keeps the one-unit objects in an object rather than a Map",
-      find: "+const oneOfCache = new Map();",
-      replace: "+const oneOfCache = { get: (k) => oneOfBag[k], set: (k, v) => (oneOfBag[k] = v) };\n+const oneOfBag = {};",
+      name: "keeps the one-unit objects on a bag with Object.prototype behind it",
+      find: "+const oneOfCache = Object.create(null);",
+      replace: "+const oneOfCache = {};",
     },
     // ---- as(): which way the matrix is read ----
     {
@@ -111,30 +111,6 @@ const set: MutationSet = {
       replace: "+    const whole = Math.floor(own);",
     },
     {
-      name: "adds a remainder of zero anyway",
-      find: "+    if (rest !== 0) out += rest;",
-      replace: "+    out += rest;",
-      survives:
-        "adding a floating-point zero is the identity for every value that can " +
-        "reach it. The one case where it would not be is a negative zero, and " +
-        "`own` is initialised to 0 and only added to, so a -0 input is already " +
-        "0 by the time it gets here. Copied from shiftTo, which has the same " +
-        "guard for the same non-reason.",
-    },
-    {
-      name: "drops the coercion that turns a NaN sum into zero",
-      find: "+    return out || 0;",
-      replace: "+    return out;",
-      survives:
-        "nothing falsy but 0 can get here. asNumber requires Number.isFinite and " +
-        "every way of putting a value on a Duration goes through it -- fromObject, " +
-        "set, mapUnits -- so NaN and the infinities are refused at the door, and " +
-        "an invalid Duration returns NaN before this line. A -0 cannot survive " +
-        "either, since `own` starts at 0. It is here because get() reads through " +
-        "the unit getter, which ends in `|| 0`, and this is meant to answer what " +
-        "get() answers.",
-    },
-    {
       name: "keeps a value the duration does not carry",
       find: "+      if (isNumber(vals[higher])) own += matrix[higher][u] * vals[higher];",
       replace: "+      own += matrix[higher][u] * (vals[higher] || 0);",
@@ -152,16 +128,9 @@ const set: MutationSet = {
       replace: "+    const u = unit;",
     },
     {
-      name: "takes the fast path for a unit it could not place",
-      find: "+    if (at < 0) return this.shiftTo(unit).get(unit);",
-      replace: "+    if (at < -1) return this.shiftTo(unit).get(unit);",
-      survives:
-        "the only units that reach it are the ones normalizeUnit lets through " +
-        "without answering -- `__proto__` and `constructor` -- and the fast path " +
-        "then indexes the matrix with the same non-unit that shiftTo would, so " +
-        "both throw the same TypeError. Every unit luxon actually accepts is in " +
-        "orderedUnits, so the guard never fires for a real call and there is no " +
-        "input that tells the two apart.",
+      name: "lets a unit it could not place through to the matrix",
+      find: "+    if (at < 0) throw new InvalidUnitError(unit);",
+      replace: "+    if (at < -1) throw new InvalidUnitError(unit);",
     },
     {
       name: "answers for an invalid duration instead of refusing",

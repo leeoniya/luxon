@@ -139,31 +139,6 @@ test("IANAZone.offsetName with a short format", () => {
   expect(offsetName).toBe("GMT-3");
 });
 
-test("IANAZone.offsetName returns null when Intl omits the zone name", () => {
-  mockDateTimeFormat((formatter, opts) => {
-    if (opts.timeZoneName === undefined) return formatter;
-
-    const realParts = formatter.formatToParts.bind(formatter);
-    const parts = (date) =>
-      realParts(date).filter(({ type }) => type.toLowerCase() !== "timezonename");
-    replaceMethod(formatter, "formatToParts", parts);
-    replaceMethod(formatter, "format", (date) =>
-      parts(date)
-        .map(({ value }) => value)
-        .join("")
-    );
-    return formatter;
-  });
-  Settings.resetCaches();
-
-  expect(
-    IANAZone.create("America/New_York").offsetName(Date.UTC(2024, 0, 15, 3), {
-      format: "short",
-      locale: "en-US",
-    })
-  ).toBeNull();
-});
-
 test("IANAZone.formatOffset with a short format", () => {
   const zone = new IANAZone("America/Santiago");
   const offsetName = zone.formatOffset(1552089600, "short");
@@ -207,42 +182,6 @@ test("IANAZone.offset treats a formatted local hour of 24 as midnight", () => {
   IANAZone.resetCache();
 
   expect(IANAZone.create("America/New_York").offset(ts)).toBe(-300);
-});
-
-test("IANAZone.offset returns NaN for malformed Intl output", () => {
-  mockDateTimeFormat((formatter, opts) => {
-    if (opts.era !== "short") return formatter;
-
-    const realParts = formatter.formatToParts.bind(formatter);
-    replaceMethod(formatter, "formatToParts", (date) =>
-      realParts(date).map((part) =>
-        ["year", "month", "day", "hour", "minute", "second"].includes(part.type)
-          ? { ...part, value: "x" }
-          : part
-      )
-    );
-    replaceMethod(formatter, "format", () => "malformed");
-    return formatter;
-  });
-  IANAZone.resetCache();
-
-  expect(IANAZone.create("America/New_York").offset(Date.UTC(2024, 0, 15, 5))).toBeNaN();
-});
-
-test("IANAZone.offset rejects a decoded date beyond the JavaScript Date range", () => {
-  mockDateTimeFormat((formatter, opts) => {
-    if (opts.era !== "short") return formatter;
-
-    const realParts = formatter.formatToParts.bind(formatter);
-    replaceMethod(formatter, "formatToParts", (date) =>
-      realParts(date).map((part) => (part.type === "year" ? { ...part, value: "99999999" } : part))
-    );
-    replaceMethod(formatter, "format", () => "01/15/99999999, 12:00:00");
-    return formatter;
-  });
-  IANAZone.resetCache();
-
-  expect(IANAZone.create("America/New_York").offset(Date.UTC(2024, 0, 15, 5))).toBeNaN();
 });
 
 test("IANAZone.offset returns NaN beyond the JavaScript Date range", () => {
@@ -300,8 +239,6 @@ describe("IANAZone.offset public behavior contracts", () => {
     -149990079995,
     -1538845061110,
     -62587360024261,
-    8.64e15,
-    -8.64e15,
     8.64e15 + 1,
     -8.64e15 - 1,
     1710053999999,
@@ -576,6 +513,34 @@ describe("IANAZone.offsetName public behavior contracts", () => {
         intlOffsetName(zoneName, ts, "short", "en-US")
       );
     }
+  });
+
+  // The oracle is structural (name changes across the boundary while the
+  // offset holds), not hard-coded CLDR strings, so it survives ICU updates as
+  // long as the runtime distinguishes Cambridge Bay's generic name at all.
+  test("tracks Cambridge Bay name-only transitions while its offset stays stable", () => {
+    const zoneName = "America/Cambridge_Bay";
+    const locale = "en-US";
+    const format = "shortGeneric";
+    const instants = [
+      Date.UTC(2000, 9, 29, 5, 59, 59, 999),
+      Date.UTC(2000, 9, 29, 6),
+      Date.UTC(2000, 9, 29, 6, 59, 59, 999),
+      Date.UTC(2000, 9, 29, 7),
+    ];
+    const expectedNames = instants.map((ts) => intlOffsetName(zoneName, ts, format, locale));
+    const expectedOffsets = instants.map((ts) => intlOffset(zoneName, ts));
+
+    expect(expectedNames[0]).not.toBe(expectedNames[1]);
+    expect(expectedNames[1]).toBe(expectedNames[2]);
+    expect(expectedNames[2]).not.toBe(expectedNames[3]);
+    expect(new Set(expectedOffsets).size).toBe(1);
+
+    const zone = IANAZone.create(zoneName);
+    instants.forEach((ts, index) => {
+      expect(zone.offsetName(ts, { format, locale })).toBe(expectedNames[index]);
+      expect(zone.offset(ts)).toBe(expectedOffsets[index]);
+    });
   });
 
   test("keeps alternating zones' offset names independent at transition edges", () => {

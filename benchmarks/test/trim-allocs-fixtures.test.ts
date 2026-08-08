@@ -131,14 +131,38 @@ for (const [label, keys] of VARIANTS) {
     });
 
     // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as preserves unit normalization and rejection behavior"
-    test("as() of an invalid duration is NaN and an invalid unit throws", async () => {
+    // The prototype-key probes are PATCH-ONLY, and pin a deliberate divergence:
+    // stock's normalizeUnit table leaked Object.prototype values for these
+    // names, and shiftTo then threw a TypeError out of the conversion matrix.
+    // The patched as() answers every unit it cannot place with InvalidUnitError.
+    test("as() of an invalid duration is NaN, and of a unit it cannot place is an InvalidUnitError", async () => {
       const m = await loadLuxon(keys);
       const bad = m.Duration.invalid("because");
 
       assert.ok(Number.isNaN(bad.as("hours")));
 
       const d = m.Duration.fromObject({ hours: 3 });
+
+      for (const unit of ["__proto__", "constructor"]) {
+        assert.throws(() => d.as(unit as never), /Invalid unit/, `as(${unit})`);
+      }
+
       assert.throws(() => d.as("fortnights" as never), /Invalid unit/);
+    });
+
+    // PATCH-ONLY: another deliberate divergence. A non-finite value only gets
+    // onto a Duration through plus(), which skips asNumber, or by a conversion
+    // that overflows; stock's `|| 0` getter then answered 0 for the sum. The
+    // patched as() answers NaN — an infinite duration is not 0 minutes long.
+    test("as() of a non-finite or overflowing duration is NaN rather than stock's 0", async () => {
+      const m = await loadLuxon(keys);
+      const big = m.Duration.fromObject({ hours: 1e308 });
+      const inf = big.plus(big); // 2e308 overflows to Infinity
+
+      assert.ok(Number.isNaN(inf.as("hours")), "as(hours) of an Infinity field");
+      assert.ok(Number.isNaN(inf.as("minutes")), "as(minutes) of an Infinity field");
+      // finite, but the conversion to minutes overflows
+      assert.ok(Number.isNaN(big.as("minutes")), "as(minutes) past the finite range");
     });
 
     // A spelling that normalizes to a unit has to be placed by its normalized
@@ -182,7 +206,10 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(casual, longterm, "both matrices gave the same answer, so neither was consulted");
     });
 
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/duration/customMatrix.test.js — "Duration#as follows each custom matrix edge in both directions"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/customMatrix.test.js — "Duration#as follows each custom matrix edge in both directions"
+    // The multi-unit shiftTo sweep below the hard-coded edges is PATCH-ONLY:
+    // the patched as() accumulates through this.matrix in its own loop, and
+    // shiftTo is the independent path on patched builds.
     test("as() follows each custom matrix edge in both directions", async () => {
       const m = await loadLuxon(keys);
       const seed = m.Duration.fromObject({});
@@ -215,6 +242,25 @@ for (const [label, keys] of VARIANTS) {
 
       for (const [from, amount, to, expected] of cases) {
         assert.equal(m.Duration.fromObject({ [from]: amount }, { matrix } as never).as(to), expected);
+      }
+
+      // multi-unit, mixed-sign and fractional shapes, accumulated through the
+      // same custom matrix by both public paths
+      const shapes = [
+        { years: 1.25, months: -2, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7 },
+        { years: -0.5, days: -2.75, seconds: 1.125 },
+        { months: 2, milliseconds: -1 },
+      ];
+
+      for (const shape of shapes) {
+        const d = m.Duration.fromObject(shape, { matrix } as never);
+
+        for (const unit of AS_UNITS) {
+          const want = d.shiftTo(unit).get(unit);
+          const got = d.as(unit);
+
+          assert.ok(Object.is(got, want), `${JSON.stringify(shape)}.as(${unit}) = ${got}, shiftTo says ${want}`);
+        }
       }
     });
 
@@ -327,6 +373,42 @@ for (const [label, keys] of VARIANTS) {
           assert.equal(dt.endOf(unit).toISO(), want.toISO(), `${dt.toISO()} endOf(${unit})`);
         }
       }
+    });
+
+    // PATCH-ONLY: the memo is a null-prototype bag because the key is whatever
+    // the caller passed. A literal `{}` would answer oneOf("constructor") with
+    // Object off its own prototype — before the cache was ever written to —
+    // and hand plus() a function. So endOf of a prototype-key unit has to keep
+    // answering exactly what the plus().startOf().minus(1) composition answers,
+    // whatever that is on this variant (stock's leak without arithDirect, an
+    // InvalidUnitError with it).
+    test("a unit named after something on Object.prototype tracks the composition it replaced", async () => {
+      const m = await loadLuxon(keys);
+      const dt = m.DateTime.fromISO("2024-01-01T12:00", { zone: "UTC" }) as unknown as {
+        endOf: (u: string) => { toISO: () => string };
+        plus: (o: unknown) => { startOf: (u: string) => { minus: (n: number) => { toISO: () => string } } };
+      };
+      const outcome = (fn: () => unknown) => {
+        try {
+          return `= ${fn()}`;
+        } catch (e) {
+          return `threw ${(e as Error).constructor.name}`;
+        }
+      };
+
+      for (const unit of ["__proto__", "constructor"]) {
+        assert.equal(
+          outcome(() => dt.endOf(unit).toISO()),
+          outcome(() => dt.plus({ [unit]: 1 }).startOf(unit).minus(1).toISO()),
+          `endOf(${unit})`
+        );
+      }
+
+      for (const unit of ["toString", "valueOf", "hasOwnProperty"]) {
+        assert.throws(() => dt.endOf(unit), /Invalid unit/, `endOf(${unit})`);
+      }
+
+      assert.equal(dt.endOf("day").toISO(), "2024-01-01T23:59:59.999Z", "a real unit after all that");
     });
 
     // ---- diff ----

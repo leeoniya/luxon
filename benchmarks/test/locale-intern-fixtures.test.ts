@@ -167,7 +167,7 @@ for (const [label, keys] of VARIANTS) {
 
     // Every field Locale.create() falls back to Settings for. Each is read once
     // to get an interned Locale on the books, then moved, then read again.
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/reconfigure.test.js — "a DateTime created before a default locale change observes the new setting"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/reconfigure.test.js — "a DateTime created without an explicit locale observes later default locale changes"
     // JEST-PARTIAL (sync shared cases; not removable): test/info/listers.test.js — "Info.months observes a default numbering system changed after warm-up"
     // JEST-PARTIAL (sync shared cases; not removable): test/datetime/reconfigure.test.js — "an explicit gregory calendar stays separate from a changed default output calendar"
     // JEST-PARTIAL (sync shared cases; not removable): test/datetime/localeWeek.test.js — "locale week APIs observe default week settings changed after warm-up"
@@ -298,7 +298,7 @@ for (const [label, keys] of VARIANTS) {
     // The memos hang off a Locale, and a DateTime built earlier is still
     // holding the one it had. A settings change empties the intern, which is
     // what a later caller sees, but this one has to notice on its own.
-    // JEST-MIRROR (sync until localeIntern merges, then remove): test/datetime/reconfigure.test.js — "a DateTime created before a default locale change observes the new setting"
+    // JEST-MIRROR (sync until localeIntern merges, then remove): test/datetime/reconfigure.test.js — "a DateTime created without an explicit locale observes later default locale changes"
     test("a DateTime built before a Settings change still follows it", async () => {
       const m = await loadLuxon(keys);
       const S = m.Settings as unknown as Record<string, unknown>;

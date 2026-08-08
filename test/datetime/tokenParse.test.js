@@ -1422,8 +1422,16 @@ test("DateTime.fromFormat keeps interleaved locale and numbering parser keys sep
     { locale: "de", numberingSystem: "latn", zone: "UTC" },
   ];
 
+  // Anchoring the intermediate text keeps this from passing on a symmetric
+  // locale-cache bug that poisons the formatter and parser identically.
+  const monthNames = { fr: "juillet", de: "Juli" };
+
   for (const options of [...optionSets, ...optionSets.slice().reverse()]) {
     const text = DateTime.fromObject({ year: 2024, month: 7, day: 4 }, options).toFormat(format);
+
+    expect(text).toContain(monthNames[options.locale]);
+    expect(text).toMatch(options.numberingSystem === "arab" ? /[٠-٩]/ : /\d/);
+
     const parsed = DateTime.fromFormat(text, format, options);
 
     expect(parsed.isValid).toBe(true);

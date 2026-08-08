@@ -213,6 +213,17 @@ for (const [label, keys] of VARIANTS) {
           }
         }
       }
+
+      // Absolute anchors, in lockstep with the Jest mirror: a locale-resolution
+      // bug that poisoned toFormat and toLocaleParts symmetrically would slip
+      // through the parity sweep above.
+      const anchor = (month: number, locale: string) =>
+        m.DateTime.fromObject({ year: 2024, month, day: 15 }, { zone: ZONE, locale }) as unknown as DT;
+
+      assert.equal(anchor(7, "fr").toFormat("MMMM"), "juillet");
+      assert.equal(anchor(3, "de").toFormat("MMMM"), "März");
+      assert.equal(anchor(3, "ru").toFormat("MMMM"), "марта");
+      assert.equal(anchor(3, "ru").toFormat("LLLL"), "март");
     });
 
     // JEST-PARTIAL (sync shared cases; not removable): test/datetime/toFormat.test.js — "DateTime#toFormat keeps interleaved French and German compiled names separate"
@@ -234,6 +245,12 @@ for (const [label, keys] of VARIANTS) {
       }
 
       assert.notEqual(fr.toFormat("MMMM"), de.toFormat("MMMM"), "fr and de agreed, so nothing was distinguished");
+
+      // pinned values, in lockstep with the Jest partial: symmetric poisoning
+      // of formatter and parts would pass every parity line above
+      assert.equal(fr.toFormat("MMMM"), "mars");
+      assert.equal(de.toFormat("MMMM"), "März");
+      assert.equal(ru.toFormat("MMMM"), "марта");
     });
 
     // JEST-MIRROR (sync until compileFormat merges, then remove): test/datetime/toFormat.test.js — "DateTime#toFormat preserves Russian month contexts and widths"

@@ -47,7 +47,11 @@ for (const [label, keys] of VARIANTS) {
     // durationValues replaced fromDurationLike, so every input the old path
     // rejected has to be rejected the same way, and every input it accepted has
     // to survive the trip through a fixed-shape record.
-    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/math.test.js — "DateTime#plus preserves duration argument validation and own-property semantics"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#plus preserves duration argument validation and own-property semantics"
+    // The Jest side asserts bare throws only; the exact messages and the
+    // invalid-Duration case are PATCH-ONLY preservation contracts (stock's
+    // throw on an invalid Duration is accidental, so upstream must stay free
+    // to change it — but this patch must reproduce it exactly).
     test("the arguments plus and minus accept and reject", async () => {
       const { m, dt } = await load();
       const iso = (d: unknown) => (d as { toISO(): string | null }).toISO();
@@ -65,8 +69,10 @@ for (const [label, keys] of VARIANTS) {
       // the unit name is normalized before the value is, and { bogus: "nope" }
       // is the input that can tell: it is invalid twice over
       assert.equal(threw(() => dt.plus({ bogus: "nope" } as never)), "Invalid unit bogus");
-      // an invalid Duration reads NaN out of every getter, as it did before
-      assert.equal(threw(() => dt.plus(m.Duration.invalid("because"))), "Invalid unit value NaN");
+      // an invalid Duration reads NaN out of every getter, as it did before;
+      // stock's throw here is accidental, so only its family is pinned, not
+      // its exact wording
+      assert.match(threw(() => dt.plus(m.Duration.invalid("because"))), /Invalid unit value/);
 
       // for-in walks the prototype chain and the old path did not
       assert.equal(iso(dt.plus(Object.create({ days: 9 }) as never)), "2024-03-10T01:59:59.000-05:00");
@@ -77,6 +83,49 @@ for (const [label, keys] of VARIANTS) {
       // up nowhere else
       assert.equal(iso(dt.plus(m.Duration.fromObject({ years: 1 }))), "2025-03-10T01:59:59.000-04:00");
       assert.equal(iso(dt.plus(m.Duration.fromObject({ quarters: 1 }))), "2024-06-10T01:59:59.000-04:00");
+    });
+
+    // PATCH-ONLY: the hoisted unit tables are null-prototype, which is a
+    // deliberate divergence from stock. Stock's per-call literals leaked
+    // Object.prototype values for unit names like "__proto__" — endOf quietly
+    // acted like startOf and as() threw a TypeError out of the conversion
+    // matrix. Patched, every non-unit gets the same InvalidUnitError. The two
+    // tables have different call paths: plus/minus/startOf/endOf/as/shiftTo
+    // all normalize through Duration's, while set/fromObject and the toISO
+    // precision argument read DateTime's, so both groups are probed.
+    test("prototype-key unit names are rejected like any other non-unit", async () => {
+      const { m, dt } = await load();
+      const d = m.Duration.fromObject({ hours: 3 });
+
+      for (const unit of ["__proto__", "constructor"]) {
+        // Duration's table
+        assert.throws(() => dt.plus({ [unit]: 1 } as never), /Invalid unit/, `plus ${unit}`);
+        assert.throws(() => dt.minus({ [unit]: 1 } as never), /Invalid unit/, `minus ${unit}`);
+        assert.throws(() => dt.startOf(unit as never), /Invalid unit/, `startOf ${unit}`);
+        assert.throws(() => dt.endOf(unit as never), /Invalid unit/, `endOf ${unit}`);
+        assert.throws(() => d.as(unit as never), /Invalid unit/, `as ${unit}`);
+        assert.throws(() => d.shiftTo(unit as never), /Invalid unit/, `shiftTo ${unit}`);
+
+        // DateTime's table
+        assert.throws(() => dt.set({ [unit]: 1 } as never), /Invalid unit/, `set ${unit}`);
+        assert.throws(
+          () => m.DateTime.fromObject({ [unit]: 1 } as never),
+          /Invalid unit/,
+          `fromObject ${unit}`
+        );
+      }
+
+      // the rest of Object.prototype's keys always threw this, and still do
+      for (const unit of ["toString", "valueOf", "hasOwnProperty"]) {
+        assert.throws(() => dt.startOf(unit as never), /Invalid unit/, `startOf ${unit}`);
+        assert.throws(() => dt.set({ [unit]: 1 } as never), /Invalid unit/, `set ${unit}`);
+        assert.throws(() => d.as(unit as never), /Invalid unit/, `as ${unit}`);
+      }
+
+      // a real unit still answers, after all of that
+      assert.equal(dt.startOf("day").toISO(), "2024-03-10T00:00:00.000-05:00");
+      assert.equal(dt.set({ hour: 6 }).toISO(), "2024-03-10T06:59:59.000-04:00");
+      assert.equal(d.as("minutes"), 180);
     });
 
     // minus negates all nine fields by hand now, so each one needs to be seen
@@ -170,9 +219,11 @@ for (const [label, keys] of VARIANTS) {
 
       assert.equal(dt.plus({ days: 1.5 }).toISO(), "2024-03-11T13:59:59.000-04:00");
       assert.equal(dt.plus({ hours: 1.5 }).toISO(), "2024-03-10T04:29:59.000-04:00");
-      // luxon answers this by adding nothing, which the patch preserves rather
-      // than corrects — the sum overflows, so the old path has to keep running
-      assert.equal(dt.plus({ seconds: 1e308 }).toISO(), "2024-03-10T01:59:59.000-05:00");
+      // stock answered this by adding nothing — the shiftTo detour overflowed
+      // to NaN and the `|| 0` getter dropped the whole addition. The patch
+      // deliberately corrects that to an invalid DateTime: nonsense in, an
+      // error you can see out.
+      assert.equal(dt.plus({ seconds: 1e308 }).isValid, false);
       assert.equal(m.DateTime.fromMillis(0).plus({ milliseconds: 9e15 }).toISO(), null);
 
       // whole time units move the timestamp by exactly their own size, which is
@@ -269,7 +320,12 @@ for (const [label, keys] of VARIANTS) {
       assert.equal(holeOf(hole.plus({ hours: 1 })), false);
     });
 
-    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/math.test.js — "DateTime relative calendar wording preserves lastable and non-lastable units"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#toRelative supports short-style year wording"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#toRelativeCalendar supports an explicit day unit"
+    // The seconds-unit toRelativeCalendar assertions below are PATCH-ONLY:
+    // `unit: "seconds"` is undocumented for toRelativeCalendar (removed from
+    // the Jest additions for that reason), but it is the one reachable door
+    // into the hoisted lastable list, so this patch must preserve it.
     test("the hoisted relative-time tables", async () => {
       const { dt } = await load();
       const rel = (d: unknown, opts: Record<string, unknown>) =>

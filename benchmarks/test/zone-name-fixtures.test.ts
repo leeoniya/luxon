@@ -11,11 +11,13 @@
 // is indistinguishable from slicing to the name. It is not defensive code: zh-CN
 // renders the name FIRST and fa-IR wraps it in parentheses. Both are below.
 //
-// The three rejection paths are defensive. Asking ICU for every locale it has,
-// across six styles and nine zones, produced no layout where format() differs
-// from its parts joined and none that moves between A's probes. So those are
-// reached here by handing the scanner a formatter that does, which also pins
-// down something no sweep can: that each of the three probes is load-bearing.
+// The rejection paths are defensive. Asking ICU for every locale it has,
+// across six styles and nine zones, produced no layout that moves between A's
+// probes, so those are reached here by handing the scanner a formatter that
+// does — which also pins down something no sweep can: that each of the three
+// probes is load-bearing. The format()-vs-parts agreement check stays untested
+// on purpose: no conformant engine can make the two differ, and the
+// fallback-forcing mock in zone-info-fallback-fixtures already exercises it.
 //
 // Expected names are recomputed with A's scanner replaced, never recorded.
 //
@@ -187,46 +189,6 @@ for (const [label, keys] of VARIANTS) {
         );
       });
     }
-
-    // NOT from the sweep either, and unreachable through ICU: the scanner takes
-    // the position from formatToParts and then reads from format(), so it has to
-    // check that the two agree before trusting the first.
-    // PATCH-ONLY: forces a scanner format/parts disagreement that stock Luxon does not have.
-    test("a format() that is not its parts joined is refused", async () => {
-      const m = await loadLuxon(keys);
-      const zone = "America/New_York";
-      const locale = "en-US";
-      const Real = Intl.DateTimeFormat;
-
-      m.Settings.resetCaches();
-
-      try {
-        (Intl as { DateTimeFormat: unknown }).DateTimeFormat = function (...args: unknown[]) {
-          const dtf = new (Real as unknown as new (...a: unknown[]) => Intl.DateTimeFormat)(...args);
-
-          if (args[0] !== locale) return dtf;
-
-          const realFormat = dtf.format.bind(dtf);
-          Object.defineProperty(dtf, "format", {
-            configurable: true,
-            value: (ts: number) => `[${realFormat(ts)}`,
-          });
-
-          return dtf;
-        };
-
-        for (const at of INSTANTS) {
-          assert.equal(
-            m.IANAZone.create(zone).offsetName(at, { format: "short", locale } as never),
-            stockName(at, "short", locale, zone),
-            `format() disagrees with its parts, read at ${at}`
-          );
-        }
-      } finally {
-        (Intl as { DateTimeFormat: unknown }).DateTimeFormat = Real;
-        m.Settings.resetCaches();
-      }
-    });
 
     // The disagreement check makes a badly measured suffix safe: a scanner that
     // stored the wrong one refuses the next probe and the name comes back off

@@ -53,6 +53,9 @@ index db93f98..8bf60bb 100644
 +// those three. JSON.stringify for the composite key is the shape luxon's own
 +// DTF, number, relative and resolved-options caches already use.
 +const parserCache = new Map();
++// the key embeds a caller-supplied format string, so cap the cache the way the
++// locale and format caches are capped: stop taking entries once it is full
++const PARSER_CACHE_MAX = 1000;
 +
 +export function resetTokenParserCache() {
 +  parserCache.clear();
@@ -63,7 +66,9 @@ index db93f98..8bf60bb 100644
 +  let parser = parserCache.get(key);
 +
 +  if (parser === undefined) {
-+    parserCache.set(key, (parser = new TokenParser(locale, format)));
++    parser = new TokenParser(locale, format);
++
++    if (parserCache.size < PARSER_CACHE_MAX) parserCache.set(key, parser);
 +  }
 +
 +  return parser;

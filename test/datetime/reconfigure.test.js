@@ -98,7 +98,11 @@ test("DateTime#toFormat options do not change later default formatting", () => {
   expect(original.toFormat("MMMM")).toBe("March");
 });
 
-test("a DateTime created before a default locale change observes the new setting", () => {
+// Note: the Settings.defaultLocale JSDoc says changes do "not affect existing instances",
+// but instances created without an explicit locale re-resolve the default at format time,
+// so in practice they do observe later changes. This test pins that long-standing behavior;
+// if it is ever aligned with the docs instead, update or remove this test alongside.
+test("a DateTime created without an explicit locale observes later default locale changes", () => {
   const previousLocale = Settings.defaultLocale;
   Settings.defaultLocale = null;
   Settings.resetCaches();

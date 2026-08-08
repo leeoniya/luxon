@@ -75,9 +75,8 @@ const INSTANTS = [
 ];
 
 // What adjustTime's fast path has to get right, grouped by the guard each one
-// exercises. Dropping the isInteger guard breaks the fractional block; dropping
-// the finite guard breaks the last one, where luxon's existing answer is to add
-// nothing rather than to go invalid.
+// exercises. Dropping an isInteger guard breaks the fractional block, whose
+// NaN sentinel is what routes those onto the old path.
 const AMOUNTS: unknown[] = [
   // plain numbers and whole amounts, which is what takes the fast path
   0, 1, -1, 86_400_000,
@@ -101,16 +100,13 @@ const AMOUNTS: unknown[] = [
   { seconds: -248.3538081770198 },
   { milliseconds: 334.2807337622956 },
 
-  // integers large enough that summation order would show
+  // integers large enough that summation order would show. Nothing past the
+  // finite range: stock answered an overflowing addition by silently adding
+  // nothing (shiftTo's remainder went NaN and the `|| 0` getter dropped it),
+  // and the patch deliberately produces an invalid DateTime instead — the
+  // fixtures pin that divergence.
   { days: Number.MAX_SAFE_INTEGER }, { milliseconds: Number.MAX_SAFE_INTEGER },
   { hours: 1e15, milliseconds: 1 },
-
-  // and past the end of it, where the old path's remainder goes NaN and the
-  // milliseconds getter's `|| 0` turns that into zero
-  { hours: Infinity }, { days: -Infinity }, { seconds: 1e308 },
-  { milliseconds: 1e308, seconds: 1e308 }, { hours: 1e305 },
-  { hours: 1e305, milliseconds: -1e308 }, { seconds: 1e308, milliseconds: -1e308 },
-  { seconds: 1e308, milliseconds: -1e308 },
 ];
 
 /** an invalid DateTime values as NaN, so validity has to agree before the instant can */
@@ -454,8 +450,7 @@ describe("arithDirect is invisible", () => {
           { days: 0 }, { months: 0 }, { weeks: 0 }, { quarters: 0, hours: 1 }, { years: 0, minutes: 5 },
           // and these must not take it
           { days: 1 }, { months: 1 }, { weeks: -2 }, { years: 1, hours: 2 },
-          { hours: Number.MAX_SAFE_INTEGER }, { hours: 1e305 }, { seconds: 1e308 },
-          { hours: 1e305, milliseconds: -1e308 },
+          { hours: Number.MAX_SAFE_INTEGER },
         ];
 
         let checked = 0;
@@ -670,7 +665,7 @@ describe("arithDirect is invisible", () => {
           { years: 1 }, { quarters: 1 }, { months: 1 }, { weeks: 1 }, { days: 1 },
           { hours: 1 }, { minutes: 1 }, { seconds: 1 }, { milliseconds: 1 },
           { hours: 2, minutes: 30 }, { milliseconds: 0 }, {},
-          { days: 1.5 }, { seconds: 1e308 }, { years: 1, months: 2 },
+          { days: 1.5 }, { years: 1, months: 2 },
           { years: 1, quarters: 1, months: 1, weeks: 1, days: 1, hours: 1, minutes: 1, seconds: 1, milliseconds: 1 },
           null, // stands for Duration.invalid
         ];

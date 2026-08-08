@@ -87,14 +87,22 @@ test("Interval#count() returns NaN for invalid intervals", () => {
   expect(i.count("years")).toBeFalsy();
 });
 
-test("Interval#count preserves calendar boundaries across a DST transition", () => {
+test("Interval#count preserves calendar boundaries across offset transitions", () => {
   const spring = Interval.fromDateTimes(
     DateTime.fromISO("2024-03-09T23:30", { zone: "America/New_York" }),
     DateTime.fromISO("2024-03-11T01:30", { zone: "America/New_York" })
   );
+  // Samoa skipped Dec 30, 2011 when it crossed the date line. count("days")
+  // counts nominal civil-day labels touched (Dec 29 through Jan 2 inclusive),
+  // so the skipped label still counts: 5.
+  const dateline = Interval.fromDateTimes(
+    DateTime.fromISO("2011-12-29T12:00", { zone: "Pacific/Apia" }),
+    DateTime.fromISO("2012-01-02T08:00", { zone: "Pacific/Apia" })
+  );
 
   expect(spring.count("days")).toBe(3);
   expect(spring.count("hours")).toBe(26);
+  expect(dateline.count("days")).toBe(5);
 });
 
 //------

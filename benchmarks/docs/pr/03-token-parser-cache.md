@@ -28,3 +28,7 @@ joined string would not be — a format string may contain any character.
 Cleared from `Settings.resetCaches()`, beside the `resetDigitRegexCache()` call
 already there. The cache lives in `impl/` like the digit-regex cache and may hold
 locale-derived text.
+
+**Bounded.** The key embeds a caller-supplied format string, so the cache stops
+taking entries at 1000, the same cap the locale and format caches use. A parser
+past the cap is rebuilt per call and answers identically.
