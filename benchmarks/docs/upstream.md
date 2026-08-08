@@ -102,10 +102,14 @@ patches.
 
 The first baseline is moment-**timezone**, not moment: a named zone needs its
 packed offset table, and only its `z` token renders an abbreviation. moment core
-is underneath it doing the formatting, so both versions are reported. An
-optional date-fns row with its official `@date-fns/tz` integration uses
-`TZDate`, date-fns tokens, and explicit locale objects; uncommenting its line in
-`upstream.ts`'s `optionalPaths` places it before stock luxon.
+is underneath it doing the formatting, so the next row reports moment by itself.
+Because core has no IANA database, the process-local zone is pinned to the same
+`America/New_York` workload and the row uses moment's idiomatic local mode.
+Abbreviation/name cells and `setZone` remain `--`: filling those would quietly
+put moment-timezone back into the core row. An optional date-fns row with its
+official `@date-fns/tz` integration uses `TZDate`, date-fns tokens, and explicit
+locale objects; uncommenting its line in `upstream.ts`'s `optionalPaths` places
+it before stock luxon.
 
 ### The moment row gets several moments
 

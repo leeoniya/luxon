@@ -77,6 +77,8 @@ import {
   type DateFnsApi,
 } from "./lib/api-cases.ts";
 import {
+  momentCoreFor,
+  momentCoreRole,
   momentFor,
   momentRole,
   parseCases,
@@ -151,6 +153,11 @@ const PASS_BUDGET_MS = 400;
 const BAKE_YEAR = new Date(yearStart).getUTCFullYear();
 const BASE_TS = Date.UTC(BAKE_YEAR, 0, 1);
 const ZONE = "America/New_York";
+
+// Moment core has no named-zone database. Its idiomatic equivalent is local
+// mode, so pin this benchmark process to the same zone every explicit Luxon and
+// moment-timezone row uses.
+process.env["TZ"] = ZONE;
 
 /** where the prose went; every table points at it rather than restating it */
 const DOCS = "benchmarks/docs";
@@ -308,7 +315,7 @@ interface Path {
   /** patches applied to the luxon instance, for the report */
   patches: readonly PatchKey[];
   /** whose bundle the bytes column reports */
-  ships: "luxon" | "moment-timezone" | "date-fns";
+  ships: "luxon" | "moment" | "moment-timezone" | "date-fns";
   /** false when the zone still comes from Intl */
   easyZone: boolean;
   /**
@@ -318,6 +325,8 @@ interface Path {
    */
   spec: (fmt: FormatKey) => Promise<BuildSpec>;
   make: (fmt: FormatKey) => Promise<(ts: number) => string>;
+  /** cells moment core cannot answer without moment-timezone's zone plugin */
+  unsupported?: ReadonlySet<LadderKey>;
 }
 
 function luxonPath(id: string, patches: readonly PatchKey[], easyZone: boolean): Path {
@@ -357,6 +366,14 @@ const EASY_ZONE_MODULE = new URL("lib/easy-zone.ts", import.meta.url).pathname;
  * shakes out anyway.
  */
 async function shippedEntry(path: Path): Promise<URL> {
+  if (path.ships === "moment") {
+    return writeEntry(
+      "moment.ts",
+      `import moment from 'moment';\n` +
+        `export const format = (ts: number, pattern: string) => moment(ts).format(pattern);\n`
+    );
+  }
+
   if (path.ships === "moment-timezone") {
     // what the baseline row costs to ship is moment-timezone and its packed
     // tzdata, mirroring the call ./lib/build.ts makes for a named zone
@@ -412,6 +429,17 @@ const momentSpec = (fmt: FormatKey): Promise<BuildSpec> =>
     pattern: patternFor("moment", fmt),
   });
 
+const momentCoreSpec = (fmt: FormatKey): Promise<BuildSpec> =>
+  Promise.resolve({
+    library: "moment",
+    luxonEntry: null,
+    easyZone: false,
+    zone: ZONE,
+    locale: localeFor(fmt),
+    formatKey: fmt,
+    pattern: patternFor("moment", fmt),
+  });
+
 const dateFnsSpec = (fmt: FormatKey): Promise<BuildSpec> =>
   Promise.resolve({
     library: "date-fns",
@@ -455,6 +483,17 @@ const paths: Path[] = [
     spec: momentSpec,
     make: (fmt) => momentSpec(fmt).then(formatterFor),
   },
+  {
+    id: "moment-core",
+    patches: [],
+    ships: "moment",
+    easyZone: false,
+    spec: momentCoreSpec,
+    make: (fmt) => momentCoreSpec(fmt).then(formatterFor),
+    // Local-mode Moment can use the pinned zone's offset, but moment core's
+    // `z`/zoneAbbr is empty and changing to a second IANA zone needs the plugin.
+    unsupported: new Set(["abbr", "setZone", "offsetNameShort", "toFormat abbr"]),
+  },
   ...optionalPaths,
   luxonPath("luxon (stock)", [], false),
   ...LADDER.map((rung) => luxonPath(rung.id, rung.keys, false)),
@@ -480,16 +519,12 @@ const pathById = (id: string): Path => {
 
 let sink = 0;
 
-// The baseline is moment-timezone, not moment: a named zone needs its packed
-// offset table, and only its `z` token renders an abbreviation. moment core is
-// underneath it doing the formatting, so both versions are worth printing —
-// reproducing these numbers means installing the pair.
 const dateFnsVersion = optionalPaths.includes(dateFnsPath)
   ? ` vs date-fns ${await pkgVersion("date-fns")} + @date-fns/tz ${await pkgVersion("@date-fns/tz")}`
   : "";
 console.log(
   `luxon ${await pkgVersion()} (this fork's src/) vs moment-timezone ${await pkgVersion("moment-timezone")} ` +
-    `(on moment ${await pkgVersion("moment")})${dateFnsVersion}`
+    `and moment ${await pkgVersion("moment")}${dateFnsVersion}`
 );
 console.log(`runtime: ${runtime()}, easy-tz tables: ${tablesHost}, host ICU ${process.versions["icu"] ?? "?"}`);
 // Each timed table states its own value count and pass count underneath itself,
@@ -629,7 +664,12 @@ const named = (id: string, label = id) => ({ id, label });
 // The ladder keeps only its letters, since the group it sits in is all luxon
 // builds; the group below it mixes luxon and easy-tz, so those keep the prefix.
 const groups = [
-  [named("moment", "moment-timezone"), ...optionalPaths.map(({ id }) => named(id)), named("luxon (stock)", "luxon")],
+  [
+    named("moment", "moment-timezone"),
+    named("moment-core", "moment"),
+    ...optionalPaths.map(({ id }) => named(id)),
+    named("luxon (stock)", "luxon"),
+  ],
   LADDER.map((r) => named(r.id, r.id.replace("luxon ", ""))),
   // What binding easy-tz's offset() and offsetName() to luxon is worth, before
   // and after the patches: the same two zone methods either way, so the pair
@@ -782,6 +822,8 @@ const apiCases: ApiCase[] = (["formatting", "parsing", "other"] as ApiBand[]).fl
  * build from a timestamp collapse to one instance and so still share its warmth.
  */
 const momentInstanceFor = (kase: ApiCase) => momentFor(momentRole(kase.momentShape ?? defaultMomentShape));
+const momentCoreInstanceFor = (kase: ApiCase) =>
+  momentCoreFor(momentCoreRole(kase.momentShape ?? defaultMomentShape));
 
 let dateFnsApiPromise: Promise<DateFnsApi> | undefined;
 
@@ -865,12 +907,16 @@ if (tables.has("ladder")) {
     const perKey = new Map<LadderKey, Work>();
 
     for (const fmt of ladderFormats) {
+      if (path.unsupported?.has(fmt)) continue;
+
       const format = await path.make(fmt);
 
       perKey.set(fmt, (ts: number) => format(ts).length);
     }
 
     for (const kase of parseCases) {
+      if (path.unsupported?.has(kase.key)) continue;
+
       const pool = pools.get(kase.key)!;
       // the spec carries the formatting pattern too, which parsing has no use for
       const parse = await parserFor(await path.spec!(ladderFormats[0]!), kase, pool?.[0]);
@@ -904,12 +950,16 @@ if (tables.has("ladder")) {
     // in a note under each table; elsewhere the row is the luxon above it
     // measured again, on its own module instance.
     for (const kase of apiCases) {
+      if (path.unsupported?.has(kase.key)) continue;
+
       const work =
         path.ships === "moment-timezone"
           ? kase.moment?.(momentInstanceFor(kase))
-          : path.ships === "date-fns"
-            ? kase.dateFns?.(await loadDateFnsApi())
-            : kase.luxon(await luxonFor(path));
+          : path.ships === "moment"
+            ? kase.moment?.(momentCoreInstanceFor(kase))
+            : path.ships === "date-fns"
+              ? kase.dateFns?.(await loadDateFnsApi())
+              : kase.luxon(await luxonFor(path));
 
       if (work !== undefined) perKey.set(kase.key, work);
     }
@@ -1571,6 +1621,11 @@ if (tables.has("ladder") && withVerify) {
         continue;
       }
 
+      if (path.unsupported?.has(fmt)) {
+        rows.push([`${fmt} / ${path.id}`, "--", "no core equivalent"]);
+        continue;
+      }
+
       const format = await path.make(fmt);
       let diff = 0;
 
@@ -1581,7 +1636,11 @@ if (tables.has("ladder") && withVerify) {
       }
 
       const expected =
-        path.ships === "date-fns" ? "library semantics" : path.easyZone && fmt === "abbr" ? "by design" : "must be 0";
+        path.ships === "date-fns" || path.ships === "moment"
+          ? "library semantics"
+          : path.easyZone && fmt === "abbr"
+            ? "by design"
+            : "must be 0";
 
       if (expected === "must be 0") {
         patchedMismatches += diff;
@@ -1601,7 +1660,7 @@ if (tables.has("ladder") && withVerify) {
   console.log(
     patchedMismatches === 0
       ? `\nall ${UPSTREAM.length} patches are output-identical to stock luxon; the only differences are the\n` +
-          `intended easy-tz abbreviations and independently reported date-fns semantics.`
+          `intended easy-tz abbreviations and independently reported baseline-library semantics.`
       : `\nFAIL: ${patchedMismatches} unexpected mismatch(es) — a patch changed behavior.`
   );
 

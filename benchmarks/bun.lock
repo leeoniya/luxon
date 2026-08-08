@@ -5,6 +5,7 @@
     "": {
       "name": "luxon-benchmarks",
       "dependencies": {
+        "moment": "2.30.1",
         "moment-timezone": "0.6.3",
         "tinybench": "6.1.2",
       },
