@@ -169,7 +169,7 @@ index b5235ba..99f0ab3 100644
 @@ -283,7 +304,7 @@ export default class IANAZone extends Zone {
      if (scan !== null) {
        const t = Math.trunc(ts);
-       if (!(Math.abs(t) <= 8.64e15)) return NaN;
+       if (Number.isNaN(t) || Math.abs(t) > 8.64e15) return NaN;
 -      return scan(t);
 +      return intervalLookup(offsetInterval(this.name), callScan, scan, t);
      }

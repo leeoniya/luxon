@@ -109,7 +109,7 @@ index dea03c9..b5235ba 100644
 +
 +    if (scan !== null) {
 +      const t = Math.trunc(ts);
-+      if (!(Math.abs(t) <= 8.64e15)) return NaN;
++      if (Number.isNaN(t) || Math.abs(t) > 8.64e15) return NaN;
 +      return scan(t);
 +    }
 +

@@ -70,7 +70,7 @@ const set: MutationSet = {
     // ---- range and sub-second handling ----
     {
       name: "answers for a timestamp outside the Date range",
-      find: "+      if (!(Math.abs(t) <= 8.64e15)) return NaN;",
+      find: "+      if (Number.isNaN(t) || Math.abs(t) > 8.64e15) return NaN;",
       replace: "",
     },
     {
