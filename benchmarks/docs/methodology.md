@@ -115,6 +115,15 @@ count.
 Inputs come from a pre-rendered pool, cycled, since neither library caches by
 input string and a single repeated input would measure a branch predictor.
 
+Setup that a repeated caller would naturally retain is built before timing:
+resolved zones and date-fns contexts, locales, parser references, fixed options,
+unit lists, and method receivers. The broad formatting columns deliberately
+remain whole operations from a timestamp — `fromMillis(...).toFormat(...)`,
+`moment(...).format(...)`, or date-fns `format(timestamp, ..., { in })` — while
+the adjacent `toFormat` columns use prebuilt receiver pools to isolate formatting
+from construction. Keeping both avoids charging method-only columns for caller
+setup without hiding construction from the end-to-end columns.
+
 ## What a "patched build" is
 
 Nothing here modifies `src/`. A build is a copy of `src/` with some subset of the

@@ -113,7 +113,7 @@ export const cooldownMs: number = (() => {
   const at = process.argv.indexOf("--cooldown");
 
   if (at < 0) {
-    return withVerify ? 0 : 15_000;
+    return withVerify ? 0 : 0;
   }
 
   const given = Number(process.argv[at + 1]);

@@ -94,6 +94,9 @@ describe("date-fns API columns", () => {
       "Duration toFormat text",
       "Interval splitBy",
       "Interval toDuration pooled",
+      "Info.months en",
+      "Info.months fr",
+      "Info.weekdays fr",
     ]);
   });
 });

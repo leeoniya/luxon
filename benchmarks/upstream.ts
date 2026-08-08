@@ -380,8 +380,9 @@ async function shippedEntry(path: Path): Promise<URL> {
     return writeEntry(
       "moment-timezone.ts",
       `import moment from 'moment-timezone';\n` +
-        `export const format = (ts: number, zone: string, pattern: string) =>\n` +
-        `  moment.tz(ts, zone).format(pattern);\n`
+        `moment.tz.setDefault(${JSON.stringify(ZONE)});\n` +
+        `export const format = (ts: number, pattern: string) =>\n` +
+        `  moment(ts).format(pattern);\n`
     );
   }
 
@@ -389,13 +390,11 @@ async function shippedEntry(path: Path): Promise<URL> {
     return writeEntry(
       "date-fns.ts",
       `import { format } from 'date-fns';\n` +
-        `import { TZDate, tzName } from '@date-fns/tz';\n` +
+        `import { tz } from '@date-fns/tz';\n` +
         `import { enUS } from 'date-fns/locale/en-US';\n` +
         `import { fr } from 'date-fns/locale/fr';\n` +
-        `export const formatDate = (ts: number, zone: string, pattern: string, locale: string, abbr: boolean) => {\n` +
-        `  const date = new TZDate(ts, zone);\n` +
-        `  const rendered = format(date, pattern, { locale: locale === 'fr' ? fr : enUS });\n` +
-        `  return abbr ? rendered + ' ' + tzName(zone, date, 'short') : rendered;\n` +
+        `export const formatDate = (ts: number, zone: string, pattern: string, locale: string) => {\n` +
+        `  return format(ts, pattern, { in: tz(zone), locale: locale === 'fr' ? fr : enUS });\n` +
         `};\n`
     );
   }
@@ -821,7 +820,11 @@ const apiCases: ApiCase[] = (["formatting", "parsing", "other"] as ApiBand[]).fl
  * cost the formatting cells 13-19% before this existed. The cases that only
  * build from a timestamp collapse to one instance and so still share its warmth.
  */
-const momentInstanceFor = (kase: ApiCase) => momentFor(momentRole(kase.momentShape ?? defaultMomentShape));
+const momentInstanceFor = (kase: ApiCase) => {
+  const moment = momentFor(momentRole(kase.momentShape ?? defaultMomentShape));
+  moment.tz.setDefault(ZONE);
+  return moment;
+};
 const momentCoreInstanceFor = (kase: ApiCase) =>
   momentCoreFor(momentCoreRole(kase.momentShape ?? defaultMomentShape));
 

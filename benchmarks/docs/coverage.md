@@ -51,7 +51,8 @@ has no cell, stock luxon remains the shading anchor.
 A `--` is a build with no semantically honest equivalent to run. moment ships no
 `Interval`, compiled format-parser API, `Duration#shiftTo`, or
 `Duration#toFormat`; date-fns likewise leaves cells blank where matching them
-would benchmark a custom reimplementation rather than its public API. Those
+would benchmark a custom reimplementation rather than its public API, including
+Luxon’s locale-listing helpers. Those
 columns are shaded against stock luxon rather than against something a baseline
 did not do.
 

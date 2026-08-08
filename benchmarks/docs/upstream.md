@@ -82,7 +82,7 @@ makes that free.
 A `--` is a build with no semantically honest equivalent to run. moment ships
 no `Interval` or `Duration#shiftTo`; date-fns has intervals and duration values,
 but no reusable compiled parser, ambiguous-offset enumeration, or Luxon-style
-Duration arithmetic and token formatting.
+Duration arithmetic, token formatting, or locale-listing API.
 
 The easy-tz rows carry every column, including the ones easy-tz cannot affect, so
 that what stock luxon with easy-tz bound to it costs can be read off one line
@@ -107,9 +107,10 @@ Because core has no IANA database, the process-local zone is pinned to the same
 `America/New_York` workload and the row uses moment's idiomatic local mode.
 Abbreviation/name cells and `setZone` remain `--`: filling those would quietly
 put moment-timezone back into the core row. An optional date-fns row with its
-official `@date-fns/tz` integration uses `TZDate`, date-fns tokens, and explicit
-locale objects; uncommenting its line in `upstream.ts`'s `optionalPaths` places
-it before stock luxon.
+official `@date-fns/tz` integration hoists `tz(zone)` as the date-fns v4 context,
+formats timestamps directly through that context, and uses explicit locale
+objects. Its API-method cells use prebuilt `TZDate` receivers; uncommenting its
+line in `upstream.ts`'s `optionalPaths` places it before stock luxon.
 
 ### The moment row gets several moments
 
@@ -138,6 +139,12 @@ Moment the cell builds: cells that build the same shape share an instance and it
 warmth, cells that build different shapes cannot see each other. The key is read
 off a real Moment rather than declared per case, so a case added later sorts
 itself.
+
+Each isolated moment-timezone instance also calls `moment.tz.setDefault(zone)`
+once during setup. The timed path can then use `moment(ts)`, avoiding a repeated
+zone-name lookup just as Luxon receives a pre-resolved `IANAZone` and date-fns
+receives a prebuilt `tz(zone)` context. Locales, parser formats and fixed options
+are likewise selected once per cell, not once per value.
 
 Luxon needs none of this — a `DateTime` has the same shape however it was built,
 which is why every luxon row was unmoved by the merge — and every luxon build

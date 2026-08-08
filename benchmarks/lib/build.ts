@@ -79,10 +79,9 @@ export function momentFor(role: string): MomentTz {
  * A fresh moment-core instance using the process-local zone.
  *
  * The upstream benchmark pins that local zone to its named-zone workload before
- * any row is built. The small `tz` facade lets the existing API-case factories
- * share their setup with moment-timezone; it only removes the final zone
- * argument, and callers that actually change zones are omitted from the core
- * row.
+ * any row is built. Typed as the larger moment-timezone surface so the shared
+ * API-case factories can accept either build; the only case that calls the
+ * plugin-only instance method is omitted from the core row.
  */
 export function momentCoreFor(role: string): MomentTz {
   let m = momentCoreByRole.get(role);
@@ -90,16 +89,7 @@ export function momentCoreFor(role: string): MomentTz {
   if (m === undefined) {
     evictMomentModules();
     const core = require("moment") as MomentCore;
-    const local = (...args: unknown[]) => {
-      if (args.length === 1 && typeof args[0] === "string") return core();
-      return core(...(args.slice(0, -1) as Parameters<MomentCore>));
-    };
-
-    m = new Proxy(core, {
-      get(target, property, receiver) {
-        return property === "tz" ? local : Reflect.get(target, property, receiver);
-      },
-    }) as MomentTz;
+    m = core as unknown as MomentTz;
     momentCoreByRole.set(role, m);
   }
 
@@ -141,23 +131,19 @@ export interface BuildSpec {
 }
 
 export async function formatterFor(spec: BuildSpec): Promise<(ts: number) => string> {
-  const { library, zone, pattern, locale, formatKey } = spec;
+  const { library, zone, pattern, locale } = spec;
 
   if (library === "date-fns") {
-    const [{ format }, { TZDate, tzName }, { enUS }, { fr }] = await Promise.all([
+    const [{ format }, { tz }, { enUS }, { fr }] = await Promise.all([
       import("date-fns"),
       import("@date-fns/tz"),
       import("date-fns/locale/en-US"),
       import("date-fns/locale/fr"),
     ]);
     const dateLocale = /^fr\b/i.test(locale) ? fr : enUS;
+    const options = { in: tz(zone), locale: dateLocale };
 
-    return (ts) => {
-      const date = new TZDate(ts, zone);
-      const rendered = format(date, pattern, { locale: dateLocale });
-
-      return formatKey === "abbr" ? `${rendered} ${tzName(zone, date, "short")}` : rendered;
-    };
+    return (ts) => format(ts, pattern, options);
   }
 
   if (library === "moment" || library === "moment-timezone") {
@@ -175,9 +161,11 @@ export async function formatterFor(spec: BuildSpec): Promise<(ts: number) => str
     // existed.
     const localized = !/^en\b/i.test(locale);
     const role =
-      (library === "moment" ? momentCoreRole((m) => m.tz(0, zone)) : momentRole((m) => m.tz(0, zone))) +
+      (library === "moment" ? momentCoreRole((m) => m(0)) : momentRole((m) => m(0))) +
       (localized ? `|${locale}` : "");
     const moment = library === "moment" ? momentCoreFor(role) : momentFor(role);
+
+    if (library === "moment-timezone") moment.tz.setDefault(zone);
 
     if (localized) {
       // moment falls back to its default silently for a tag it does not ship,
@@ -185,16 +173,14 @@ export async function formatterFor(spec: BuildSpec): Promise<(ts: number) => str
       // the instance that will do the work rather than a shared probe: a lazily
       // loaded locale is defined on whichever instance the module cache holds at
       // the time, so an older one answers "en" for a locale it never received.
-      const resolved = moment().locale(locale).locale();
+      const resolved = moment.locale(locale);
 
-      if (resolved === moment.locale()) {
+      if (resolved !== locale) {
         throw new Error(`${library} has no locale data for "${locale}"; it would format in "${resolved}"`);
       }
     }
 
-    return localized
-      ? (ts) => moment.tz(ts, zone).locale(locale).format(pattern)
-      : (ts) => moment.tz(ts, zone).format(pattern);
+    return (ts) => moment(ts).format(pattern);
   }
 
   const { lux, opts } = await luxonBuild(spec);
@@ -321,16 +307,20 @@ export async function parserFor(
       import("date-fns/locale/en-US"),
     ]);
     const context = tz(spec.zone);
+    const options = { in: context };
 
     if (input === "millis") {
       return (ts) => new TZDate(ts, spec.zone).valueOf();
     }
 
     if (input === "iso-local" || input === "iso-offset") {
-      return (_ts, s) => parseISO(s, { in: context }).valueOf();
+      return (_ts, s) => parseISO(s, options).valueOf();
     }
 
-    return (_ts, s) => parse(s, kase.dateFns!, new TZDate(0, spec.zone), { in: context, locale: enUS }).valueOf();
+    const reference = new TZDate(0, spec.zone);
+    const parseOptions = { ...options, locale: enUS };
+
+    return (_ts, s) => parse(s, kase.dateFns!, reference, parseOptions).valueOf();
   }
 
   if (spec.library === "moment" || spec.library === "moment-timezone") {
@@ -339,22 +329,24 @@ export async function parserFor(
     const role =
       input === "millis"
         ? core
-          ? momentCoreRole((m) => m.tz(0, zone))
-          : momentRole((m) => m.tz(0, zone))
+          ? momentCoreRole((m) => m(0))
+          : momentRole((m) => m(0))
         : sample === undefined
           ? `parse:${kase.key}`
           : core
-            ? momentCoreRole((m) => m.tz(sample, kase.moment ?? m.ISO_8601, zone))
-            : momentRole((m) => m.tz(sample, kase.moment ?? m.ISO_8601, zone));
+            ? momentCoreRole((m) => m(sample, kase.moment ?? m.ISO_8601))
+            : momentRole((m) => m(sample, kase.moment ?? m.ISO_8601));
     const moment = core ? momentCoreFor(role) : momentFor(role);
 
+    if (!core) moment.tz.setDefault(zone);
+
     if (input === "millis") {
-      return (ts) => moment.tz(ts, zone).valueOf();
+      return (ts) => moment(ts).valueOf();
     }
 
     const fmt = kase.moment ?? moment.ISO_8601;
 
-    return (_ts, s) => moment.tz(s, fmt, zone).valueOf();
+    return (_ts, s) => moment(s, fmt).valueOf();
   }
 
   const { lux, opts } = await luxonBuild(spec);

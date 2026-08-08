@@ -116,7 +116,7 @@ const FORMATS: Record<FormatKey, { moment: string; luxon: string; dateFns: strin
   abbr: {
     moment: "YYYY-MM-DD HH:mm:ss z",
     luxon: "yyyy-MM-dd HH:mm:ss ZZZZ",
-    dateFns: "yyyy-MM-dd HH:mm:ss",
+    dateFns: "yyyy-MM-dd HH:mm:ss zzz",
   },
   text: {
     moment: "ddd, DD MMM YYYY HH:mm:ss ZZ",
