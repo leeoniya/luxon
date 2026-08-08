@@ -553,7 +553,7 @@ test("DateTime#toFormat() uses alternative-calendar values for numeric tokens", 
   expect(dt.toFormat("LL")).toBe("05");
 });
 
-test("DateTime#toFormat remains correct past the formatter cache ceiling", () => {
+test("DateTime#toFormat handles many distinct format strings", () => {
   const results = Array.from({ length: 1100 }, (_, index) =>
     dt.toFormat(`'literal ${index}:' yyyy`)
   );
@@ -816,7 +816,9 @@ test("DateTime#toFormat keeps interleaved French and German compiled names separ
 test("DateTime#toFormat distinguishes French year zero and year one eras", () => {
   const eras = [0, 1, 0, 1].map((year) => {
     const dateTime = DateTime.fromObject({ year, month: 1, day: 1 }, { zone: "UTC", locale: "fr" });
-    const expected = dateTime.toLocaleParts({ era: "short" }).find(({ type }) => type === "era").value;
+    const expected = dateTime
+      .toLocaleParts({ era: "short" })
+      .find(({ type }) => type === "era").value;
     expect(dateTime.toFormat("G")).toBe(expected);
     return expected;
   });

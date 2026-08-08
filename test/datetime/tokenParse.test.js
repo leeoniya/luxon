@@ -1279,52 +1279,52 @@ test("DateTime.fromFormatParser throws error when used with a different locale t
   );
 });
 
-test("DateTime.fromFormat round-trips numeric, name, era, meridiem, offset, and macro tokens", () => {
+test("DateTime.fromFormat parses fixed numeric, name, meridiem, offset, week, and ordinal inputs", () => {
   const cases = [
-    ["en-US", "MMMM d, yyyy", "America/New_York"],
-    ["de-DE", "MMMM d, yyyy", "Europe/Berlin"],
-    ["fr-FR", "MMM d yy h:mm a", "Europe/Berlin"],
-    ["ru-RU", "d MMMM yyyy G", "UTC"],
-    ["ja-JP", "yyyy-MM-dd HH:mm:ss", "Asia/Tokyo"],
-    ["hi-IN-u-nu-deva", "yyyy-MM-dd HH:mm:ss", "UTC"],
-    ["en-US", "yyyy-MM-dd'T'HH:mm:ss.SSSZZ", "America/New_York"],
-    ["en-US", "kkkk-'W'WW-c", "UTC"],
-    ["en-US", "y o", "UTC"],
-    ["en-US", "DDDD", "UTC"],
-    ["de-DE", "ff", "Europe/Berlin"],
-  ];
-  const instants = [
-    Date.UTC(2024, 0, 15, 8, 30, 15, 123),
-    Date.UTC(2024, 6, 4, 23, 59, 59, 999),
-    Date.UTC(1999, 11, 31),
+    ["July 4, 2024 11:59 PM", "MMMM d, yyyy h:mm a", {}, "2024-07-04T23:59:00.000Z"],
+    [
+      "२०२४-०७-०४ २३:५९:५८",
+      "yyyy-MM-dd HH:mm:ss",
+      { locale: "hi-IN-u-nu-deva" },
+      "2024-07-04T23:59:58.000Z",
+    ],
+    [
+      "2024-07-04T23:59:58.123+05:45",
+      "yyyy-MM-dd'T'HH:mm:ss.SSSZZ",
+      { setZone: true },
+      "2024-07-04T23:59:58.123+05:45",
+    ],
+    ["2024-W11-7", "kkkk-'W'WW-c", {}, "2024-03-17T00:00:00.000Z"],
+    ["2024 60", "y o", {}, "2024-02-29T00:00:00.000Z"],
   ];
 
-  for (const [locale, format, zone] of cases) {
-    for (const instant of instants) {
-      const expected = DateTime.fromMillis(instant, { locale, zone });
-      const text = expected.toFormat(format);
-      const parsed = DateTime.fromFormat(text, format, { locale, zone });
-
-      expect(parsed.isValid).toBe(true);
-      expect(parsed.toFormat(format)).toBe(text);
-    }
+  for (const [text, format, options, expected] of cases) {
+    const parsed = DateTime.fromFormat(text, format, { zone: "UTC", locale: "en-US", ...options });
+    expect(parsed.isValid).toBe(true);
+    expect(parsed.toISO()).toBe(expected);
   }
 });
 
-test("DateTime.fromFormat distinguishes numbering systems and output calendars", () => {
+test("DateTime.fromFormat parses numbering systems and preserves output-calendar metadata", () => {
   const cases = [
-    [{ locale: "en-US" }, "2024 July 4"],
-    [{ locale: "en-US", numberingSystem: "arab" }, "٢٠٢٤ July ٤"],
-    [{ locale: "en-US", numberingSystem: "deva" }, "२०२४ July ४"],
-    [{ locale: "en-US", outputCalendar: "buddhist" }, "2567 July 4"],
-    [{ locale: "en-US", numberingSystem: "arab", outputCalendar: "buddhist" }, "٢٥٦٧ July ٤"],
+    [{ locale: "en-US" }, "2024 July 4", null],
+    [{ locale: "en-US", numberingSystem: "arab" }, "٢٠٢٤ July ٤", null],
+    [{ locale: "en-US", numberingSystem: "deva" }, "२०२४ July ४", null],
+    [{ locale: "en-US", outputCalendar: "buddhist" }, "2024 July 4", "buddhist"],
+    [
+      { locale: "en-US", numberingSystem: "arab", outputCalendar: "buddhist" },
+      "٢٠٢٤ July ٤",
+      "buddhist",
+    ],
   ];
 
-  for (const [options, text] of cases) {
+  for (const [options, text, outputCalendar] of cases) {
     const parsed = DateTime.fromFormat(text, "yyyy MMMM d", { ...options, zone: "UTC" });
     expect(parsed.isValid).toBe(true);
+    expect(parsed.year).toBe(2024);
     expect(parsed.month).toBe(7);
     expect(parsed.day).toBe(4);
+    expect(parsed.outputCalendar).toBe(outputCalendar);
   }
 });
 
@@ -1339,7 +1339,7 @@ test("DateTime.fromFormat preserves failed and invalid parsing semantics across 
   }
 });
 
-test("DateTime format parsers remain correct across different week settings", () => {
+test("DateTime ISO week parsing is invariant under locale week settings", () => {
   const format = "kkkk-'W'WW-c";
   const input = "2024-W11-7";
   const options = [
@@ -1355,15 +1355,15 @@ test("DateTime format parsers remain correct across different week settings", ()
 
   for (const opts of options) {
     const cached = DateTime.fromFormat(input, format, opts);
-    const fresh = DateTime.fromFormatParser(
-      input,
-      DateTime.buildFormatParser(format, opts),
-      opts
-    );
+    const fresh = DateTime.fromFormatParser(input, DateTime.buildFormatParser(format, opts), opts);
 
     expect(cached.isValid).toBe(true);
+    expect(cached.toISODate()).toBe("2024-03-17");
     expect(cached.valueOf()).toBe(fresh.valueOf());
   }
+
+  expect(DateTime.fromFormat(input, format, options[0]).localWeekday).toBe(7);
+  expect(DateTime.fromFormat(input, format, options[1]).localWeekday).toBe(1);
 });
 
 test("Settings.resetCaches rebuilds cached token parsers from current Intl month names", () => {

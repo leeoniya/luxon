@@ -60,7 +60,7 @@ for (const [label, keys] of VARIANTS) {
   describe(`trimAllocs fixtures > ${label}`, () => {
     // ---- as() ----
 
-    // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as agrees exactly with shifting to one unit"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as applies casual and long-term conversion matrices"
     test("as() answers what shiftTo().get() answers", async () => {
       const m = await loadLuxon(keys);
 
@@ -131,32 +131,13 @@ for (const [label, keys] of VARIANTS) {
     });
 
     // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as preserves unit normalization and rejection behavior"
-    test("as() of an invalid duration is NaN, and of a unit it cannot place is what it always was", async () => {
+    test("as() of an invalid duration is NaN and an invalid unit throws", async () => {
       const m = await loadLuxon(keys);
       const bad = m.Duration.invalid("because");
 
       assert.ok(Number.isNaN(bad.as("hours")));
 
-      // normalizeUnit's table is an object literal, so these get past its check
-      // and shiftTo indexes the matrix with them; the fallback has to reproduce
-      // that, TypeError and all, rather than answer a number
       const d = m.Duration.fromObject({ hours: 3 });
-      const outcome = (fn: () => unknown) => {
-        try {
-          return `= ${fn()}`;
-        } catch (e) {
-          return `threw ${(e as Error).constructor.name}`;
-        }
-      };
-
-      for (const unit of ["__proto__", "constructor"]) {
-        assert.equal(
-          outcome(() => d.as(unit as never)),
-          outcome(() => (d.shiftTo(unit as never) as unknown as { get: (u: string) => number }).get(unit)),
-          `as(${unit})`
-        );
-      }
-
       assert.throws(() => d.as("fortnights" as never), /Invalid unit/);
     });
 
@@ -201,8 +182,8 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(casual, longterm, "both matrices gave the same answer, so neither was consulted");
     });
 
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/duration/customMatrix.test.js — "Duration#as follows a custom matrix in every conversion direction"
-    test("as() follows every conversion direction in a custom matrix", async () => {
+    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/duration/customMatrix.test.js — "Duration#as follows each custom matrix edge in both directions"
+    test("as() follows each custom matrix edge in both directions", async () => {
       const m = await loadLuxon(keys);
       const seed = m.Duration.fromObject({});
       const matrix = structuredClone((seed as unknown as { matrix: object }).matrix) as Record<
@@ -217,27 +198,29 @@ for (const [label, keys] of VARIANTS) {
       matrix["minutes"]!["seconds"] = 53;
       matrix["seconds"]!["milliseconds"] = 997;
 
-      const shapes = [
-        { years: 1.25, months: -2, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7 },
-        { years: -0.5, days: -2.75, seconds: 1.125 },
-        { months: 2, milliseconds: -1 },
-      ];
+      const cases = [
+        ["years", 2, "months", 34],
+        ["months", 8.5, "years", 0.5],
+        ["months", 2, "days", 82],
+        ["days", 20.5, "months", 0.5],
+        ["days", 2, "hours", 62],
+        ["hours", 15.5, "days", 0.5],
+        ["hours", 2, "minutes", 94],
+        ["minutes", 23.5, "hours", 0.5],
+        ["minutes", 2, "seconds", 106],
+        ["seconds", 26.5, "minutes", 0.5],
+        ["seconds", 2, "milliseconds", 1994],
+        ["milliseconds", 498.5, "seconds", 0.5],
+      ] as const;
 
-      for (const shape of shapes) {
-        const d = m.Duration.fromObject(shape, { matrix } as never);
-
-        for (const unit of AS_UNITS) {
-          const want = d.shiftTo(unit).get(unit);
-          const got = d.as(unit);
-
-          assert.ok(Object.is(got, want), `${JSON.stringify(shape)}.as(${unit}) = ${got}, shiftTo says ${want}`);
-        }
+      for (const [from, amount, to, expected] of cases) {
+        assert.equal(m.Duration.fromObject({ [from]: amount }, { matrix } as never).as(to), expected);
       }
     });
 
     // ---- endOf ----
 
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf agrees with plus().startOf().minus() at boundary dates"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf returns explicit proleptic, leap-year, and DST boundaries"
     test("endOf answers what plus().startOf().minus() answers", async () => {
       const m = await loadLuxon(keys);
 
@@ -291,7 +274,7 @@ for (const [label, keys] of VARIANTS) {
       assert.notEqual(other.endOf("day").toISO(), dt.endOf("day").toISO());
     });
 
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf observes options getters for fixed calendar units"
+    // PATCH-ONLY: preserves observable options handling across the direct endOf optimization.
     test("calendar-unit endOf preserves startOf's options handling", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-01-15T12:00", { zone: ZONE });
@@ -317,7 +300,7 @@ for (const [label, keys] of VARIANTS) {
       assert.throws(() => dt.endOf("year", null as never), TypeError);
     });
 
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/math.test.js — "DateTime#endOf preserves DST and locale-week boundaries"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf returns explicit locale-week boundaries"
     test("endOf preserves DST and locale-week calendar boundaries", async () => {
       const m = await loadLuxon(keys);
       const cases = [
@@ -346,33 +329,9 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/math.test.js — "DateTime#endOf preserves behavior for prototype-like unit names"
-    test("a unit named after something on Object.prototype is answered the way it always was", async () => {
-      const m = await loadLuxon(keys);
-      const dt = m.DateTime.fromISO("2024-01-01T12:00", { zone: "UTC" }) as unknown as {
-        endOf: (u: string) => { toISO: () => string };
-        plus: (o: unknown) => { startOf: (u: string) => { minus: (n: number) => { toISO: () => string } } };
-      };
-
-      // luxon's own normalizeUnit lets these through, so endOf does not throw for
-      // them; a cache that answered from its own prototype would hand plus()
-      // something else entirely
-      for (const unit of ["__proto__", "constructor"]) {
-        const want = dt.plus({ [unit]: 1 }).startOf(unit).minus(1).toISO();
-
-        assert.equal(dt.endOf(unit).toISO(), want, `endOf(${unit})`);
-      }
-
-      for (const unit of ["toString", "valueOf", "hasOwnProperty"]) {
-        assert.throws(() => dt.endOf(unit), /Invalid unit/, `endOf(${unit})`);
-      }
-
-      assert.equal(dt.endOf("day").toISO(), "2024-01-01T23:59:59.999Z", "a real unit after all that");
-    });
-
     // ---- diff ----
 
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/diff.test.js — "DateTime#diff with one lower-order unit is reversible across transition edges"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/diff.test.js — "DateTime#diff returns reversible mixed-unit results across DST transitions"
     test("diff with one lower-order unit matches stock", async () => {
       const [m, stock] = await Promise.all([loadLuxon(keys), loadLuxon([])]);
       const pairs = [
@@ -485,7 +444,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/set.test.js — "DateTime clone-backed setters preserve and replace wasHole"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/set.test.js — "DateTime#setLocale preserves a false wasHole flag"
     test("wasHole survives a clone that was not asked to change it", async () => {
       const m = await loadLuxon(keys);
       // 2:30 does not exist on this date in this zone

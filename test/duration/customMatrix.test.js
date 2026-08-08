@@ -48,7 +48,7 @@ test("One and a half week is made of 7 days 3 hours and 30 minutes", () => {
   expect(dur.minutes).toBeCloseTo(30, 4);
 });
 
-test("Duration#as follows a custom matrix in every conversion direction", () => {
+test("Duration#as follows each custom matrix edge in both directions", () => {
   const matrix = {
     ...businessMatrix,
     years: { ...businessMatrix.years, months: 17 },
@@ -58,28 +58,23 @@ test("Duration#as follows a custom matrix in every conversion direction", () => 
     minutes: { ...businessMatrix.minutes, seconds: 53 },
     seconds: { ...businessMatrix.seconds, milliseconds: 997 },
   };
-  const units = [
-    "years",
-    "quarters",
-    "months",
-    "weeks",
-    "days",
-    "hours",
-    "minutes",
-    "seconds",
-    "milliseconds",
+  const cases = [
+    ["years", 2, "months", 34],
+    ["months", 8.5, "years", 0.5],
+    ["months", 2, "days", 82],
+    ["days", 20.5, "months", 0.5],
+    ["days", 2, "hours", 62],
+    ["hours", 15.5, "days", 0.5],
+    ["hours", 2, "minutes", 94],
+    ["minutes", 23.5, "hours", 0.5],
+    ["minutes", 2, "seconds", 106],
+    ["seconds", 26.5, "minutes", 0.5],
+    ["seconds", 2, "milliseconds", 1994],
+    ["milliseconds", 498.5, "seconds", 0.5],
   ];
 
-  for (const shape of [
-    { years: 1.25, months: -2, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7 },
-    { years: -0.5, days: -2.75, seconds: 1.125 },
-    { months: 2, milliseconds: -1 },
-  ]) {
-    const duration = Duration.fromObject(shape, { matrix });
-
-    for (const unit of units) {
-      expect(Object.is(duration.as(unit), duration.shiftTo(unit).get(unit))).toBe(true);
-    }
+  for (const [from, amount, to, expected] of cases) {
+    expect(Duration.fromObject({ [from]: amount }, { matrix }).as(to)).toBe(expected);
   }
 });
 

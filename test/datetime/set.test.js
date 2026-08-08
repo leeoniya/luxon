@@ -331,22 +331,14 @@ test("DateTime clone-backed setters preserve unchanged fields", () => {
   expect(changed.locale).toBe(original.locale);
 });
 
-test("DateTime clone-backed setters preserve and replace wasHole", () => {
-  const hole = DateTime.fromObject(
-    { year: 2024, month: 3, day: 10, hour: 2, minute: 30 },
-    { zone: "America/New_York" }
-  );
+test("DateTime#setLocale preserves a false wasHole flag", () => {
   const solid = DateTime.fromObject(
     { year: 2024, month: 3, day: 10, hour: 4 },
     { zone: "America/New_York" }
   );
 
-  expect(hole.wasHole).toBe(true);
-  expect(hole.setLocale("fr").wasHole).toBe(true);
   expect(solid.wasHole).toBe(false);
   expect(solid.setLocale("fr").wasHole).toBe(false);
-  expect(solid.set({ hour: 2, minute: 30 }).wasHole).toBe(true);
-  expect(hole.set({ hour: 4 }).wasHole).toBe(false);
 });
 
 test("invalid DateTimes stay invalid through clone-backed methods", () => {

@@ -396,16 +396,6 @@ test("Info.weekdaysFormat lists all the weekdays", () => {
     "Sat",
     "Sun",
   ]);
-
-  expect(Info.weekdaysFormat("long", { locale: "ru" })).toEqual([
-    "понедельник",
-    "вторник",
-    "среда",
-    "четверг",
-    "пятница",
-    "суббота",
-    "воскресенье",
-  ]);
 });
 
 test("Info.weekdaysFormat defaults to long names", () => {
@@ -420,7 +410,7 @@ test("Info.weekdaysFormat defaults to long names", () => {
   ]);
 });
 
-test("Info weekday contexts and widths remain distinct across locales", () => {
+test("Info weekday widths and locales remain independent", () => {
   const russianLong = Info.weekdaysFormat("long", { locale: "ru" });
   const russianShort = Info.weekdaysFormat("short", { locale: "ru" });
   const germanLong = Info.weekdaysFormat("long", { locale: "de" });

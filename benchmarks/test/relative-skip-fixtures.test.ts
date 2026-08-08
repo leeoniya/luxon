@@ -60,16 +60,34 @@ for (const [label, keys] of VARIANTS) {
       // of plus({unit: 1}) minus the anchor
       const cases: [string, string, string, string[], string][] = [
         // 2011-12-30 was deleted outright: a seven-day week took six real days
-        ["Pacific/Apia", "2011-12-24T00:00", "2011-12-31T00:00", ["weeks", "days", "hours"], "week"],
+        ["Pacific/Apia", "2011-12-24T00:00", "2011-12-31T00:00", ["weeks", "days", "hours"], "in 1 week"],
         // the zone was abolished and jumped seven hours, off a January 31st that
         // clamps to the 28th: 88d17h
-        ["Antarctica/Davis", "1969-01-31T00:00", "1969-04-30T00:00", ["quarters", "months", "days"], "quarter"],
+        [
+          "Antarctica/Davis",
+          "1969-01-31T00:00",
+          "1969-04-30T00:00",
+          ["quarters", "months", "days"],
+          "in 1 quarter",
+        ],
         // the same jump and the same clamp, one month wide: 27d17h
-        ["Antarctica/Davis", "1969-01-31T00:00", "1969-02-28T00:00", ["months", "weeks", "days"], "month"],
+        [
+          "Antarctica/Davis",
+          "1969-01-31T00:00",
+          "1969-02-28T00:00",
+          ["months", "weeks", "days"],
+          "in 1 month",
+        ],
         // ten hours in 1948, which makes this local day fourteen hours long
-        ["Antarctica/Macquarie", "1948-03-24T10:00", "1948-03-25T10:00", ["days", "hours"], "day"],
+        ["Antarctica/Macquarie", "1948-03-24T10:00", "1948-03-25T10:00", ["days", "hours"], "in 1 day"],
         // another deleted day, inside a year that is therefore 364 days
-        ["Pacific/Enderbury", "1994-11-21T00:00", "1995-11-21T00:00", ["years", "months", "days"], "year"],
+        [
+          "Pacific/Enderbury",
+          "1994-11-21T00:00",
+          "1995-11-21T00:00",
+          ["years", "months", "days"],
+          "in 1 year",
+        ],
       ];
 
       for (const [zone, from, to, units, expected] of cases) {
@@ -78,11 +96,7 @@ for (const [label, keys] of VARIANTS) {
         const got = at.toRelative({ base, unit: units });
 
         assert.equal(got, unskipped(base, at, units), `${zone} ${from} -> ${to}`);
-        assert.match(
-          got ?? "",
-          new RegExp(expected),
-          `${zone}: a ${expected}-long span that took ${((+(at as never) - +(base as never)) / D).toFixed(2)} real days`
-        );
+        assert.equal(got, expected, `${zone}: ${((+(at as never) - +(base as never)) / D).toFixed(2)} real days`);
       }
     });
 
@@ -123,11 +137,26 @@ for (const [label, keys] of VARIANTS) {
       const zone = "UTC";
       const base = m.DateTime.fromISO("2023-06-01T00:00", { zone }) as unknown as DT;
       const units = ["years", "quarters", "months", "weeks", "days", "hours", "minutes", "seconds"];
+      const cases = [
+        [1, 0, "seconds"],
+        [999, 0, "seconds"],
+        [59999, 59, "seconds"],
+        [3599999, 59, "minutes"],
+        [D - 1, 23, "hours"],
+        [7 * D - 1, 6, "days"],
+        [30 * D - 1, 4, "weeks"],
+        [364 * D, 3, "quarters"],
+      ] as const;
 
-      for (const under of [1, 999, 59999, 3599999, D - 1, 7 * D - 1, 30 * D - 1, 364 * D]) {
-        const at = m.DateTime.fromMillis(+(base as never) + under, { zone }) as unknown as DT;
+      for (const [under, amount, unit] of cases) {
+        for (const sign of [1, -1]) {
+          const at = m.DateTime.fromMillis(+(base as never) + sign * under, { zone }) as unknown as DT;
+          const value = `${amount} ${unit}`;
+          const expected = sign > 0 ? `in ${value}` : `${value} ago`;
 
-        assert.equal(got(at, base, units), unskipped(base, at, units), `${under}ms after`);
+          assert.equal(got(at, base, units), unskipped(base, at, units), `${under}ms, sign ${sign}`);
+          assert.equal(got(at, base, units), expected, `${under}ms, sign ${sign}`);
+        }
       }
 
       function got(a: DT, b: DT, u: string[]) {

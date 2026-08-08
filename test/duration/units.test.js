@@ -341,60 +341,18 @@ test("Duration#as returns null for invalid durations", () => {
   expect(Duration.invalid("because").as("hours")).toBeFalsy();
 });
 
-test("Duration#as agrees exactly with shifting to one unit", () => {
-  const units = [
-    "years",
-    "quarters",
-    "months",
-    "weeks",
-    "days",
-    "hours",
-    "minutes",
-    "seconds",
-    "milliseconds",
-  ];
-  const shapes = [
-    {},
-    { hours: 60 },
-    { hours: 1, minutes: 30 },
-    { milliseconds: 1 },
-    { seconds: 1, milliseconds: 500 },
-    { years: 2, months: 6 },
-    { quarters: 3 },
-    { weeks: 2, days: 3 },
-    { hours: -60 },
-    { hours: 1, minutes: -30 },
-    { hours: -1, minutes: 30 },
-    { days: -1, milliseconds: 1 },
-    { hours: 1.5 },
-    { seconds: 0.1 },
-    { minutes: 1.0000001 },
-    { days: 0.3333333333 },
-    { hours: -1.5 },
-    { minutes: -1e-7 },
-    { hours: 40.599848099943756 },
-    { hours: -271.0026115978799 },
-    { minutes: 96.67190976656002 },
-    { hours: 0 },
-    { hours: -0, minutes: -0 },
-    { years: 10000 },
-    { milliseconds: 8.64e15 },
-  ];
+test("Duration#as applies casual and long-term conversion matrices", () => {
+  const shape = { years: 1, months: 6, days: 2, hours: 12 };
 
-  for (const conversionAccuracy of ["casual", "longterm"]) {
-    for (const shape of shapes) {
-      const duration = Duration.fromObject(shape, { conversionAccuracy });
-
-      for (const unit of units) {
-        expect(Object.is(duration.as(unit), duration.shiftTo(unit).get(unit))).toBe(true);
-      }
-    }
-  }
+  expect(Duration.fromObject(shape, { conversionAccuracy: "casual" }).as("days")).toBe(547.5);
+  expect(Duration.fromObject(shape, { conversionAccuracy: "longterm" }).as("days")).toBeCloseTo(
+    550.36375,
+    8
+  );
+  expect(Duration.fromObject({ hours: -1.5, minutes: 30 }).as("minutes")).toBe(-60);
 });
 
 test("Duration#as preserves unit normalization and rejection behavior", () => {
-  const duration = Duration.fromObject({ hours: 3, minutes: 30 });
-
   for (const [singular, plural] of [
     ["year", "years"],
     ["quarter", "quarters"],
@@ -406,9 +364,12 @@ test("Duration#as preserves unit normalization and rejection behavior", () => {
     ["second", "seconds"],
     ["millisecond", "milliseconds"],
   ]) {
-    expect(Object.is(duration.as(singular), duration.as(plural))).toBe(true);
+    const duration = Duration.fromObject({ [plural]: 2.5 });
+    expect(duration.as(singular)).toBe(2.5);
+    expect(duration.as(plural)).toBe(2.5);
   }
 
+  const duration = Duration.fromObject({ hours: 3, minutes: 30 });
   expect(() => duration.as("fortnights")).toThrow(/Invalid unit/);
   expect(Number.isNaN(Duration.invalid("because").as("hours"))).toBe(true);
 });

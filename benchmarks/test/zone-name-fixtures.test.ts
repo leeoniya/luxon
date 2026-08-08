@@ -110,7 +110,7 @@ async function withBentIntl(
 
 for (const [label, keys] of VARIANTS) {
   describe(`zoneInfoCache scanner fixtures > ${label}`, () => {
-    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl for every supported style and varied locale layout"
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl for every runtime-supported style and varied locale layout"
     test("the name comes out whole, wherever the locale puts it", async () => {
       const m = await loadLuxon(keys);
 
@@ -133,7 +133,7 @@ for (const [label, keys] of VARIANTS) {
 
     // The scanner is memoized, and its key has to be as wide as what it measured
     // against. Same locale, same instant, everything else moving.
-    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl for every supported style and varied locale layout"
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl for every runtime-supported style and varied locale layout"
     test("one scanner is not reused for another zone, style or locale", async () => {
       const m = await loadLuxon(keys);
       const ts = INSTANTS[0]!;
@@ -156,7 +156,7 @@ for (const [label, keys] of VARIANTS) {
     // longer looks at that instant measures a prefix that is wrong for the other
     // two and hands back a shifted slice.
     for (const [i, probe] of INSTANTS.entries()) {
-      // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "IANAZone.offsetName falls back when scanner input has a moving layout"
+      // PATCH-ONLY: forces a scanner-layout fallback that stock Luxon does not have.
       test(`a layout that moves at probe ${i} is refused`, async () => {
         const m = await loadLuxon(keys);
         const zone = "America/New_York";
@@ -191,7 +191,7 @@ for (const [label, keys] of VARIANTS) {
     // NOT from the sweep either, and unreachable through ICU: the scanner takes
     // the position from formatToParts and then reads from format(), so it has to
     // check that the two agree before trusting the first.
-    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "IANAZone.offsetName falls back when scanner input has a format mismatch"
+    // PATCH-ONLY: forces a scanner format/parts disagreement that stock Luxon does not have.
     test("a format() that is not its parts joined is refused", async () => {
       const m = await loadLuxon(keys);
       const zone = "America/New_York";
@@ -233,7 +233,7 @@ for (const [label, keys] of VARIANTS) {
     // the stock path, correct. So the locales where the name is not last cannot
     // be defended by comparing output — the question is whether they are being
     // served at all, and the answer is a count.
-    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl for every supported style and varied locale layout"
+    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "matches Intl for every runtime-supported style and varied locale layout"
     test("the locales whose name is not last are served by the scanner", async () => {
       const m = await loadLuxon(keys);
       const Real = Intl.DateTimeFormat;
@@ -270,7 +270,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
-    // JEST-PARTIAL (sync shared cases; not removable): test/zones/IANA.test.js — "IANAZone.offsetName scanner is reused and reset through public caches"
+    // PATCH-ONLY: verifies that Settings.resetCaches reaches the scanner introduced by patch A.
     test("Settings.resetCaches() drops the scanners too", async () => {
       const m = await loadLuxon(keys);
       const zone = "America/New_York";

@@ -18,7 +18,7 @@ test("SystemZone.instance provides valid ...", () => {
   // expect(SystemZone.instance.offset()).toBe(0);
 });
 
-test("SystemZone.formatOffset reflects winter and summer offsets", () => {
+test("SystemZone.formatOffset reflects winter and summer offsets in the configured New York zone", () => {
   expect(SystemZone.instance.formatOffset(Date.UTC(2024, 0, 15, 12), "short")).toBe("-05:00");
   expect(SystemZone.instance.formatOffset(Date.UTC(2024, 6, 15, 12), "techie")).toBe("-0400");
 });

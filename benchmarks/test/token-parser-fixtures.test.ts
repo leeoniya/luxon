@@ -59,8 +59,8 @@ const LOCALES = [
 for (const [label, keys] of VARIANTS) {
   describe(`tokenParserCache fixtures > ${label}`, () => {
     // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormatParser behaves equivalently to DateTime.fromFormat"
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat round-trips numeric, name, era, meridiem, offset, and macro tokens"
-    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat distinguishes numbering systems and output calendars"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat parses fixed numeric, name, meridiem, offset, week, and ordinal inputs"
+    // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat parses numbering systems and preserves output-calendar metadata"
     // JEST-PARTIAL (sync shared cases; not removable): test/datetime/tokenParse.test.js — "DateTime.fromFormat preserves failed and invalid parsing semantics across repeated calls"
     test("a cached parser answers what a fresh one does", async () => {
       const m = await loadLuxon(keys);
@@ -94,7 +94,7 @@ for (const [label, keys] of VARIANTS) {
     // The key names four fields of a Locale and leaves weekSettings out, which
     // is only safe if no parser reads them. Same locale, same format, different
     // week rules, and a format made of nothing but week tokens.
-    // JEST-MIRROR (sync until tokenParserCache merges, then remove): test/datetime/tokenParse.test.js — "DateTime format parsers remain correct across different week settings"
+    // JEST-MIRROR (sync until tokenParserCache merges, then remove): test/datetime/tokenParse.test.js — "DateTime ISO week parsing is invariant under locale week settings"
     test("week settings do not change what a parser reads", async () => {
       const m = await loadLuxon(keys);
       const fmt = "kkkk-'W'WW-c";
@@ -115,6 +115,13 @@ for (const [label, keys] of VARIANTS) {
 
       assert.equal(first.cached, first.fresh, "week settings A");
       assert.equal(second.cached, second.fresh, "week settings B");
+
+      const firstDate = m.DateTime.fromFormat(input, fmt, a as never);
+      const secondDate = m.DateTime.fromFormat(input, fmt, b as never);
+      assert.equal(firstDate.toISODate(), "2024-03-17");
+      assert.equal(secondDate.toISODate(), "2024-03-17");
+      assert.equal(firstDate.localWeekday, 7);
+      assert.equal(secondDate.localWeekday, 1);
     });
 
     // A parser is built out of the locale's month, weekday, era and meridiem

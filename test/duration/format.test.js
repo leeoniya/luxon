@@ -283,7 +283,7 @@ test("Duration#toFormat accepts the deprecated 'round' option", () => {
   expect(dur().toFormat("y", { round: false })).toBe("1.195");
 });
 
-test("Duration#toFormat remains correct past the formatter cache ceiling", () => {
+test("Duration#toFormat handles many distinct format strings", () => {
   const duration = Duration.fromObject({ seconds: 7 });
   const results = Array.from({ length: 1100 }, (_, index) =>
     duration.toFormat(`'literal ${index}:' s`)

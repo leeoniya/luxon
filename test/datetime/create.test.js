@@ -53,10 +53,12 @@ test("Settings.defaultWeekSettings rejects malformed inputs and restores the pri
   ];
 
   try {
+    Settings.defaultWeekSettings = valid;
     for (const input of invalidSettings) {
       expect(() => {
         Settings.defaultWeekSettings = input;
       }).toThrow();
+      expect(Settings.defaultWeekSettings).toEqual(valid);
     }
   } finally {
     Settings.defaultWeekSettings = original;
@@ -527,11 +529,19 @@ test("DateTime.fromMillis preserves dates across Gregorian 4, 100, and 400-year 
 
 test("DateTime.fromMillis applies zone offsets before reading boundary fields", () => {
   const instants = [0, -1, -62167219200000, -8.64e15 + 1, 8.64e15 - 1, 951782400000];
+  const invalid = new Set([
+    `America/New_York|${-8.64e15 + 1}`,
+    `Asia/Kathmandu|${8.64e15 - 1}`,
+    `Pacific/Kiritimati|${-8.64e15 + 1}`,
+    `Pacific/Kiritimati|${8.64e15 - 1}`,
+  ]);
 
   for (const zone of ["America/New_York", "Asia/Kathmandu", "Pacific/Kiritimati"]) {
     for (const ts of instants) {
       const dt = DateTime.fromMillis(ts, { zone });
-      if (!dt.isValid) continue;
+      const shouldBeValid = !invalid.has(`${zone}|${ts}`);
+      expect(dt.isValid).toBe(shouldBeValid);
+      if (!shouldBeValid) continue;
 
       const expected = stockUTCFields(ts + dt.offset * 60000);
       expect({
@@ -584,9 +594,8 @@ test("DateTime ISO output pads ordinary and expanded years and fixed offsets", (
 
   for (const year of [-1, -44, -2024, 10000, 275760]) {
     const dt = DateTime.fromObject({ year, month: 1, day: 1 }, { zone: "UTC" });
-    if (dt.isValid) {
-      expect(dt.toISO().slice(0, 7)).toBe(`${year < 0 ? "-" : "+"}${pad(Math.abs(year), 6)}`);
-    }
+    expect(dt.isValid).toBe(true);
+    expect(dt.toISO().slice(0, 7)).toBe(`${year < 0 ? "-" : "+"}${pad(Math.abs(year), 6)}`);
   }
 
   for (const [zone, offset] of [
@@ -788,15 +797,12 @@ test.each([
     { year: 2020, month: 1, day: 1, second: 60 },
     "you specified 60 (of type number) as a second, which is invalid",
   ],
-])(
-  "DateTime.fromObject() reports the first invalid %s conversion",
-  (_label, input, explanation) => {
-    const dt = DateTime.fromObject(input);
+])("DateTime.fromObject() reports details for an invalid %s", (_label, input, explanation) => {
+  const dt = DateTime.fromObject(input);
 
-    expect(dt.invalidReason).toBe("unit out of range");
-    expect(dt.invalidExplanation).toBe(explanation);
-  }
-);
+  expect(dt.invalidReason).toBe("unit out of range");
+  expect(dt.invalidExplanation).toBe(explanation);
+});
 
 test("DateTime.fromObject() defaults high-order values to the current date", () => {
   const dateTime = DateTime.fromObject({}),

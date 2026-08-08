@@ -1,6 +1,6 @@
 /* global test expect */
 
-import vm from "node:vm";
+import vm from "vm";
 
 import {
   Info,
@@ -97,7 +97,7 @@ test("Info.normalizeZone preserves cross-realm duck-typed zones by identity", ()
 });
 
 test.each([{ offset: 60 }, { offset: null }, {}, Object.create(null)])(
-  "Info.normalizeZone rejects non-zones with malformed or missing offset methods",
+  "Info.normalizeZone rejects malformed non-zone %p",
   (input) => {
     const normalized = Info.normalizeZone(input);
 

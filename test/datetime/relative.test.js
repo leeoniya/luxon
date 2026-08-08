@@ -367,46 +367,42 @@ test("DateTime#toRelative works down through the units for different zone than l
 
 test("DateTime#toRelative reports units shortened by historical zone jumps", () => {
   const cases = [
-    ["Pacific/Apia", "2011-12-24T00:00", "2011-12-31T00:00", ["weeks", "days", "hours"], "week"],
+    [
+      "Pacific/Apia",
+      "2011-12-24T00:00",
+      "2011-12-31T00:00",
+      ["weeks", "days", "hours"],
+      "in 1 week",
+    ],
     [
       "Antarctica/Davis",
       "1969-01-31T00:00",
       "1969-04-30T00:00",
       ["quarters", "months", "days"],
-      "quarter",
+      "in 1 quarter",
     ],
     [
       "Antarctica/Davis",
       "1969-01-31T00:00",
       "1969-02-28T00:00",
       ["months", "weeks", "days"],
-      "month",
+      "in 1 month",
     ],
-    ["Antarctica/Macquarie", "1948-03-24T10:00", "1948-03-25T10:00", ["days", "hours"], "day"],
+    ["Antarctica/Macquarie", "1948-03-24T10:00", "1948-03-25T10:00", ["days", "hours"], "in 1 day"],
     [
       "Pacific/Enderbury",
       "1994-11-21T00:00",
       "1995-11-21T00:00",
       ["years", "months", "days"],
-      "year",
+      "in 1 year",
     ],
   ];
 
-  for (const [zone, from, to, units, expectedUnit] of cases) {
+  for (const [zone, from, to, units, expected] of cases) {
     const base = DateTime.fromISO(from, { zone });
     const target = DateTime.fromISO(to, { zone });
-    let expected;
-
-    for (const unit of units) {
-      if (Math.abs(target.diff(base, unit).get(unit)) >= 1) {
-        expected = target.toRelative({ base, unit });
-        break;
-      }
-    }
-    expected ||= target.toRelative({ base, unit: units[units.length - 1] });
 
     expect(target.toRelative({ base, unit: units })).toBe(expected);
-    expect(expected).toMatch(new RegExp(expectedUnit));
   }
 });
 
@@ -469,19 +465,22 @@ test("DateTime#toRelative falls through for spans just under a unit in both dire
   const day = 86400000;
   const units = ["years", "quarters", "months", "weeks", "days", "hours", "minutes", "seconds"];
   const base = DateTime.fromISO("2023-06-01T00:00", { zone: "UTC" });
+  const cases = [
+    [1, 0, "seconds"],
+    [999, 0, "seconds"],
+    [59999, 59, "seconds"],
+    [3599999, 59, "minutes"],
+    [day - 1, 23, "hours"],
+    [7 * day - 1, 6, "days"],
+    [30 * day - 1, 4, "weeks"],
+    [364 * day, 3, "quarters"],
+  ];
 
-  for (const delta of [1, 999, 59999, 3599999, day - 1, 7 * day - 1, 30 * day - 1, 364 * day]) {
+  for (const [delta, amount, unit] of cases) {
     for (const sign of [1, -1]) {
       const target = DateTime.fromMillis(+base + sign * delta, { zone: "UTC" });
-      let expected;
-
-      for (const unit of units) {
-        if (Math.abs(target.diff(base, unit).get(unit)) >= 1) {
-          expected = target.toRelative({ base, unit });
-          break;
-        }
-      }
-      expected ||= target.toRelative({ base, unit: units[units.length - 1] });
+      const value = `${amount} ${unit}`;
+      const expected = sign > 0 ? `in ${value}` : `${value} ago`;
 
       expect(target.toRelative({ base, unit: units })).toBe(expected);
     }

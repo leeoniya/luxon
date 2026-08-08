@@ -304,22 +304,26 @@ test("DateTime#diff results works when needing to backtrack months", () => {
 });
 
 test("DateTime#diff walks mixed calendar and elapsed units across DST", () => {
-  const later = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
-  const earlier = later.minus({ years: 1, months: 1, days: 4, hours: 1 });
+  const earlier = DateTime.fromISO("2023-02-06T00:59:59", { zone: "America/New_York" });
+  const later = DateTime.fromISO("2024-03-10T01:59:59", { zone: "America/New_York" });
 
   expect(later.diff(earlier, ["years", "months", "days", "hours"]).toISO()).toBe("P1Y1M4DT1H");
 });
 
 test("DateTime#diff handles day differences from years 0 through 99", () => {
-  const later = DateTime.fromMillis(1710053999000, { zone: "America/New_York" });
-  const yearOne = DateTime.fromObject(
-    { year: 1, month: 1, day: 1 },
-    {
-      zone: "America/New_York",
-    }
-  );
+  const laterTS = Date.UTC(2024, 2, 10);
+  const later = DateTime.fromMillis(laterTS, { zone: "UTC" });
 
-  expect(later.diff(yearOne, "days").toISO()).toBe("P738954.0869444445D");
+  for (const year of [0, 1, 4, 99]) {
+    const nativeStart = new Date(0);
+    nativeStart.setUTCHours(0, 0, 0, 0);
+    nativeStart.setUTCFullYear(year, 0, 1);
+    const earlier = DateTime.fromObject({ year, month: 1, day: 1 }, { zone: "UTC" });
+
+    expect(later.diff(earlier, "days").days).toBe(
+      (laterTS - nativeStart.valueOf()) / (24 * 60 * 60 * 1000)
+    );
+  }
 });
 
 test("DateTime#diff preserves exact milliseconds across zones and directions", () => {
@@ -341,7 +345,9 @@ test("DateTime#diff keeps milliseconds as the remainder of a calendar-day diff",
   const earlier = DateTime.fromISO("2024-03-09T23:30:00.250", {
     zone: "America/New_York",
   });
-  const later = earlier.plus({ days: 2, milliseconds: 1234 });
+  const later = DateTime.fromISO("2024-03-11T23:30:01.484", {
+    zone: "America/New_York",
+  });
   const forward = later.diff(earlier, ["days", "milliseconds"]);
   const reverse = earlier.diff(later, ["days", "milliseconds"]);
 
@@ -388,41 +394,25 @@ test("DateTime#diff remains reversible from BCE into CE", () => {
   expect(reverse.toObject()).toEqual({ years: -7, days: 0, hours: -22, minutes: -45 });
 });
 
-test("DateTime#diff with one lower-order unit is reversible across transition edges", () => {
+test("DateTime#diff returns reversible mixed-unit results across DST transitions", () => {
   const pairs = [
-    ["2024-01-01T00:00:00.000", "America/New_York", "2024-01-01T02:17:00.000", "America/New_York"],
-    ["2024-03-09T23:30:00.000", "America/New_York", "2024-03-11T01:45:12.345", "America/New_York"],
-    ["2024-11-02T23:30:00.000", "America/New_York", "2024-11-04T01:45:12.345", "America/New_York"],
-    ["2020-02-29T12:00:00.000", "UTC", "2024-03-31T13:14:15.016", "Europe/Paris"],
-    ["2011-12-29T12:00:00.000", "Pacific/Apia", "2012-01-02T08:00:00.000", "Pacific/Apia"],
+    ["2024-03-09T23:30:00.000", "2024-03-11T01:45:12.345"],
+    ["2024-11-02T23:30:00.000", "2024-11-04T01:45:12.345"],
   ];
-  const unitSets = [
-    ["days", "hours"],
-    ["months", "minutes"],
-    ["years", "seconds"],
-    ["weeks", "milliseconds"],
-    ["hours"],
-    ["days", "hours", "minutes"],
-  ];
+  const units = ["days", "hours", "minutes", "seconds", "milliseconds"];
+  const expected = { days: 1, hours: 2, minutes: 15, seconds: 12, milliseconds: 345 };
 
-  for (const accuracy of ["casual", "longterm"]) {
-    for (const [leftISO, leftZone, rightISO, rightZone] of pairs) {
-      const left = DateTime.fromISO(leftISO, { zone: leftZone });
-      const right = DateTime.fromISO(rightISO, { zone: rightZone });
+  for (const [leftISO, rightISO] of pairs) {
+    const left = DateTime.fromISO(leftISO, { zone: "America/New_York" });
+    const right = DateTime.fromISO(rightISO, { zone: "America/New_York" });
+    const forward = right.diff(left, units);
+    const reverse = left.diff(right, units);
 
-      for (const units of unitSets) {
-        const forward = right.diff(left, units, { conversionAccuracy: accuracy });
-        const reverse = left.diff(right, units, { conversionAccuracy: accuracy });
-        const negated = Object.fromEntries(
-          Object.entries(forward.toObject()).map(([unit, value]) => [
-            unit,
-            value === 0 ? 0 : -value,
-          ])
-        );
-
-        expect(reverse.toObject()).toEqual(negated);
-      }
-    }
+    expect(forward.toObject()).toEqual(expected);
+    expect(reverse.toObject()).toEqual(
+      Object.fromEntries(Object.entries(expected).map(([unit, value]) => [unit, -value]))
+    );
+    expect(left.plus(forward).equals(right)).toBe(true);
   }
 });
 

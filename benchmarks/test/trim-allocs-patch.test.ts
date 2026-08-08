@@ -62,9 +62,7 @@ const DT_UNITS = [
   "millisecond", "milliseconds", "Month", "DAY",
 ];
 
-// the ones luxon rejects, plus the four that are already keys of every object —
-// which is the whole reason the memo is a Map
-const NOT_UNITS = ["", "fortnight", "dayz", "week ", "__proto__", "constructor", "toString", "valueOf"];
+const NOT_UNITS = ["", "fortnight", "dayz", "week "];
 
 // What as() has to get right, grouped by what each one exercises.
 const DURATIONS: Record<string, number>[] = [

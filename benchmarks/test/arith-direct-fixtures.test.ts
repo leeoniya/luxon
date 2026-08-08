@@ -299,16 +299,29 @@ for (const [label, keys] of VARIANTS) {
     // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff walks mixed calendar and elapsed units across DST"
     // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff handles day differences from years 0 through 99"
     test("dayDiff", async () => {
-      const { m, dt } = await load();
+      const { m } = await load();
 
       // the mixed-unit walk, across a transition
-      const earlier = dt.minus({ years: 1, months: 1, days: 4, hours: 1 });
-      assert.equal(dt.diff(earlier, ["years", "months", "days", "hours"]).toISO(), "P1Y1M4DT1H");
+      const earlier = m.DateTime.fromISO("2023-02-06T00:59:59", { zone: ZONE });
+      const later = m.DateTime.fromISO("2024-03-10T01:59:59", { zone: ZONE });
+      assert.equal(later.diff(earlier, ["years", "months", "days", "hours"]).toISO(), "P1Y1M4DT1H");
 
       // years 0-99 are the reason this goes through objToLocalTS rather than
       // Date.UTC, which would map year 1 into the 1900s
-      const y1 = m.DateTime.fromObject({ year: 1, month: 1, day: 1 }, { zone: ZONE });
-      assert.equal(dt.diff(y1, "days").toISO(), "P738954.0869444445D");
+      const laterTS = Date.UTC(2024, 2, 10);
+      const utcLater = m.DateTime.fromMillis(laterTS, { zone: "UTC" });
+      for (const year of [0, 1, 4, 99]) {
+        const nativeStart = new Date(0);
+        nativeStart.setUTCHours(0, 0, 0, 0);
+        nativeStart.setUTCFullYear(year, 0, 1);
+        const start = m.DateTime.fromObject({ year, month: 1, day: 1 }, { zone: "UTC" });
+
+        assert.equal(
+          utcLater.diff(start, "days").days,
+          (laterTS - nativeStart.valueOf()) / (24 * 60 * 60 * 1000),
+          `year ${year}`
+        );
+      }
     });
 
     // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff preserves exact milliseconds across zones and directions"
