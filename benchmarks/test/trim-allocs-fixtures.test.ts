@@ -58,9 +58,46 @@ const AS_UNITS = [
 
 for (const [label, keys] of VARIANTS) {
   describe(`boundaryMath alloc fixtures > ${label}`, () => {
+    // JEST-MIRROR (sync until boundaryMath merges, then remove): test/duration/units.test.js — "Duration#siftTo does not create intermediate units when lower order units can go directly into a higher one"
+    // JEST-MIRROR (sync until boundaryMath merges, then remove): test/duration/units.test.js — "Duration#shiftTo can convert milliseconds directly into whole years correctly: %i"
+    // JEST-MIRROR (sync until boundaryMath merges, then remove): test/duration/units.test.js — "Duration#shiftTo with no units normalizes"
+    test("shiftTo retains direct conversion, whole-year snapping, and no-unit normalization", async () => {
+      const m = await loadLuxon(keys);
+
+      assert.deepEqual(
+        m.Duration.fromObject({ months: 12, days: 730 })
+          .shiftTo("years", "months", "days")
+          .toObject(),
+        { years: 3, months: 0, days: 0 }
+      );
+
+      for (const years of [1, 5, -12]) {
+        assert.deepEqual(
+          m.Duration.fromMillis(365 * 24 * 60 * 60 * 1000 * years)
+            .shiftTo("years", "months", "days", "hours", "minutes", "seconds", "milliseconds")
+            .toObject(),
+          {
+            years,
+            months: 0,
+            days: 0,
+            hours: 0,
+            minutes: 0,
+            seconds: 0,
+            milliseconds: 0,
+          }
+        );
+      }
+
+      assert.deepEqual(m.Duration.fromObject({ years: 0, days: 367 }).shiftTo().toObject(), {
+        years: 1,
+        days: 2,
+      });
+    });
+
     // ---- as() ----
 
     // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as applies casual and long-term conversion matrices"
+    // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as preserves fractional precision and snaps near-integer years"
     test("as() answers what shiftTo().get() answers", async () => {
       const m = await loadLuxon(keys);
 
@@ -82,20 +119,32 @@ for (const [label, keys] of VARIANTS) {
         { hours: 1, minutes: -30 },
         { hours: -1, minutes: 30 },
         { days: -1, milliseconds: 1 },
-        // fractions, where the trunc-and-remainder split is not the identity
+        // fractions, where operation order is observable
         { hours: 1.5 },
         { seconds: 0.1 },
         { seconds: 0.2 },
         { minutes: 1.0000001 },
         { days: 0.3333333333 },
+        // Preserve tiny fractions exactly instead of reintroducing the old
+        // multiply-by-1000 wobble.
+        { years: 1e-9 },
+        { years: -1e-9 },
+        // snapFloatingPoint rounds totals within its epsilon window to an
+        // integer. The allocation-free path must retain that correction.
+        { years: 0.9999999999999999 },
+        { years: 1.0000000000000002 },
+        { years: -0.9999999999999999 },
+        // lower units convert directly to the target instead of cascading
+        // through intermediate units
+        { months: 12, days: 730 },
+        { milliseconds: 365 * 24 * 60 * 60 * 1000 * 5 },
         // negative fractions, where truncating and flooring choose different
         // wholes and only the remainder puts them back together
         { hours: -1.5 },
         { hours: -0.1 },
         { seconds: -0.3333333333 },
         { minutes: -1e-7 },
-        // and values where shiftTo's detour through thousandths is the whole of
-        // the difference, in the last bit
+        // values whose last bit changes if accumulation or remainder order moves
         { hours: 40.599848099943756 },
         { hours: -271.0026115978799 },
         { minutes: 96.67190976656002 },

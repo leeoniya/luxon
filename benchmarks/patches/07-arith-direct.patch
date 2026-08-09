@@ -124,16 +124,16 @@ index fd32d47..c674ee0 100644
 +    //
 +    // Whole values: the five calendar fields only contribute their fractional
 +    // parts, so when all nine are integers those five terms are exactly zero
-+    // and shiftTo's accumulator reduces to this same left-to-right sum. Its
-+    // trunc-and-remainder split then round-trips exactly, which it does not do
-+    // in general. Anything fractional still takes the old path.
++    // and shiftTo's accumulator reduces to this same left-to-right sum.
++    // Fractional values still take the general path, preserving shiftTo's
++    // near-integer snapping and lower-unit remainder order.
 +    //
-+    // Range: stock's shiftTo detour went through thousandths, so a sum past
-+    // ~1.8e305 overflowed to NaN and the `|| 0` getter silently dropped the
-+    // whole addition — plus({ seconds: 1e308 }) added nothing. Here the sum
-+    // flows into the timestamp instead, and an overflowing addition produces
-+    // an invalid DateTime. That divergence is deliberate: an error you can see
-+    // beats an addition that silently never happened.
++    // Range: a conversion past the finite range becomes NaN in shiftTo and the
++    // `|| 0` getter silently drops the whole addition —
++    // plus({ seconds: 1e308 }) adds nothing. Here the sum flows into the
++    // timestamp instead, and an overflowing addition produces an invalid
++    // DateTime. That divergence is deliberate: an error you can see beats an
++    // addition that silently never happened.
 +    whole =
 +      Number.isInteger(durYears) &&
 +      Number.isInteger(durQuarters) &&
@@ -157,7 +157,7 @@ index fd32d47..c674ee0 100644
 +  // here exactly as it is there.
 +  //
 +  // The whole check is the same one below and for the same reason — a
-+  // fractional field has to keep taking the old path.
++  // fractional field has to keep taking the general path.
 +  if (
 +    durYears === 0 &&
 +    durQuarters === 0 &&

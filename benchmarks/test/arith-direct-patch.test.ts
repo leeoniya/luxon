@@ -76,7 +76,7 @@ const INSTANTS = [
 
 // What adjustTime's fast path has to get right, grouped by the guard each one
 // exercises. Dropping an isInteger guard breaks the fractional block, whose
-// NaN sentinel is what routes those onto the old path.
+// NaN sentinel is what routes those onto the general path.
 const AMOUNTS: unknown[] = [
   // plain numbers and whole amounts, which is what takes the fast path
   0, 1, -1, 86_400_000,
@@ -91,20 +91,18 @@ const AMOUNTS: unknown[] = [
 
   // The five calendar fields contribute only their fractional parts, so a
   // fraction there is caught by any of their five guards. The four time fields
-  // are passed whole, and for most fractions shiftTo's trunc-and-remainder
-  // split happens to reassemble them exactly — 0.5 and 0.25 both do — so those
-  // four guards need values where it does not. About 4% of random fractions
-  // qualify; one per field, found by searching for that.
+  // are passed whole; these values exercise the general shiftTo/as route and
+  // its near-integer snapping and lower-unit remainder order.
   { hours: -204.63316678596144 },
   { minutes: -0.003974581243864517 },
   { seconds: -248.3538081770198 },
   { milliseconds: 334.2807337622956 },
 
   // integers large enough that summation order would show. Nothing past the
-  // finite range: stock answered an overflowing addition by silently adding
-  // nothing (shiftTo's remainder went NaN and the `|| 0` getter dropped it),
-  // and the patch deliberately produces an invalid DateTime instead — the
-  // fixtures pin that divergence.
+  // finite range: stock answers an overflowing conversion by silently adding
+  // nothing (shiftTo produces NaN and the `|| 0` getter drops it), while the
+  // patch deliberately produces an invalid DateTime — the fixtures pin that
+  // divergence.
   { days: Number.MAX_SAFE_INTEGER }, { milliseconds: Number.MAX_SAFE_INTEGER },
   { hours: 1e15, milliseconds: 1 },
 ];

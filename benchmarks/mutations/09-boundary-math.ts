@@ -79,55 +79,55 @@ const set: MutationSet = {
     // ---- as(): which way the matrix is read ----
     {
       name: "converts the units above the target as if they were below it",
-      find: "+      if (isNumber(vals[higher])) own += matrix[higher][u] * vals[higher];",
-      replace: "+      if (isNumber(vals[higher])) own += vals[higher] / matrix[u][higher];",
+      find: "+          own += matrix[key][u] * value;",
+      replace: "+          own += value / matrix[u][key];",
     },
     {
-      name: "converts the units below the target as if they were above it",
-      find: "+      if (isNumber(vals[lower]) && vals[lower] !== 0) out += vals[lower] / matrix[u][lower];",
-      replace: "+      if (isNumber(vals[lower]) && vals[lower] !== 0) out += matrix[lower][u] * vals[lower];",
+      name: "takes fractional target units from a lower field too early",
+      find: "+          own += Math.trunc(value / matrix[u][key]);",
+      replace: "+          own += value / matrix[u][key];",
     },
     {
       name: "leaves the target unit's own value out of the sum",
-      find: "+    if (isNumber(vals[u])) own += vals[u];",
-      replace: "+    if (isNumber(vals[u])) own += 0;",
+      find: "+        own += value;",
+      replace: "+        own += 0;",
     },
     {
-      name: "counts the target unit among the ones above it",
-      find: "+    for (let i = 0; i < at; i++) {",
-      replace: "+    for (let i = 0; i <= at; i++) {",
+      name: "reverses which fields are larger than the target",
+      find: "+        if (at > from) {\n+          own += matrix[key][u] * value;",
+      replace: "+        if (at < from) {\n+          own += matrix[key][u] * value;",
     },
     {
-      name: "counts the target unit among the ones below it",
-      find: "+    for (let i = at + 1; i < orderedUnits.length; i++) {",
-      replace: "+    for (let i = at; i < orderedUnits.length; i++) {",
+      name: "adds a converted larger field's remainder a second time",
+      find: "+      if (at > from) continue;",
+      replace: "+      if (at < from) continue;",
     },
     {
-      name: "stops one short of the smallest unit",
-      find: "+    for (let i = at + 1; i < orderedUnits.length; i++) {",
-      replace: "+    for (let i = at + 1; i < orderedUnits.length - 1; i++) {",
+      name: "drops the smallest lower-unit remainder",
+      find: "+      const rest = (value - Math.trunc(value / conv) * conv) / conv;",
+      replace: "+      const rest = key === \"milliseconds\" ? 0 : (value - Math.trunc(value / conv) * conv) / conv;",
     },
-    // ---- as(): the parts copied out of shiftTo ----
+    // ---- as(): the parts copied out of the new shiftTo route ----
     {
-      name: "adds the whole and the remainder without shiftTo's rounding",
-      find: "+    const rest = (own * 1000 - whole * 1000) / 1000;",
-      replace: "+    const rest = own - whole;",
+      name: "does not snap a near-integer total",
+      find: "+    own = snapFloatingPoint(own);",
+      replace: "+    own = own;",
+    },
+    {
+      name: "reintroduces the multiply-by-1000 fractional wobble",
+      find: "+      if (key === u) {\n+        const rest = own % 1;",
+      replace:
+        "+      if (key === u) {\n+        const rest = (own * 1000 - Math.trunc(own) * 1000) / 1000;",
     },
     {
       name: "rounds towards minus infinity rather than towards zero",
-      find: "+    const whole = Math.trunc(own);",
-      replace: "+    const whole = Math.floor(own);",
+      find: "+    let out = Math.trunc(own);",
+      replace: "+    let out = Math.floor(own);",
     },
     {
-      name: "keeps a value the duration does not carry",
-      find: "+      if (isNumber(vals[higher])) own += matrix[higher][u] * vals[higher];",
-      replace: "+      own += matrix[higher][u] * (vals[higher] || 0);",
-      survives:
-        "the two differ only where vals[higher] is present but not a number, and " +
-        "Duration#fromObject rejects those on the way in -- a non-numeric value " +
-        "makes the whole Duration invalid, and an invalid one returns NaN two " +
-        "lines above this. isNumber is guarding a state the constructor does not " +
-        "produce, and matches how shiftTo's own loop reads the same values.",
+      name: "drops the snapped target remainder when the target was absent",
+      find: "+    if (!ownSeen) {",
+      replace: "+    if (false) {",
     },
     // ---- as(): the way in ----
     {

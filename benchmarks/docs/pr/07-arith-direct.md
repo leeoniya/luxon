@@ -22,16 +22,16 @@ unconditional.
 
 **Whole values.** In `adjustTime` the five calendar fields contribute only their
 fractional parts, so when all nine fields are integers those terms are exactly
-zero and `shiftTo`'s accumulator reduces to the same left-to-right sum. Its
-trunc-and-remainder split then round-trips exactly, which it does not do in
-general. Anything fractional still takes the old path.
+zero and `shiftTo`'s accumulator reduces to the same left-to-right sum. Anything
+fractional still takes the general path, preserving `shiftTo`'s near-integer
+snapping and lower-unit remainder order.
 
-**Range.** Stock's `shiftTo` detour went through thousandths, so a sum past
-~1.8e305 overflowed to `NaN` and the milliseconds getter's `|| 0` silently
-dropped the whole addition — `plus({ seconds: 1e308 })` added nothing. That was
-a bug, and this patch corrects rather than preserves it: an overflowing sum
-flows into the timestamp and produces an invalid DateTime. The `whole` flag
-only routes fractional fields to the old path; it is not an overflow guard.
+**Range.** A conversion past the finite range becomes `NaN` in `shiftTo`, and
+the milliseconds getter's `|| 0` silently drops the whole addition —
+`plus({ seconds: 1e308 })` adds nothing. That is a bug, and this patch corrects
+rather than preserves it: an overflowing sum flows into the timestamp and
+produces an invalid DateTime. The `whole` flag only routes fractional fields to
+the general path; it is not an overflow guard.
 
 **Legacy years.** `utcDayStart` goes through `objToLocalTS` and not `Date.UTC`,
 which is the same call with the same arguments except that `objToLocalTS` reverts

@@ -28,13 +28,13 @@ unset, which `clone` never leaves unset. Both still reach it on `old`, which is
 where it looks for them when the instant and zone have not moved.
 
 **`as` is the fiddly one**, because `shiftTo` is not the plain sum it reduces to.
-One thing is copied out of it rather than simplified away — the
-trunc-and-remainder split: `shiftTo` takes the integer part of the running total
-and carries `(own * 1000 - whole * 1000) / 1000` as the remainder, then adds it
-back, which is not the identity in floating point and *is* the number callers
-have been getting — `Duration.fromObject({ hours: 40.599848099943756 })` differs
-in the last bit between the two. The `|| 0` that the unit getter ends in is
-*not* copied, and that is a deliberate divergence: nothing a `Duration` built
+For one target unit it first takes whole target units from every lower field,
+snaps the resulting total with `snapFloatingPoint`, and only then adds each
+lower-field remainder in the original value-key order. The direct path copies
+that operation order and snapping rather than simplifying them away, preserving
+the fixes for near-integers and direct lower-to-higher conversion in
+`Duration#shiftTo`. The `|| 0` that the unit getter ends in is *not* copied,
+and that is a deliberate divergence: nothing a `Duration` built
 through `fromObject` can hold reaches it, since `asNumber` refuses everything
 but a finite number — but `Duration#plus` writes sums directly, so an
 `Infinity` field (or a conversion that overflows) produced a `NaN` sum that the

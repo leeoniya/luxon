@@ -179,7 +179,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 diff --git a/src/duration.js b/src/duration.js
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -767,7 +767,48 @@
+@@ -717,7 +717,76 @@
     * @return {number}
     */
    as(unit) {
@@ -187,13 +187,10 @@ diff --git a/src/duration.js b/src/duration.js
 +    if (!this.isValid) return NaN;
 +
 +    // UPSTREAM-I: was this.shiftTo(unit).get(unit) — a Duration built, walked,
-+    // normalized and cloned so that one number could be read back off it. With a
-+    // single target unit shiftTo's loop is the sum below: everything ordered
-+    // above the target converted up into it, everything below divided into it.
-+    //
-+    // One thing is copied out of shiftTo rather than simplified away: its
-+    // trunc-and-remainder split is not the identity in floating point, and
-+    // whole + remainder is the number callers get today.
++    // normalized and cloned so that one number could be read back off it. This
++    // is shiftTo's single-target route without the intermediate objects: values
++    // above the target convert down in full, values below it contribute whole
++    // target units first, and their remainders are added afterward.
 +    const u = Duration.normalizeUnit(unit);
 +    const at = orderedUnits.indexOf(u);
 +
@@ -209,20 +206,55 @@ diff --git a/src/duration.js b/src/duration.js
 +
 +    let own = 0;
 +
-+    for (let i = 0; i < at; i++) {
-+      const higher = orderedUnits[i];
-+      if (isNumber(vals[higher])) own += matrix[higher][u] * vals[higher];
++    // Match shiftTo's accumulation order. normalizeObject preserves the input
++    // key order in this.values, and floating-point addition makes that order
++    // observable for large or mixed-magnitude durations.
++    for (const key in vals) {
++      const value = vals[key];
++
++      if (key === u) {
++        own += value;
++      } else {
++        const from = orderedUnits.indexOf(key);
++
++        if (at > from) {
++          own += matrix[key][u] * value;
++        } else {
++          own += Math.trunc(value / matrix[u][key]);
++        }
++      }
 +    }
 +
-+    if (isNumber(vals[u])) own += vals[u];
++    own = snapFloatingPoint(own);
 +
-+    const whole = Math.trunc(own);
-+    const rest = (own * 1000 - whole * 1000) / 1000;
-+    let out = whole + rest;
++    let out = Math.trunc(own);
++    let ownSeen = false;
 +
-+    for (let i = at + 1; i < orderedUnits.length; i++) {
-+      const lower = orderedUnits[i];
-+      if (isNumber(vals[lower]) && vals[lower] !== 0) out += vals[lower] / matrix[u][lower];
++    // shiftTo keeps its snapped fractional target value and each lower-unit
++    // remainder in the accumulated object, then reads that object in key order.
++    // Do the same arithmetic without constructing it.
++    for (const key in vals) {
++      if (key === u) {
++        const rest = own % 1;
++        if (rest !== 0) out += rest;
++        ownSeen = true;
++        continue;
++      }
++
++      const from = orderedUnits.indexOf(key);
++      if (at > from) continue;
++
++      const conv = matrix[u][key];
++      const value = vals[key];
++      const rest = (value - Math.trunc(value / conv) * conv) / conv;
++      if (rest !== 0) out += rest;
++    }
++
++    // Assigning accumulated[u] appends it when the input did not already carry
++    // that unit, so shiftTo adds this remainder after every input remainder.
++    if (!ownSeen) {
++      const rest = own % 1;
++      if (rest !== 0) out += rest;
 +    }
 +
 +    return out;

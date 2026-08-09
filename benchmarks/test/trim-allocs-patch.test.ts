@@ -10,14 +10,14 @@
 // instant, the zone, the locale and the invalid reason, since a wrong `invalid`
 // or `loc` would not move the timestamp at all.
 //
-// as() computes the sum shiftTo would have walked to. The risk is floating point:
-// shiftTo splits its running total into an integer and a remainder and adds them
-// back together, which is not the identity. So that sweep is organised by input —
-// fractions chosen so the split does not reassemble, values past 2^53, both
-// conversion accuracies — and compares with Object.is so that NaN and -0 have to
-// agree and not merely compare equal. Non-finite and overflowing shapes are not
-// in it: stock's `|| 0` getter answered 0 for those, the patch deliberately
-// answers NaN, and the fixtures pin that divergence instead.
+// as() computes the single-target route shiftTo would have walked. The risk is
+// floating point: shiftTo snaps near-integers, takes whole target units from
+// lower fields before adding their remainders, and follows the input key order.
+// The sweep covers each edge with both conversion accuracies and compares with
+// Object.is so that NaN and -0 have to agree and not merely compare equal.
+// Non-finite and overflowing shapes are not in it: stock's `|| 0` getter answers
+// 0 for those, the patch deliberately answers NaN, and the fixtures pin that
+// divergence instead.
 //
 // endOf memoizes `{ [unit]: 1 }` on the string it was handed and combines the
 // fixed calendar boundaries' plus().startOf() pair. The sweep asks for every
@@ -82,11 +82,14 @@ const DURATIONS: Record<string, number>[] = [
   { minutes: 0 }, { minutes: -100 }, { days: -1, hours: 25 }, { hours: -1, minutes: 30 },
   { seconds: -0 }, { days: 0, hours: -0 },
 
-  // fractions, including four where shiftTo's trunc-and-remainder split does not
-  // reassemble the total exactly — most fractions do, so these were searched for
+  // fractions, including values inside snapFloatingPoint's integer window and
+  // values where key order and direct lower-to-higher conversion are observable
   { minutes: 1.5 }, { hours: 1 / 3 }, { milliseconds: 0.5 },
   { hours: -204.63316678596144 }, { minutes: -0.003974581243864517 },
   { seconds: -248.3538081770198 }, { milliseconds: 334.2807337622956 },
+  { years: 1e-9 }, { years: -1e-9 },
+  { years: 0.9999999999999999 }, { years: 1.0000000000000002 },
+  { years: -0.9999999999999999 }, { months: 12, days: 730 },
 
   // large enough that summation order would show. Nothing non-finite or
   // overflowing: stock's `|| 0` getter turned those sums into 0, the patch

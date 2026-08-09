@@ -549,13 +549,14 @@ reads had a different shape on every path into it, and its field reads never
 settled. Naming the seven fields gives every call site one shape. Every setter
 `DateTime` has goes through it.
 
-`as` is the fiddly one. `shiftTo` is not the plain sum it reduces to: it splits
-its running total into an integer part and a remainder and adds them back, which
-is not the identity in floating point, so that split is copied rather than
-simplified. The `|| 0` that the getter it returns through ends in is *not*
-copied, and that is a deliberate divergence: nothing `fromObject` accepts can
-reach it, but `Duration#plus` writes sums directly, so an `Infinity` field
-produced a `NaN` sum the getter silently turned into `0`. The rewritten `as`
+`as` is the fiddly one. `shiftTo` is not the plain sum it reduces to: it takes
+whole target units from lower fields, snaps near-integers, then adds the
+lower-field remainders in value-key order. That operation order is copied
+rather than simplified, preserving `shiftTo`'s fractional corrections. The
+`|| 0` that the getter it returns through ends in is *not* copied, and that is a
+deliberate divergence: nothing `fromObject` accepts can reach it, but
+`Duration#plus` writes sums directly, so an `Infinity` field produced a `NaN`
+sum the getter silently turned into `0`. The rewritten `as`
 answers `NaN` there; an infinite duration is not 0 minutes long. The sweep for
 it also turned up that stock's `as("__proto__")` threw a `TypeError` out of
 `shiftTo` rather than `InvalidUnitError`, because `Duration.normalizeUnit`

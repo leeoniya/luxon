@@ -396,6 +396,18 @@ test("Duration#as applies casual and long-term conversion matrices", () => {
   expect(Duration.fromObject({ hours: -1.5, minutes: 30 }).as("minutes")).toBe(-60);
 });
 
+test("Duration#as preserves fractional precision and snaps near-integer years", () => {
+  expect(Duration.fromObject({ years: 1e-9 }).as("years")).toBe(1e-9);
+  expect(Duration.fromObject({ years: -1e-9 }).as("years")).toBe(-1e-9);
+
+  expect(Duration.fromObject({ years: 0.9999999999999999 }).as("years")).toBe(1);
+  expect(Duration.fromObject({ years: 1.0000000000000002 }).as("years")).toBe(1);
+  expect(Duration.fromObject({ years: -0.9999999999999999 }).as("years")).toBe(-1);
+
+  const fiveYears = 5 * 365 * 24 * 60 * 60 * 1000;
+  expect(Duration.fromMillis(fiveYears).as("years")).toBe(5);
+});
+
 test("Duration#as preserves unit normalization and rejection behavior", () => {
   for (const [singular, plural] of [
     ["year", "years"],
