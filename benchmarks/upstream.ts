@@ -52,7 +52,7 @@
 //
 // The three tables can be run alone, which is the loop for iterating on a patch:
 // --patches (~1s), --ladder (~80s under node, ~90s under bun — the reading half
-// costs JSC more, see PARSE_PASSES), --default (~13s). Any combination works,
+// costs JSC more, see PARSE_PASSES), --default (~25s). Any combination works,
 // and naming none runs all three. Only a full run writes the JSON that
 // cross-engine.ts reads.
 //
@@ -1408,7 +1408,7 @@ if (parseBroken.length > 0) {
   console.log();
 }
 
-// ---- the default zone -------------------------------------------------------
+// ---- default vs named zone --------------------------------------------------
 // Every table above names a zone, which is the configuration the patches were
 // written for and not the one most callers run. With no zone option, luxon uses
 // SystemZone, whose offset() is a getTimezoneOffset call rather than an Intl
@@ -1417,19 +1417,33 @@ if (parseBroken.length > 0) {
 // a measured number rather than an assumption, and so the rungs that do reach
 // the default path (C, E, F, G) are visible somewhere.
 //
-// It shares the ladder's kernel and reads its own cases: these are whole
-// operations rather than formatter closures, since the point is the API a caller
-// uses, and half of them do not format anything.
+// It shares the ladder's kernel and its shape — builds down the side, operations
+// across the top, the moment pair on top as the block every other row is shaded
+// against — but reads its own cases: these are whole operations rather than
+// formatter closures, since the point is the API a caller uses, and half of them
+// do not format anything.
+//
+// The moment rows are the same configurations the tables above time — a
+// configured default (moment-timezone's setDefault, core's process TZ) is the
+// only mode moment has, per-call zones being a luxon idiom — re-measured here as
+// whole operations so the rows are comparable within this table.
 
 const NUM_PATTERN = patternFor("luxon", "numeric");
+const MO_NUM_PATTERN = patternFor("moment", "numeric");
+
+type MomentTz = typeof import("moment-timezone");
 
 interface DefaultCase {
   key: string;
   what: string;
   /** the operation with no zone named, which is what this table is about */
   system: (m: LuxonModule) => Work;
-  /** the same against ZONE, for the column that says what the default is worth */
+  /** the same against ZONE, for the block that says what the default is worth */
   named: (m: LuxonModule) => Work;
+  /** moment's own idiom — the configured default, never a zone per call */
+  moment: (mo: MomentTz) => Work;
+  /** the shape of the Moment this builds, for the instance roles — see momentRole */
+  momentShape?: (mo: MomentTz) => object;
 }
 
 const DEFAULT_CASES: DefaultCase[] = [
@@ -1438,6 +1452,7 @@ const DEFAULT_CASES: DefaultCase[] = [
     what: `writing ${NUM_PATTERN}`,
     system: (m) => (ts) => m.DateTime.fromMillis(ts).toFormat(NUM_PATTERN).length,
     named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).toFormat(NUM_PATTERN).length,
+    moment: (mo) => (ts) => mo(ts).format(MO_NUM_PATTERN).length,
   },
   {
     key: "fromISO",
@@ -1452,6 +1467,13 @@ const DEFAULT_CASES: DefaultCase[] = [
       let i = 0;
       return () => m.DateTime.fromISO(pool[i++ % pool.length]!, { zone: ZONE }).valueOf();
     },
+    moment: (mo) => {
+      const pool = momentIsoPool(mo);
+      let i = 0;
+      // ISO_8601 named the way the parsing table's cells name it
+      return () => mo(pool[i++ % pool.length]!, mo.ISO_8601).valueOf();
+    },
+    momentShape: (mo) => mo("2025-01-01T00:00:00.000", mo.ISO_8601),
   },
   {
     key: "fromFormat",
@@ -1466,24 +1488,34 @@ const DEFAULT_CASES: DefaultCase[] = [
       let i = 0;
       return () => m.DateTime.fromFormat(pool[i++ % pool.length]!, NUM_PATTERN, { zone: ZONE }).valueOf();
     },
+    moment: (mo) => {
+      const pool = momentTokenPool(mo);
+      let i = 0;
+      return () => mo(pool[i++ % pool.length]!, MO_NUM_PATTERN).valueOf();
+    },
+    momentShape: (mo) => mo("2025-01-01 00:00:00", MO_NUM_PATTERN),
   },
   {
     key: "startOf",
     what: "startOf('day'), which formats nothing and still needs an offset",
     system: (m) => (ts) => m.DateTime.fromMillis(ts).startOf("day").valueOf(),
     named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).startOf("day").valueOf(),
+    moment: (mo) => (ts) => mo(ts).startOf("day").valueOf(),
   },
   {
     key: "plus",
     what: "plus({ days: 1 }), G's unit tables and its adjustTime fast path",
     system: (m) => (ts) => m.DateTime.fromMillis(ts).plus({ days: 1 }).valueOf(),
     named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).plus({ days: 1 }).valueOf(),
+    moment: (mo) => (ts) => mo(ts).add(1, "day").valueOf(),
   },
   {
     key: "now",
     what: "DateTime.now(), which can only be the default zone",
     system: (m) => () => m.DateTime.now().valueOf(),
     named: (m) => () => m.DateTime.now().valueOf(),
+    moment: (mo) => () => mo().valueOf(),
+    momentShape: (mo) => mo(),
   },
 ];
 
@@ -1502,68 +1534,120 @@ function tokenPool(m: LuxonModule, zone: string | undefined): string[] {
   );
 }
 
-// Stock and the fully patched build. The last column is stock again but with the
-// zone NAMED, which is a baseline rather than a control: it is what every other
-// table on this page measures, here so the reader can see how much of stock's
-// cost was the named zone in the first place.
-const DEFAULT_BUILDS: { id: string; keys: PatchKey[] }[] = [
-  { id: "stock", keys: [] },
-  { id: FULL.replace("luxon ", ""), keys: [...UPSTREAM] },
-];
+function momentIsoPool(mo: MomentTz): string[] {
+  return Array.from({ length: PARSE_POOL }, (_, i) => mo(BASE_TS + i * STEP_MS).format("YYYY-MM-DDTHH:mm:ss.SSS"));
+}
 
-// Three cells to a row, so six passes give each one two complete rotations.
+function momentTokenPool(mo: MomentTz): string[] {
+  return Array.from({ length: PARSE_POOL }, (_, i) => mo(BASE_TS + i * STEP_MS).format(MO_NUM_PATTERN));
+}
+
+// Fixed rather than budget-driven, for the reason the parse table's is: these
+// passes are short, so a per-pass budget would take the maximum regardless.
 const DEFAULT_PASSES: SampleBudget = { min: 6, max: 6, budgetMs: 0 };
 
 if (tables.has("default")) {
-  const loaded = new Map<string, LuxonModule>();
+  const stock = await loadLuxon([]);
+  const patched = await loadLuxon([...UPSTREAM]);
 
-  for (const build of DEFAULT_BUILDS) {
-    loaded.set(build.id, await loadLuxon(build.keys));
-  }
-
-  const patchedId = DEFAULT_BUILDS[1]!.id;
-  const best = new Map<string, Map<string, number>>();
-
-  const delta = (kase: string, id: string) => {
-    const got = best.get(kase)!;
-    return `${(((got.get(id)! - got.get("stock")!) / got.get("stock")!) * 100).toFixed(1)}%`;
+  // The instance disciplines the tables above use: role-keyed moments so the
+  // string-parsing cells cannot turn the formatting cells' field reads
+  // polymorphic (see momentRole), and the same configured default the ladder's
+  // moment-timezone row runs under.
+  const momentTzInstance = (kase: DefaultCase) => {
+    const mo = momentFor(momentRole(kase.momentShape ?? defaultMomentShape));
+    mo.tz.setDefault(ZONE);
+    return mo;
   };
+  const momentCoreInstance = (kase: DefaultCase) =>
+    momentCoreFor(momentCoreRole(kase.momentShape ?? defaultMomentShape));
 
-  // Unitless headers, as in the ladder; the title row gives the ms, and `d` is a
-  // percentage rather than a time either way.
-  const table = streamTable(["case", "stock", patchedId, "d", `stock, ${ZONE}`], {
-    title: `default zone ${N / 1000}k (ms)`,
-    minWidths: { 0: 12, 1: 9, 3: 7 },
+  // The baseline block the other tables open with — moment-timezone, moment,
+  // stock luxon — then the patched build, and then, under a rule, the same two
+  // luxon builds with the zone NAMED. The named block is a baseline rather than
+  // a control: it is the configuration every other table on this page measures,
+  // here so the reader can see how much of stock's cost was the named zone in
+  // the first place, and what the patches do to that configuration measured as
+  // these whole operations. `pathId` names the build whose bundle the bytes
+  // column reports.
+  const patchedLabel = FULL.replace("luxon ", "");
+  const DEFAULT_ROWS: { pathId: string; label: string; group: number; work: (kase: DefaultCase) => Work }[] = [
+    { pathId: "moment", label: "moment-timezone", group: 0, work: (kase) => kase.moment(momentTzInstance(kase)) },
+    { pathId: "moment-core", label: "moment", group: 0, work: (kase) => kase.moment(momentCoreInstance(kase)) },
+    { pathId: "luxon (stock)", label: "luxon", group: 0, work: (kase) => kase.system(stock) },
+    { pathId: FULL, label: patchedLabel, group: 1, work: (kase) => kase.system(patched) },
+    { pathId: "luxon (stock)", label: `luxon, ${ZONE}`, group: 2, work: (kase) => kase.named(stock) },
+    { pathId: FULL, label: `${patchedLabel}, ${ZONE}`, group: 2, work: (kase) => kase.named(patched) },
+  ];
+
+  // bytes as on every other table: a property of the build, so the named row
+  // repeats stock's figure — same bundle, different configuration
+  const bytesFor = new Map(
+    await Promise.all(
+      [...new Set(DEFAULT_ROWS.map((row) => row.pathId))].map(
+        async (id) =>
+          [id, (await minifiedSize(await shippedEntry(pathById(id)))).toLocaleString("en-US")] as const
+      )
+    )
+  );
+  const bytesWidth = Math.max(...[...bytesFor.values()].map((v) => v.length));
+
+  // What every other row is shaded against, filled by the first row that has a
+  // value — the moment-timezone row, as on every other table.
+  const anchor = new Map<string, number>();
+  /** rules go where the block changes, as the other tables place theirs */
+  const ruleAt = new Set(
+    DEFAULT_ROWS.flatMap((row, i) => (i > 0 && row.group !== DEFAULT_ROWS[i - 1]!.group ? [i] : []))
+  );
+  let index = 0;
+
+  const table = streamTable(["build", ...DEFAULT_CASES.map((kase) => kase.key), "bytes"], {
+    title: `default vs named zone ${N / 1000}k (ms)`,
+    minWidths: Object.fromEntries([
+      // the ladder's 22, unless a label (the named row's carries the zone) is wider
+      [0, Math.max(22, ...DEFAULT_ROWS.map((row) => row.label.length))],
+      ...DEFAULT_CASES.map((_, i) => [i + 1, 10]),
+      [DEFAULT_CASES.length + 1, bytesWidth],
+    ]),
   });
 
   const run = await measureRows(
-    DEFAULT_CASES,
-    // the builds of one case timed adjacently, so drift between cases cannot be
-    // read as a difference between builds
-    (kase) => [
+    DEFAULT_ROWS,
+    // a row is one build across the cases, interleaved within itself and
+    // cooled down from the previous row, exactly as the tables above measure
+    (row) => [
       {
-        entries: [
-          ...DEFAULT_BUILDS.map((b) => ({ key: b.id, work: kase.system(loaded.get(b.id)!) })),
-          { key: "named", work: kase.named(loaded.get("stock")!) },
-        ],
+        entries: DEFAULT_CASES.map((kase) => ({ key: kase.key, work: row.work(kase) })),
         passBudget: DEFAULT_PASSES,
         budgetMs: PASS_BUDGET_MS,
-        group: DEFAULT_BUILDS.length + 1,
       },
     ],
     { base: BASE_TS, step: STEP_MS, report: N, cooldownMs },
-    (kase, measured) => {
-      best.set(kase.key, measured.best);
+    (row, measured) => {
+      if (ruleAt.has(index)) table.rule();
+      index++;
+
+      for (const kase of DEFAULT_CASES) {
+        const v = measured.best.get(kase.key);
+
+        if (v !== undefined && !anchor.has(kase.key)) anchor.set(kase.key, v);
+      }
 
       table.row([
-        kase.key,
-        measured.best.get("stock")!.toFixed(1),
-        measured.best.get(patchedId)!.toFixed(1),
-        delta(kase.key, patchedId),
-        measured.best.get("named")!.toFixed(1),
+        row.label,
+        ...DEFAULT_CASES.map((kase) => {
+          const v = measured.best.get(kase.key)!;
+
+          return shade(v.toFixed(1), v, anchor.get(kase.key));
+        }),
+        bytesFor.get(row.pathId)!,
       ]);
     }
   );
+
+  if (!Number.isFinite(run.checksum)) {
+    throw new Error(`a default-vs-named-zone checksum is not finite — a timed cell returned NaN`);
+  }
 
   sink += run.checksum;
 

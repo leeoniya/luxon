@@ -727,7 +727,7 @@ formats, the last columns where moment-timezone was still ahead, have gone the
 other way. The patched builds are ahead on every shape measured, and on a bare
 timestamp it is not close.
 
-## The default zone
+## The default zone vs the named one
 
 The ladder names a zone, which is the configuration the patches were
 written for. `--default` is the same ladder with no zone named at all — what a
@@ -742,9 +742,19 @@ Intl call to begin with.
 
 The table is short for that reason. Several of its cases have no patch on them at
 all, and a run where those sit inside the floor printed under the table is the
-table working rather than a null result. Its last column is stock again with a
-zone named, which is what the ladder measures — a baseline for how much of
-stock's cost was the named zone in the first place, not a control.
+table working rather than a null result. It reads like the tables above — the
+moment-timezone/moment/stock-luxon block on top, shaded against its first row —
+and its last block, under the rule, is the two luxon builds again with a zone
+named, which is what the ladder measures: a baseline for how much of stock's
+cost was the named zone in the first place, and what the patches do to that
+configuration measured as these whole operations, not a control.
+
+The moment rows are the same configurations the ladder times — a configured
+default (moment-timezone's `setDefault`, core's process-local zone) is the only
+mode moment has, per-call zones being a luxon idiom. They are re-measured here
+rather than quoted because these cells are whole operations from a raw timestamp
+where the ladder's formatting and API cells operate on pooled instances, and
+because a within-table comparison has to share one measurement window.
 
 ## Verdict
 
