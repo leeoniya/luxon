@@ -14,9 +14,8 @@
 // another's.
 //
 // Every patch here is pure memoization or a provable short-circuit: no API
-// changes, and no behavior changes beyond the two boundary corrections argued
-// in docs/pr/09-trim-allocs.md and docs/pr/11-boundary-math.md, neither
-// reachable from a benchmark zone. benchmarks/upstream.ts verifies that by
+// changes, and no behavior changes beyond the boundary corrections argued
+// in docs/pr/09-boundary-math.md, neither reachable from a benchmark zone. benchmarks/upstream.ts verifies that by
 // diffing output against stock, and benchmarks/suite.ts checks 29 more API
 // paths by comparing each case's result across builds.
 
@@ -39,7 +38,7 @@ export type PatchKey = string;
 
 export interface Patch {
   key: PatchKey;
-  /** A-K, its position in apply order; what the report tables label it */
+  /** A-I, its position in apply order; what the report tables label it */
   letter: string;
   /** one-line summary for report tables */
   what: string;

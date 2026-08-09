@@ -57,7 +57,7 @@ lands on `DateTime#toRelativeCalendar`; the reused `Date` inside `SystemZone` on
 margin, and the ladder's [`other` table](coverage.md) is where its reach is
 visible rather than here.
 
-**J**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
+**F**, on `DateTime#toFormat`, which is the case [`format`](format.md) measures in
 bulk.
 
 ## The two cases that reset the caches
@@ -69,7 +69,7 @@ on both engines because every iteration deliberately defeats the locale and
 formatter caches.
 
 That is a reset-path cost, not a regression introduced by this audit's retained
-G arithmetic or J Duration-format changes: the case formats DateTimes and reaches
+G arithmetic or F Duration-format changes: the case formats DateTimes and reaches
 neither path. Each patch's cache is cleared where luxon clears the cache it stands
 in for, so none of the speedups elsewhere is a cache quietly outliving its reset.
 These rows are how the reset hooks in A, B, C and D came to be written.

@@ -1,4 +1,4 @@
-// I's fixtures.
+// Fixtures for I's allocation trims.
 //
 // All three changes replace an expression that is still in the tree, so nothing
 // here is a recorded number. `as()` keeps `shiftTo(unit).get(unit)` as its
@@ -16,7 +16,7 @@ import { describe, test } from "node:test";
 import { loadLuxon, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
 
 const VARIANTS: [string, PatchKey[]][] = [
-  ["trimAllocs", [patchKey("trimAllocs")]],
+  ["boundaryMath", [patchKey("boundaryMath")]],
   ["every patch", [...patchKeys]],
 ];
 
@@ -57,7 +57,7 @@ const AS_UNITS = [
 ] as const;
 
 for (const [label, keys] of VARIANTS) {
-  describe(`trimAllocs fixtures > ${label}`, () => {
+  describe(`boundaryMath alloc fixtures > ${label}`, () => {
     // ---- as() ----
 
     // JEST-PARTIAL (sync shared cases; not removable): test/duration/units.test.js — "Duration#as applies casual and long-term conversion matrices"
@@ -300,7 +300,7 @@ for (const [label, keys] of VARIANTS) {
       }
     });
 
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/math.test.js — "DateTime#endOf remains stable across repeated calls and receivers"
+    // JEST-MIRROR (sync until boundaryMath merges, then remove): test/datetime/math.test.js — "DateTime#endOf remains stable across repeated calls and receivers"
     test("the cached unit object is not consumed by the call that used it", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-03-10T01:30:00.000", { zone: ZONE });
@@ -459,7 +459,7 @@ for (const [label, keys] of VARIANTS) {
 
     // ---- clone ----
 
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/set.test.js — "DateTime clone-backed setters preserve unchanged fields"
+    // JEST-MIRROR (sync until boundaryMath merges, then remove): test/datetime/set.test.js — "DateTime clone-backed setters preserve unchanged fields"
     test("every field clone forwards survives the methods that change one", async () => {
       const m = await loadLuxon(keys);
       const dt = m.DateTime.fromISO("2024-03-10T01:30:00.000", { zone: ZONE, locale: "en-US" });
@@ -551,8 +551,8 @@ for (const [label, keys] of VARIANTS) {
       assert.equal((outOf as unknown as { wasHole: boolean }).wasHole, false, "set() out of the hole");
     });
 
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/invalid.test.js — "Explicitly invalid dates are invalid"
-    // JEST-MIRROR (sync until trimAllocs merges, then remove): test/datetime/set.test.js — "invalid DateTimes stay invalid through clone-backed methods"
+    // JEST-MIRROR (sync until boundaryMath merges, then remove): test/datetime/invalid.test.js — "Explicitly invalid dates are invalid"
+    // JEST-MIRROR (sync until boundaryMath merges, then remove): test/datetime/set.test.js — "invalid DateTimes stay invalid through clone-backed methods"
     test("an invalid DateTime stays invalid through the methods that clone it", async () => {
       const m = await loadLuxon(keys);
       const bad = m.DateTime.invalid("because");

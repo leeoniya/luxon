@@ -33,8 +33,8 @@
 // — everything that neither writes a string nor reads one. Those were a table of
 // their own until the patch set outgrew the two directions. G replaces the
 // Duration round trip inside adjustTime, H stops toRelative asking for diffs it
-// can already answer, I trims allocations from setters, endOf and diff, and K
-// turns the startOf/endOf boundaries into civil math; none of the four is
+// can already answer, and I trims allocations from setters and diff and turns
+// the startOf/endOf boundaries into civil math; none of the three is
 // reachable from a format string or a parse, and all were found by profiling
 // rather than by any column here. The cases are in lib/api-cases.ts and the
 // reading of them is in benchmarks/docs/coverage.md.
@@ -167,11 +167,10 @@ const DOCS = "benchmarks/docs";
 // actually in benchmarks/patches, so renaming a patch file breaks this loudly
 // rather than silently measuring a smaller set.
 //
-// A and the first of F's six were found by profiling stock luxon, the rest of
-// F's by re-profiling that build, and G, H and I by profiling the build with all
-// of them in. A, E and F through I are caches or short-circuits; J is the
-// structural one, and it makes two of F's six redundant by construction (it
-// parses each pattern once and folds punctuation into literal runs).
+// A and the first of F's leaf paths were found by profiling stock luxon, the
+// rest by re-profiling that build, and G, H and I by profiling the build with
+// all of them in. A, E, G, H and I's allocation half are caches or
+// short-circuits; F's compiled formats are the structural change.
 //
 // Named through `inPlay` rather than `patchKey` directly because `--drop` can
 // take any of them out from under this file, and a group that threw on a patch
@@ -179,7 +178,7 @@ const DOCS = "benchmarks/docs";
 // most useful on.
 const inPlay = (names: string[]) => names.filter(hasPatch).map(patchKey);
 
-const CACHES = inPlay(["zoneInfoCache", "localeIntern", "numericPath", "arithDirect", "relativeSkip", "trimAllocs"]);
+const CACHES = inPlay(["zoneInfoCache", "localeIntern", "arithDirect", "relativeSkip"]);
 const ALL_PATCHES = [...CACHES, ...inPlay(["compileFormat"])];
 // B is the zone lookup rather than the formatter.
 const OFFSET = inPlay(["offsetScan"]);
@@ -190,9 +189,10 @@ const OFFSET = inPlay(["offsetScan"]);
 // format path reaches it. The ladder's reading columns are where it shows, and
 // it has a rung of its own.
 const PARSE = inPlay(["tokenParserCache"]);
-// K is neither a cache nor on either string direction: it turns the
-// startOf/endOf boundary work into civil math, and its columns are all in the
-// `other` band.
+// I is on neither string direction: it drops read-once objects on the
+// arithmetic path and turns the startOf/endOf boundary work into civil math.
+// Its columns are nearly all in the `other` band; the exception is the one
+// clone that fromMillis does.
 const BOUNDARY = inPlay(["boundaryMath"]);
 const UPSTREAM = [
   ...ALL_PATCHES,
@@ -216,7 +216,7 @@ const contiguous = (letters: readonly string[]) =>
  * Ranges and an "all but X" for the rung one short of the set both read shorter,
  * and both were here. Together they put three notations in one column, so a
  * reader working out what "A-D" held had to first notice it was not "A+B+C" or
- * "all but J" — and the only thing this column exists to say is which patches a
+ * "all but I" — and the only thing this column exists to say is which patches a
  * row carries. Spelling them out is longer and cannot be misread, and the widest
  * label is the second-to-last row, which is not wide.
  */
@@ -236,53 +236,41 @@ if (UPSTREAM.length !== patchKeys.length) {
 // Ordered by how easy each is to argue for upstream rather than by size: A and E
 // are caches, B is a self-contained rewrite, C memoizes an object luxon already
 // hands out through buildFormatParser, D needs the tzdata-gap argument accepted,
-// and F through I are sets of leaf short-circuits. The
-// patch files are lettered and numbered in this order, so a rung's label reads in
-// the order it built and the letter of the patch without a rung is the last one.
+// F compiles the format walk and carries its leaf fast paths, and G and H are
+// sets of leaf short-circuits. The patch files are lettered and numbered in this
+// order, so a rung's label reads in the order it built and the letter of the
+// patch without a rung is the last one.
 //
-// K is deliberately absent, and is what the final row adds.
+// I is deliberately absent, and is what the final row adds.
 //
 // Exactly one patch can be in that position, because the rungs are cumulative:
 // every other patch is priced by what it ADDS to a partial tree, and whichever
 // one goes last is priced by what the COMPLETE tree LOSES without it. Those are
 // different questions, and for most patches the first is the one worth asking —
-// it is the "should this land" question.
-//
-// Two patches need to be late. J overlaps F, which is a rung, so a J measured
-// before F would be credited with savings F would also have found, and a reader
-// comparing a J-shaped rung against an F-shaped one further down would be
-// comparing two prices for some of the same work; its rung sits after every
-// patch it overlaps. K rewrites the endOf route I fused and stands on G's
-// arithmetic — it requires both — and it overlaps J not at all, so it takes the
-// final slot: the last two rows differ by K alone, and the step between them is
-// what K is worth with everything else already in, which is the only form of
-// the question a shipping decision turns on.
-//
-// The cost of J's placement is F's rung, which is measured in J's absence and
-// so reads larger than the F in the shipped tree. See "What the merge cost".
+// it is the "should this land" question. I takes the slot because its boundary
+// corrections are the set's only argued behavior changes, so the second
+// question is the form a shipping decision on it turns on. No patch overlaps
+// another, so no rung's price depends on this ordering.
 //
 // E's rung is the one to read across the whole width rather than off the
 // formatting columns alone: it interns Locales, which every direction builds one
 // of, but what it was written for is Info, and only the `other` band has any.
 //
-// G, H and I are all rows the `other` band exists for, and each was split out of
-// what used to be one patch because each owns a column there that the other two
-// do not. G is under plus, minus, diff, endOf and every Interval method; H is
-// under toRelative and nothing else; I is under the setters, so the only part of
-// it the formatting and parsing columns touch is the one clone that fromMillis
-// does. Removing any one of them from the complete tree costs at least 1.9x on
-// some column of that band, against a control that reaches 1.4x.
+// G and H are rows the `other` band exists for, and each owns a column there
+// that the other does not: G is under
+// plus, minus, diff, endOf and every Interval method; H is under toRelative and
+// nothing else. I's columns are there too — the setters and the startOf/endOf
+// boundaries — plus the one clone that fromMillis does, which is the only part
+// of it the formatting and parsing columns touch.
 const RUNG_ORDER = [
   "zoneInfoCache", // A
   "offsetScan", // B
   "tokenParserCache", // C
   "transitionInterval", // D
   "localeIntern", // E
-  "numericPath", // F
+  "compileFormat", // F
   "arithDirect", // G
-  "relativeSkip", // H
-  "trimAllocs", // I
-  "compileFormat", // J, and last of the rungs because K is not one
+  "relativeSkip", // H, and last of the rungs because I is not one
 ];
 
 /** each rung is the one above it plus one patch, so the list above is the table */
@@ -297,7 +285,7 @@ const RUNGS: string[][] = RUNG_ORDER.map((_, i) => RUNG_ORDER.slice(0, i + 1));
 const LADDER: { id: string; keys: PatchKey[] }[] = [...RUNGS.map(inPlay), UPSTREAM]
   // each row has to hold something the row above it did not. the everything row
   // is in the same filter as the rungs because it is the one that collapses when
-  // K is dropped: K is the only patch with no rung of its own, so without it the
+  // I is dropped: I is the only patch with no rung of its own, so without it the
   // last rung already is the everything build
   .filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length))
   .map((keys, i, all) => ({
@@ -621,8 +609,8 @@ if (tables.has("patches")) {
  * table varies and not the thing that one does. The ladder walks patch sets over
  * a fixed zone, and its other two writing columns are both all-numeric en-US
  * gregorian patterns — the one input for which F's numeric fast paths cover most
- * of what J's compiled program covers, so a ladder made only of those is the
- * place most likely to understate J. format.ts walks zones over a fixed patch
+ * of what its compiled programs cover, so a ladder made only of those is the
+ * place most likely to understate the compilation. format.ts walks zones over a fixed patch
  * set, and a third pattern there would cost it a table, a correctness sweep and
  * an Intl-counting subprocess to answer a question it is not asking.
  */
@@ -716,12 +704,12 @@ if (requestedRow === undefined && rowPaths.length !== paths.length) {
 //
 // Worth its own columns because the patches split unevenly across the two
 // directions, and the split is not guessable from the patch descriptions. Some
-// are formatter-only by construction (J compiles a format string to handlers; A
+// are formatter-only by construction (F compiles a format string to handlers; A
 // and D cache and then cheaply read the zone-NAME lookup, which no parse
 // performs). One is parse-only for the mirror-image reason: C compiles a format
 // string for reading, which no format path walks. Some are shared machinery that
-// parsing happens to route through (E interns Locales that both build, and F
-// memoizes the tokenizer both directions use). And B and D are the zone's
+// parsing happens to route through (E interns Locales that both build, and F's
+// tokenizer memo serves both directions). And B and D are the zone's
 // offset(), which every zoned parse needs before it can place a local time.
 //
 // The columns are the shapes a caller actually has, not a sweep: an ISO string
@@ -1430,7 +1418,7 @@ if (parseBroken.length > 0) {
 // one — so stock is already several times cheaper there, and the Intl-removing
 // patches have correspondingly less to remove. This table is here so that gap is
 // a measured number rather than an assumption, and so the rungs that do reach
-// the default path (C on token reading, and E through J across the writers and
+// the default path (C on token reading, and E through I across the writers and
 // the arithmetic) are visible somewhere.
 //
 // It shares the ladder's kernel and its shape — builds down the side, operations
@@ -1849,8 +1837,9 @@ if (tables.has("ladder") && withVerify) {
     patchedMismatches === 0
       ? `\nall ${UPSTREAM.length} patches are output-identical to stock luxon over every column here; the only\n` +
           `differences are the intended easy-tz abbreviations and independently reported\n` +
-          `baseline-library semantics. (The two boundary corrections I and K argue need a zone\n` +
-          `that transitions at local midnight, which no column uses — see docs/pr/11-boundary-math.md.)`
+          `baseline-library semantics. (The boundary corrections I argues need a zone that\n` +
+          `transitions at local midnight or a pre-100 leap day, neither of which any column\n` +
+          `uses — see docs/pr/09-boundary-math.md.)`
       : `\nFAIL: ${patchedMismatches} unexpected mismatch(es) — a patch changed behavior.`
   );
 

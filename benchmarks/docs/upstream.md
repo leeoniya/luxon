@@ -4,12 +4,11 @@
 > [methodology.md](methodology.md); the patches themselves are in
 > [`../patches/`](../patches), each with its reasoning in its header.
 
-What can be removed from *inside* luxon, patch by patch. Eleven candidate
-patches, lettered A through K, all of them memoization or provable
-short-circuits: no API changes, and no output changes beyond the two argued
-boundary corrections I and K document
-([9](pr/09-trim-allocs.md), [11](pr/11-boundary-math.md)), neither of which a
-benchmark zone can reach.
+What can be removed from *inside* luxon, patch by patch. Nine candidate
+patches, lettered A through I, all of them memoization or provable
+short-circuits: no API changes, and no output changes beyond the argued
+boundary corrections I documents ([9](pr/09-boundary-math.md)), neither of
+which a benchmark zone can reach.
 
 The workload is a column of timestamps rendered in a named IANA zone — what a
 dashboard or a data table produces thousands of at a time — plus the same column
@@ -134,9 +133,9 @@ costs that loop about 15%; zero parses costs it nothing. So **moment formats
 dates measurably slower in any process that has also parsed one**, which an
 application doing both directions really does pay.
 
-It is not what a column headed "format" is asking, though, and before the merge
-which cells paid it was decided by nothing more principled than the order the
-tables happened to print in. So the moment row now draws its instance from
+It is not what a column headed "format" is asking, though, and which cells pay
+it should not be decided by anything as unprincipled as the order the tables
+happen to print in. So the moment row draws its instance from
 [`../lib/build.ts`](../lib/build.ts)'s `momentFor`, keyed by the shape of the
 Moment the cell builds: cells that build the same shape share an instance and its
 warmth, cells that build different shapes cannot see each other. The key is read
@@ -171,10 +170,10 @@ of it. E is the clearest case: interning `Locale` objects barely shows against a
 pattern that holds its locale fixed, and the calls it was written for are in the
 `other` table — see [coverage.md](coverage.md).
 
-### Why J follows everything it overlaps, and K comes after that
+### Why I comes last
 
-Ten of the eleven patches have a rung. K does not, so the final row is the one
-that adds it, and the last two rows of the table differ by K alone.
+Eight of the nine patches have a rung. I does not, so the final row is the one
+that adds it, and the last two rows of the table differ by I alone.
 
 The last position answers a different question from the rest of the ladder.
 Every other rung is priced by what it **adds** to a partial tree — the "should
@@ -182,25 +181,11 @@ this land" question. Whichever patch goes last is priced by what the **complete
 tree loses without it**, which is the "should this stay" question, and the two
 differ by exactly the overlap between that patch and everything below it.
 
-For most of these patches the overlap is small and the distinction does not
-matter. For J it is neither. J and F both take work off the route a numeric token
-walks, so a J measured before F would be credited with savings F would also have
-found, and a reader comparing a rung priced that way against F's further down
-would be seeing part of the same work billed twice. Ordering J after F removes
-the double count; J's rung, the step from `A+B+C+D+E+F+G+H+I` to one with J in
-it, is what J is worth with everything it overlaps already in.
-
-K sits after J for the same reason pointed at G and I: it rewrites the `endOf`
-route I fused and leans on the arithmetic G rebuilt, so it requires both and is
-measured with both already priced. It overlaps J not at all — nothing K touches
-formats or parses — so nothing about J's measurement moved when K took the last
-slot. The step from `A+B+C+D+E+F+G+H+I+J` to `all (A-K)` is what K is worth
-with everything else already in, which is the only form of the question a
-shipping decision turns on.
-
-The cost of J's placement still lands on F: F's rung is measured in J's absence
-and reads larger than the F in the tree that actually ships. That trade is worth
-making in this direction because F was never the patch in doubt.
+I takes the position because it is the patch the second question fits. Its
+civil math stands on the arithmetic G rebuilt, and it is the one patch arguing
+output corrections rather than none, so the number a shipping decision on it
+turns on is what the finished tree loses without it. No patch overlaps
+another, so no rung's price depends on an ordering choice this table made.
 
 ## The patches
 
@@ -219,7 +204,7 @@ the table's formatting/parsing split: it takes most of the abbreviated format
 and moves no parse column at all.
 
 The cache lookup itself is a one-line substitution; the measured scanner,
-layout validation, reset hook and fallback bring the merged patch to 710
+layout validation, reset hook and fallback bring the whole patch to 710
 minified bytes.
 
 ### B — `offsetScan`
@@ -236,12 +221,12 @@ is verified against stock `offset()` over every transition its zones have.
 
 ### C — `tokenParserCache`
 
-The same argument as J, pointed the other way. `fromFormat` resolves a format
-string to a compiled RegExp on every call and then throws it away, which is what
-the Formatter used to do with a token list per value; the fix is the same one,
-resolve it once per format and keep it.
+The same argument as F's compiled formats, pointed the other way. `fromFormat`
+resolves a format string to a compiled RegExp on every call and then throws it
+away, which is what the Formatter used to do with a token list per value; the
+fix is the same one, resolve it once per format and keep it.
 
-It needs none of J's restructuring, because the object worth keeping is already
+It needs none of F's restructuring, because the object worth keeping is already
 public: `buildFormatParser` hands a `TokenParser` out and `fromFormatParser`
 takes one back, an API whose only purpose is to let a caller hoist exactly this
 out of a loop. C does it for the callers who did not. The whole patch is a Map, a
@@ -250,7 +235,7 @@ lookup and a reset, and it takes better than half off both token-parsing columns
 ### D — `transitionInterval`
 
 One interval cache serving both lookups: the offset and the name are cached
-together across the interval that two probes prove transition-free. Apart from J
+together across the interval that two probes prove transition-free. Apart from F
 it is the only rung that helps both formats, because it is the one patch that
 touches both calls. Its diff builds on both zone lookup rewrites, so D requires
 A and B.
@@ -304,49 +289,47 @@ is the case `resetCaches()` exists for.
 [`test/locale-intern-patch.test.ts`](../test/locale-intern-patch.test.ts) swaps
 `Intl.NumberFormat` out from under a `Duration` that has already rendered.
 
-### F, G and H — one idea, three patches
+### F's fast paths, G and H — one idea, three places
 
-These three were one patch, and the split is the more interesting fact about
-them. All three do the same thing — take work out of a step without changing what
-the step means — and they were grouped on that resemblance, which turned out to
-be the wrong axis. What separates them is where the work was: F is on the route a
-numeric token takes out of the formatter, G is on the arithmetic under every
-`plus`, and H is on `toRelative` alone.
+F's numeric fast paths, G and H all do the same thing — take work out of a step
+without changing what the step means — and the resemblance invites grouping
+them. It is the wrong axis. What separates them is where the work is: the fast
+paths are on the route a numeric token takes out of the formatter, G is on the
+arithmetic under every `plus`, and H is on `toRelative` alone.
 
-They were split when each was priced by removing just it from the complete tree.
-Each costs at least 1.9x on some column that the other two barely move, against a
-control — the same tree built twice and timed against itself — that reaches 1.4x:
+G and H are patches of their own because each is priced by removing just it
+from the complete tree, and each costs at least 1.9x on some column the other
+barely moves, against a control — the same tree built twice and timed against
+itself — that reaches 1.4x:
 
 | patch | its column | node | bun |
 | ----- | ---------- | ---: | --: |
-| F | `toFormat num` | 1.94x | 3.14x |
 | G | `Interval length` | 3.41x | 3.15x |
 | H | `toRelative` | 7.80x | 3.93x |
 
-A fourth group did not survive that test, and is the reason to describe the split
-rather than just the result. Four hoisted constants — `DateTime.normalizeUnit`,
-`Duration.normalizeUnit`, `formatRelativeTime` and `SystemZone#offset`, each a
-lookup table or `Date` rebuilt inside the function that reads it — peak at 1.26x
-on node and 1.57x on bun, at or under that control. There is no column a row of
-their own could point at, so they ride in G, which is what reads most of them.
+A fourth group does not clear that bar. Four hoisted constants —
+`DateTime.normalizeUnit`, `Duration.normalizeUnit`, `formatRelativeTime` and
+`SystemZone#offset`, each a lookup table or `Date` rebuilt inside the function
+that reads it — peak at 1.26x on node and 1.57x on bun, at or under that
+control. There is no column a row of their own could point at, so they ride in
+G, which is what reads most of them.
 
-### F — `numericPath`
+### F — `compileFormat`
 
-Six fast paths along one route: rendering `yyyy-MM-dd HH:mm:ss` walks all six per
-value. They were six separate patches once, and they did not agree on which
-engine they helped — two cleared the noise floor on V8 only, one on
-JavaScriptCore only, one on neither. Together they clear it on both by a wide
-margin, which is the case for one patch rather than six.
+Two layers on one route. The structural layer compiles the format walk to a
+program; the leaf layer is the fast paths a numeric token still crosses on the
+way into that program's output.
 
-Five are in `Formatter` and `impl/util.js`: `num` pads its own digits when the
-numbering system is `latn`, `parseFormat` caches the token split, the token loop
-hoists what does not vary, `roundTo` returns integers unchanged, and `padStart`
-answers two-digit pads from a table.
+Three of the leaf paths are in `Formatter` and `impl/util.js`: `num` pads its
+own digits when the numbering system is `latn`, `roundTo` returns integers
+unchanged, and `padStart` answers two-digit pads from a table. A fourth,
+`parseFormat`, caches the token split — it runs at most once per pattern, when
+the compiler asks.
 
-The sixth is `tsToObj`, and it is the one that reaches furthest: integer civil
-math in place of a wrapper `Date` and seven getter calls, under every `DateTime`
-that reads a calendar field. That is why this patch moves `millis`, a column that
-formats nothing.
+The one that reaches furthest is `tsToObj`: integer civil math in place of a
+wrapper `Date` and seven getter calls, under every `DateTime` that reads a
+calendar field. That is why this patch moves `millis`, a column that formats
+nothing.
 
 Writing the verification sweep turned up two bugs in that rewrite, both from the
 same cause: replacing `new Date(ts)` also dropped the TimeClip the constructor
@@ -358,6 +341,81 @@ is a whole number well inside the range, which is how both survived until there
 was a sweep. Both are now in
 [`test/numeric-path-patch.test.ts`](../test/numeric-path-patch.test.ts), which
 also checks `tsToObj` against `Date`'s own getters over 200k random instants.
+
+Compiling a DateTime pattern to handlers once removes three costs together: the
+~70-case switch per token per value, the eight closures
+`formatDateTimeFromString` built per call, and the Intl options object literals
+its branches allocated. It also folds punctuation into literal runs, so
+separators cost a concat. It is the largest patch here in shipped bytes.
+
+The name memo is a bigger number than the DateTime compile step for
+any caller not writing English. A name token — month, weekday, era, day period —
+has an English branch that reads a constant array and no fast path at all for
+anything else: it asks ICU, per token, per value. Nothing else in this patch set
+is anywhere near that path, all of it being aimed at zone lookups and the numeric
+tokens, which is why a non-English column sat flat down the ladder until this
+landed.
+
+What makes it a defect rather than a cost is that luxon has already computed
+these. `Locale` caches the month, weekday and day-period lists per instance, and
+`Info.months` reads them while the formatter never has. The `other` table shows
+both ends of that: `Info.months fr` against a `toFormat` naming a month in fr.
+
+Rerouting the formatter to `Locale`'s lists is the obvious fix and the wrong one.
+The two ask ICU for slightly different things — a format-context weekday there
+carries `year: "numeric"` and here it does not — which is enough to change the
+form ICU returns, and swapping them re-renders fi and fa. So the patch memoizes
+the formatter's own call instead, keyed on the field the answer depends on. Two
+boundaries came out of sweeping locales rather than out of reading the code: a
+month or era name is only a function of the Gregorian field when the resolved
+calendar is Gregorian, which fa's is not, so those two consult it and fall back;
+and day periods are keyed by hour rather than by `hour < 12`, which declines to
+import `Locale#meridiems`' assumption that a locale has exactly two of them.
+
+It leaves one pre-existing inconsistency alone: `toFormat("LLLL")` in ja renders
+`4` where `Info.months` and `toLocaleString` render `4月`, because `Locale#months`
+carries a ja workaround the formatter never had. Memoizing what the formatter
+already returns does not change what it returns.
+
+The compilation is not a substitute for the caches — those are worth a great
+deal between them, and it adds to the total on top of all of them. It is the
+largest single formatter win in isolation.
+
+Duration formatting compiles its fields, widths and literal runs too, instead
+of rebuilding three closures and four arrays per call. The value still goes
+through `shiftTo`, sign handling and `num`, preserving custom matrices,
+flooring and fractional behavior. Numeric and literal-heavy pooled cases both
+improved by low-twenties percent on Node and Bun.
+
+The two layers pull different weight in a writing cell, which times
+`DateTime.fromMillis(ts, opts).toFormat(pattern)` — construction as well as
+formatting, and construction is something like two fifths of it. The compiled
+program is a `Formatter` change and does nothing whatever for the construction
+share; the leaf `tsToObj` rewrite is where construction spends its time.
+
+The `text` and `text fr` columns both exist because of the compiled half, and
+specifically because a ladder without them understates it. `numeric` and
+`abbr` are both all-numeric patterns in en-US on the gregorian calendar, which
+is the one input for which the `num`, `padStart` and `roundTo` fast paths
+cover most of what the compiled program covers — so a table made only of those
+buries the compilation inside its own patch's leaf paths. A weekday or month
+name reaches no numeric fast path at all, which is what `text` varies.
+
+`text fr` then varies one thing against `text`: the locale, holding the pattern
+identical. That makes the pair a reading of the English branch and nothing else,
+which is the whole of what the name memo is about. The rungs above F — the zone
+patches and E — are on paths the non-English column never takes, so `text fr`
+sits flat for five rungs and collapses on the sixth, which is not a shape that
+noise produces and is why one column was worth its width here where a second
+English pattern would not have been. (The memo hangs off the `Locale` that E
+interns, which is why E files first: each is independently correct and only
+together fast.)
+
+The shapes further out — a long pattern, a non-gregorian calendar, the same
+locale question asked of a pre-built `DateTime` rather than of construction plus
+formatting — are the `toFormat` columns in the `formatting` table rather than
+variations on these four, since they vary the caller's pattern rather than the
+patch set. [coverage.md](coverage.md) reads them.
 
 ### G — `arithDirect`
 
@@ -469,20 +527,21 @@ every zone, anchor, spread and direction in the temporal matrix, with each optio
 paired separately rather than multiplied through it. The zones include Lord
 Howe's half-hour DST and Chatham's 45-minute offset.
 
-### I — `trimAllocs`
+### I — `boundaryMath`
 
-Short-lived arithmetic plumbing: `clone`'s second config, the `Duration` that
-`Duration#as` constructs in order to read one number off it, the `{ [unit]: 1 }`
-literal `endOf` makes per call, one of the three DateTimes in
-calendar-unit `endOf`, and `diff`'s final lower/higher-result merge.
+Read-once arithmetic plumbing dropped, and calendar boundaries computed as
+integer math rather than assembled from intermediate `DateTime`s.
 
-It is the same shape as G's two round trips and a separate patch because it is a
-separate argument. G's two are on the arithmetic *math*, where the thing that
-could go wrong is floating point; these are on the arithmetic *plumbing*, where
-the thing that could go wrong is a caller depending on a property of an object
-being removed.
+The plumbing half is `clone`'s second config, the `Duration` that `Duration#as`
+constructs in order to read one number off it, the `{ [unit]: 1 }` literal
+`endOf` makes per call, and `diff`'s final lower/higher-result merge.
 
-`clone` is the one that carries the patch, and not only for the allocation it
+It is the same shape as G's two round trips and a separate argument. G's two
+are on the arithmetic *math*, where the thing that could go wrong is floating
+point; these are on the arithmetic *plumbing*, where the thing that could go
+wrong is a caller depending on a property of an object being removed.
+
+`clone` is the one that carries the half, and not only for the allocation it
 saves. Its config was `{ ...current, ...alts, old: current }`, and `alts` is a
 different set of keys at each of the six call sites — `{ts}`, `{ts, zone,
 wasHole}`, `{loc}`, `{ts, o, wasHole}` — so the object the `DateTime` constructor
@@ -492,30 +551,25 @@ settled. Naming the seven fields gives every call site one shape. Every setter
 
 `as` is the fiddly one. `shiftTo` is not the plain sum it reduces to: it splits
 its running total into an integer part and a remainder and adds them back, which
-is not the identity in floating point, and the getter it returns through ends in
-`|| 0`, so a `NaN` currently answers `0`. Both are copied rather than simplified,
-because this is the patch that removes the allocation and not the patch that
-changes the answer.
+is not the identity in floating point, so that split is copied rather than
+simplified. The `|| 0` that the getter it returns through ends in is *not*
+copied, and that is a deliberate divergence: nothing `fromObject` accepts can
+reach it, but `Duration#plus` writes sums directly, so an `Infinity` field
+produced a `NaN` sum the getter silently turned into `0`. The rewritten `as`
+answers `NaN` there; an infinite duration is not 0 minutes long. The sweep for
+it also turned up that stock's `as("__proto__")` threw a `TypeError` out of
+`shiftTo` rather than `InvalidUnitError`, because `Duration.normalizeUnit`
+looks its argument up in an object literal where `"__proto__"` and
+`"constructor"` both find something truthy enough to pass the check meant to
+throw on them. The rewrite throws `InvalidUnitError` for any answer that is not
+one of the nine ordered units — belt-and-braces on the full ladder, where G's
+null-prototype tables already make `normalizeUnit` itself throw it.
 
-Writing the sweep for it turned up something separate and worth reporting
-upstream on its own: `Duration.normalizeUnit` does not reject `"__proto__"` or
-`"constructor"`. It looks its argument up in an object literal, where both find
-something truthy enough to pass the check meant to throw on them, and `as` then
-returns `undefined` instead of raising `InvalidUnitError`. The fast path here
-declines to have an opinion — anything `normalizeUnit` answers that is not one of
-the nine ordered units falls back to `shiftTo` — so the quirk survives the patch
-intact. It is a `normalizeUnit` fix, and a different one.
-
-`endOf`'s memo is the small part. It needs a `Map` rather than an object, for the
-same reason as above from the other direction: on a plain object
-`oneOf["__proto__"]` finds `Object.prototype`, which is truthy and would be handed
-to `plus()`, so `endOf("__proto__")` would quietly behave like `startOf` instead
-of throwing. Year, quarter and month also combine `plus().startOf()` into one
-`set()` of the next civil month boundary and retain `minus(1)`, removing one
-DateTime. The boundary's offset guess becomes the receiver's own rather than one
-read a month ahead, which moves the answer only in zones that fall back across
-local midnight — K widens this route and carries the argument. Week keeps the
-general path here because its boundary may be locale-based.
+`endOf`'s memo is the small part. It is a null-prototype bag rather than an
+object literal for the same reason from the other direction: the key is
+whatever string the caller passed, and on a literal `oneOf["constructor"]`
+finds `Object` off the prototype — before the cache was ever written to — and
+would hand `plus()` a function.
 
 `diff`'s measured `["days", "hours"]` shape has one lower-order unit. In that
 case `fromMillis(...).as("hours")` is the value `shiftTo("hours").get("hours")`
@@ -523,179 +577,37 @@ would return, so it can be added to the result before its final construction.
 That skips `Duration#plus`, its unit walk and its clone; multiple lower-order
 units retain the general path.
 
-I's rung is nearly flat across the `formatting` and `parsing` tables, and
-expectedly so — those columns write or read a date, and the only part of I on
-those routes is the one `clone` that `fromMillis` does. The `other` table is where
-it is priced: `plus`, `set`, `startOf`, `endOf`, `diff` and `Duration#as`.
+The boundary half is three changes sharing one idea. `dayOfWeek` loses its
+per-call `Date` allocation to the same Hinnant civil-day math B and F already
+use on their paths; `startOf("week")` stops asking what week it is and steps
+back `weekday - 1` days directly; and `endOf` fuses to a single construction
+for every calendar unit, the trailing `minus(1)` folded in, since the
+constructor re-derives the offset for a changed timestamp anyway.
 
-### J — `compileFormat`
-
-The structural one, and it does three things. Compiling a DateTime pattern to
-handlers once removes three costs together: the ~70-case switch per token per
-value, the eight closures `formatDateTimeFromString` built per call, and the Intl
-options object literals its branches allocated. It also folds punctuation into
-literal runs, so separators cost a concat.
-
-It is the largest patch here in shipped bytes, and it was larger still while it
-kept the interpreter it replaces beside the compiler under a second name. That
-was for reviewability and it was the wrong place to buy it: the retained method
-was a third of everything the whole patch set adds to the bundle, nothing called
-it, and being a class method meant no minifier would drop it. It is deleted, and
-the two implementations are read side by side in the patch's own diff.
-
-The name memo is a bigger number than the DateTime compile step for
-any caller not writing English. A name token — month, weekday, era, day period —
-has an English branch that reads a constant array and no fast path at all for
-anything else: it asks ICU, per token, per value. Nothing else in this patch set
-is anywhere near that path, all of it being aimed at zone lookups and the numeric
-tokens, which is why a non-English column sat flat down the whole ladder until
-this landed.
-
-What makes it a defect rather than a cost is that luxon has already computed
-these. `Locale` caches the month, weekday and day-period lists per instance, and
-`Info.months` reads them while the formatter never has. The `other` table shows
-both ends of that: `Info.months fr` against a `toFormat` naming a month in fr.
-
-Rerouting the formatter to `Locale`'s lists is the obvious fix and the wrong one.
-The two ask ICU for slightly different things — a format-context weekday there
-carries `year: "numeric"` and here it does not — which is enough to change the
-form ICU returns, and swapping them re-renders fi and fa. So the patch memoizes
-the formatter's own call instead, keyed on the field the answer depends on. Two
-boundaries came out of sweeping locales rather than out of reading the code: a
-month or era name is only a function of the Gregorian field when the resolved
-calendar is Gregorian, which fa's is not, so those two consult it and fall back;
-and day periods are keyed by hour rather than by `hour < 12`, which declines to
-import `Locale#meridiems`' assumption that a locale has exactly two of them.
-
-It leaves one pre-existing inconsistency alone: `toFormat("LLLL")` in ja renders
-`4` where `Info.months` and `toLocaleString` render `4月`, because `Locale#months`
-carries a ja workaround the formatter never had. Memoizing what the formatter
-already returns does not change what it returns.
-
-It is not a substitute for the caches — those are worth a great deal between
-them, and J adds to the total on top of all of them. It is the largest single
-formatter win in isolation. Its compiler is written against F's numeric-path
-changes, so J requires F.
-
-Duration formatting now compiles its fields, widths and literal runs too,
-instead of rebuilding three closures and four arrays per call. The value still
-goes through `shiftTo`, sign handling and `num`, preserving custom matrices,
-flooring and fractional behavior. Numeric and literal-heavy pooled cases both
-improved by low-twenties percent on Node and Bun; the complete patch is 412
-minified bytes over stock.
-
-It is also the patch this table was rearranged for. J's rung sits after every
-patch it overlaps, so its step is what J is worth with all of them already
-applied, and it moves all four writing columns on both engines. The reading
-columns are the control: J never touches parsing, so they should not move, and a
-run where they do is a run whose row-to-row noise is worth checking before the
-writing columns are believed.
-
-Read that step against the row above it, not as a share of the milliseconds
-between stock and the full set. Late rungs are compressed on that second measure,
-because each one only ever takes a fraction of what the rungs above it left — but
-compressed is not the same as negligible, and the size of a late rung is still
-mostly about the patch. Before K took the final slot, J held it, and the rung
-that held it before J was roughly twice J's size, which is a real difference and
-not an artefact of the position. That
-rung was the merged patch F, G and H came out of, so the comparison below is
-against an F larger than the one that ships; F alone still owns the formatting
-half of it, which is the half the comparison turns on.
-
-Most of that difference is that the two are eligible for different amounts of the
-cell. A writing cell here times `DateTime.fromMillis(ts, opts).toFormat(pattern)`,
-construction as well as formatting, and construction is something like two fifths
-of it. J is a `Formatter` change and does nothing whatever for the other three
-fifths; F is on both, since its `tsToObj` rewrite is where construction spends its
-time. Measured apart on V8, removing J costs nothing measurable on construction
-and slightly more than doubles formatting, which is within noise of what removing
-F costs formatting — the two are level on the half they share, and F is ahead
-overall because it also owns a half J cannot reach. On JavaScriptCore F is ahead
-on both halves.
-
-So J is worth roughly half of F by this table's measure on V8 and less than that
-on JSC, and that ranking is the honest one. What it is not is marginal. Dropping
-it leaves the *fully patched* tree — not stock, which is an order of magnitude
-away from both — around two thirds slower at writing a date, which is the
-difference between something like twelve times stock and twenty times it.
-
-That is the same 7.2ms as the couple of percent it holds of the stock-to-full-set
-total, seen against a different denominator, and both readings are true. Stock
-spends most of its time constructing rather than formatting, so a formatter patch
-is always going to look small against the whole journey and large against what is
-left at the end of it. The first denominator answers how the tree got here; the
-second answers what shipping this one changes.
-
-The `text` and `text fr` columns both exist because of J, and specifically
-because a ladder without them understates it. `numeric` and `abbr` are both
-all-numeric patterns in en-US on the gregorian calendar, which is the one input
-for which F's `num`, `padStart` and `roundTo` fast paths cover most of what J's
-compiled program covers — so a table made only of those credits F with much of
-J's work. A weekday or month name reaches no numeric fast path at all, which is
-what `text` varies and why J's step moves it further than it moves the other two.
-
-`text fr` then varies one thing against `text`: the locale, holding the pattern
-identical. That makes the pair a reading of the English branch and nothing else,
-which is the whole of what the name memo is about. Down the rungs the two columns
-diverge — `text` improves as the caches land and `text fr` barely moves, because
-every rung above J is on a path the non-English one never takes — and on the last
-row they converge. A column that flat for eight rungs and then collapses on the
-ninth is not a shape that noise produces, which is why one column was worth its
-width here where a second English pattern would not have been.
-
-The shapes further out — a long pattern, a non-gregorian calendar, the same
-locale question asked of a pre-built `DateTime` rather than of construction plus
-formatting — are the `toFormat` columns in the `formatting` table rather than
-variations on these four, since they vary the caller's pattern rather than the
-patch set. [coverage.md](coverage.md) reads them.
-
-### K — `boundaryMath`
-
-Calendar boundaries computed as integer math rather than assembled from
-intermediate `DateTime`s. Three changes share one idea: `dayOfWeek` loses its
-per-call `Date` allocation to the same Hinnant civil-day math B and F
-already use on their paths; `startOf("week")` stops asking what week it is and
-steps back `weekday - 1` days directly; and `endOf` fuses to a single
-construction for every calendar unit — day and week join the year/quarter/month
-route I built, and the trailing `minus(1)` folds into it, since the constructor
-re-derives the offset for a changed timestamp anyway.
-
-Its step — the last two rows of the ladder, which differ by K alone — is the
-three `endOf` columns and `hasSame day`, which is `startOf` and `endOf` back to
-back. `endOf day` and `endOf month` move from behind moment-timezone to ahead
-of moment core; `endOf week` was the worst arithmetic column in the table and
-lands the same place, because the week round trip it no longer takes was
+I has no rung; its step is the last two rows of the ladder. The `formatting`
+and `parsing` tables barely see it, expectedly — the only part of I on those
+routes is the one `clone` that `fromMillis` does. The `other` table is where it
+is priced: `plus`, `set`, `startOf`, `endOf`, `diff`, `Duration#as`, and above
+all the three `endOf` columns and `hasSame day`, which is `startOf` and `endOf`
+back to back. `endOf day` and `endOf month` move from behind moment-timezone to
+ahead of moment core; `endOf week` was the worst arithmetic column in the table
+and lands the same place, because the week round trip it no longer takes was
 calling the old `dayOfWeek` four times per operation.
 
-K requires G and I: it rewrites the `endOf` text I fused and stands on
-arithmetic G rebuilt. It is also the one patch whose document argues two output
-corrections rather than none — the midnight-fold rule it inherits from I's
-month route and extends, and the weekday of leap days before year 100, which
-stock reads off March 1 — both unreachable from any benchmark zone, both pinned
-by its fixtures ([11-boundary-math.md](pr/11-boundary-math.md)).
-
-### What the merge cost
-
-J subsumes two of F's six formatter fast paths by construction, since it parses
-each pattern once and folds punctuation into literal runs. While those two were
-their own patches, a build without them measured that redundancy directly. They
-cannot be removed on their own now, and no build here stands in for one that
-could: dropping F whole measures F's weight rather than J's redundancy, which is
-a different question badly asked. Losing that check is the one thing merging
-these six gave up, and it is not recoverable without unmerging them.
-
-The overlap is still visible from the other end, though, which is what ordering J
-last buys. F's rung sits above J now, so it is measured on a tree with none of J
-in it and reads larger than the F that ships; the final step then prices J on a
-tree that has all of F. Neither number double-counts the shared work, and the
-sum of the two is the honest total for the pair.
+I's diff applies against stock, but its civil math stands on the arithmetic G
+rebuilt, so it requires G. It is also the one patch whose document argues
+output corrections rather than none — `endOf` at a midnight fold now ends the
+period on the receiver's side, and leap days before year 100 answer their own
+weekday where stock reads off March 1 — both unreachable from any benchmark
+zone, both pinned by its fixtures
+([09-boundary-math.md](pr/09-boundary-math.md)).
 
 ### Asking what a patch is worth, rather than what it adds
 
 A rung measures what a patch adds *given everything above it*. That is the right
 question for "should this land", and the wrong one for "should this stay",
 because the two differ by exactly the overlap between the patch and everything
-below it. The ladder answers the second question for J, by putting it last — but
+below it. The ladder answers the second question for I, by putting it last — but
 it can only do that for one patch at a time.
 
 `--drop <letters>` answers it for any of them, by leaving a patch out of every
@@ -708,10 +620,10 @@ Two cautions on reading that difference. It is a comparison **between two runs**
 where every other comparison this bench makes is between cells interleaved inside
 one process, so it carries drift that nothing cancels — read it against the
 per-column floors and prefer a margin several times them. And it is not needed for
-K, whose answer is already the last step of the ladder in a single run.
+I, whose answer is already the last step of the ladder in a single run.
 
 Rows that collapse into the one above them are folded away — including the last
-row under `--drop K`, since K is the only patch without a rung and the ladder
+row under `--drop I`, since I is the only patch without a rung and the ladder
 therefore already ends at the full set without it. Rung labels spell out every
 letter they hold, so a dropped patch shows as a gap in them; the last row is the
 only one that abbreviates, and it says `all (no C)` rather than a range when
@@ -727,8 +639,9 @@ Reading was not what most of this was aimed at, and the ladder's five reading
 columns show which of it carries over.
 
 The biggest formatting wins do nothing here. A is the zone-name lookup and no
-parse performs one; J compiles a format string for writing and no parse walks
-one. Neither moves a reading column by more than that column's own noise floor.
+parse performs one; F's compiled programs are for writing and no parse walks
+one — its tokenizer cache is the sliver of it a parse sees. Neither moves a
+reading column by more than that column's own noise floor.
 Three patches carry these columns instead: B and D, both being
 `offset()`, which every zoned parse needs before it can place a local time, and
 C, the only one in the set written for reading.
@@ -775,9 +688,9 @@ Luxon falls back to `SystemZone`, whose `offset()` is a `getTimezoneOffset` call
 rather than an Intl one, so stock is already far cheaper there than against a
 named zone. A, B and D exist to remove IANAZone's Intl calls, so against the
 default zone they have nothing to remove. The rest of the set still reaches it:
-C on the token-reading case, E and F wherever a locale or a number is written, H
-under `toRelative`, J under the format writers, and G and I under the arithmetic
-— none of which was a named-zone cost to begin with.
+C on the token-reading case, E and F wherever a locale, a number or a format is
+written, H under `toRelative`, and G and I under the arithmetic — none of which
+was a named-zone cost to begin with.
 
 Some of its cases still have no patch on them at all, and a run where those sit
 inside the floor printed under the table is the table working rather than a null
@@ -863,19 +776,19 @@ In the order they are lettered, which is what the letters are for.
 2. **D.** File after A and B because its shared transition-interval cache is
    written against both lookup rewrites. It also needs the tzdata-gap argument
    accepted once, and pays off on both calls for it.
-3. **E, then F, G, H and I.** These are independent of the zone work and reach
-   calls that never format anything, so this table understates them; each is
-   argued on [coverage.md](coverage.md). F, G and H were one patch until each was
-   priced alone and found to own a column the other two do not. I files after G
-   because two of its changes are the same kind and are easier to review having
-   read it.
-4. **J.** File after F, whose formatter fast paths it builds on, and last on the
-   ladder. It is the one that changes how the `Formatter` is built rather than
-   what it calls, so its review is a design review. Its position asks "what does
-   the finished tree lose without this" — and the answer is all four writing
-   columns.
+3. **E, then F.** E interns the `Locale` objects F's name memo hangs off, so it
+   reads first; each is independently correct and only together fast. F is the
+   design review of the set — it changes how the `Formatter` is built rather
+   than what it calls — with its numeric fast paths riding along.
+4. **G and H.** Independent of the zone work and off the string directions
+   entirely, so this table understates them; each is argued on
+   [coverage.md](coverage.md), and each owns a column the other does not.
+5. **I.** File after G, whose arithmetic its civil math stands on, and last on
+   the ladder. It is the one patch arguing output corrections, so its position
+   asks "what does the finished tree lose without this" — and the answer is
+   the three `endOf` columns and `hasSame day`.
 
-A, B, D and J are the ones that hold on any engine — all four remove an Intl call
+A, B, D and F are the ones that hold on any engine — all four remove an Intl call
 or most of one, which no engine can be fast at — and C does the same on the
 reading side by removing a RegExp compile. See
 [cross-engine.md](cross-engine.md) for the ones that do not.

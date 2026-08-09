@@ -11,8 +11,8 @@
 // D also carries the zone-NAME half of the same cache, which
 // ./zone-name-patches.test.ts covers; loading it here pulls that in too, since it
 // requires A. That is inert for these assertions — nothing below formats a name
-// through parseZoneInfo — but it does mean this file no longer isolates the
-// offset side the way it did when the two intervals were separate patches.
+// through parseZoneInfo — but it does mean this file exercises D with its name
+// half present rather than isolating the offset side.
 //
 // Run: node --test benchmarks/test/
 //      bun --test benchmarks/test/        (the same, on JavaScriptCore)

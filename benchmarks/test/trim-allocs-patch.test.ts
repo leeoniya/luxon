@@ -1,5 +1,5 @@
-// I removes short-lived objects. Each removal is invisible for a different
-// reason, so each gets its own sweep or fixture.
+// I's allocation half removes short-lived objects. Each removal is invisible
+// for a different reason, so each gets its own sweep or fixture.
 //
 // clone stopped merging its config and now names the seven fields. The risk is a
 // field that reads differently when it is named than when it was spread: a
@@ -35,7 +35,7 @@ import type { DurationUnit } from "luxon";
 import { loadLuxon, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
 
 const VARIANTS: [string, PatchKey[]][] = [
-  ["trimAllocs", [patchKey("trimAllocs")]],
+  ["boundaryMath", [patchKey("boundaryMath")]],
   ["every patch", [...patchKeys]],
 ];
 
@@ -116,7 +116,7 @@ function describeDT(dt: any): string {
     : `invalid: ${dt.invalidReason} / ${dt.invalidExplanation}`;
 }
 
-describe("trimAllocs is invisible", () => {
+describe("boundaryMath's allocation trims are invisible", () => {
   for (const [name, keys] of VARIANTS) {
     describe(name, () => {
       test("every clone call site, across zones and transitions", async () => {

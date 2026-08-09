@@ -1,6 +1,6 @@
-// K's fixtures.
+// Fixtures for I's boundary math.
 //
-// Everything K replaces still has an expression in the tree, so most of what is
+// Everything it replaces still has an expression in the tree, so most of what is
 // here is differential rather than recorded. The weekday math is checked against
 // the Date read it replaced, written out in the test; startOf("week") against
 // the set({ weekday: 1 }) route, which set() still owns; and the fused endOf
@@ -12,7 +12,7 @@
 // gave the chain an endOf("day") an hour inside the next day, and the fused
 // route ends the day on the receiver's side of the fold instead. Those pins are
 // absolute because there is nothing left in the tree that answers the old way —
-// see the "at a midnight fold" section of benchmarks/docs/pr/11-boundary-math.md.
+// see the "at a midnight fold" section of benchmarks/docs/pr/09-boundary-math.md.
 //
 // Run: node --test benchmarks/test/
 //      bun --test benchmarks/test/
@@ -200,8 +200,8 @@ for (const [label, keys] of VARIANTS) {
       ];
 
       for (const iso of anchors) {
-        // widened the way trim-allocs' own fixture widens: the spellings are
-        // the point, and the DateTimeUnit type does not carry them
+        // widened the way the alloc fixtures widen: the spellings are the
+        // point, and the DateTimeUnit type does not carry them
         const dt = m.DateTime.fromISO(iso, { zone: ZONE }) as unknown as {
           endOf: (u: string) => { toISO: () => string | null; offset: number };
           plus: (o: unknown) => {
@@ -301,7 +301,7 @@ for (const [label, keys] of VARIANTS) {
 
       assert.equal(havana.endOf("day").toISO(), "2020-10-31T23:59:59.999-04:00");
       // the month boundary is the same midnight, and answers the same way --
-      // this half is I's behavior, kept by K's rewrite of the same route
+      // every calendar unit shares the fused route
       assert.equal(
         m.DateTime.fromISO("2020-10-15T12:00:00.000", { zone: "America/Havana" })
           .endOf("month")

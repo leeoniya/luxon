@@ -1,15 +1,19 @@
 import type { MutationSet } from "../lib/mutations.ts";
 
 /**
- * I is three unrelated allocations, and only one of them has arithmetic in it.
- * `clone` fails by forgetting a field, which is the same failure eleven times
- * over; `endOf` fails by handing plus() the wrong object; `as` fails the way any
- * hand-rolled sum fails -- the matrix indexed the wrong way round, a bound off by
- * one, or a float subtlety copied out of shiftTo and then simplified away.
+ * I is allocations dropped plus calendar arithmetic, and each half fails its
+ * own way. `clone` fails by forgetting a field, which is the same failure once
+ * per field; `endOf` fails by handing plus() the wrong object, by an anchor off
+ * by one, or by reporting the boundary instead of the millisecond before it;
+ * `as` fails the way any hand-rolled sum fails -- the matrix indexed the wrong
+ * way round, a bound off by one, or a float subtlety copied out of shiftTo and
+ * then simplified away. The weekday math fails the way calendar arithmetic
+ * fails: a remainder that keeps its sign, a rule (century years, the
+ * March-first year shift) quietly dropped.
  */
 const set: MutationSet = {
-  patch: "09-trim-allocs.patch",
-  tests: ["test/trim-allocs-fixtures.test.ts"],
+  patch: "09-boundary-math.patch",
+  tests: ["test/trim-allocs-fixtures.test.ts", "test/boundary-math-fixtures.test.ts"],
   mutations: [
     // ---- clone, one per field ----
     {
@@ -47,7 +51,7 @@ const set: MutationSet = {
       find: "+    ts: alts.ts == null ? current.ts : alts.ts,",
       replace: "+    ts: current.ts == null ? alts.ts : current.ts,",
     },
-    // ---- endOf ----
+    // ---- endOf's one-unit objects ----
     {
       name: "endOf steps by the wrong unit",
       find: "+    one = oneOfCache[unit] = { [unit]: 1 };",
@@ -59,9 +63,13 @@ const set: MutationSet = {
       replace: "+    one = oneOfCache[unit] = { [unit]: 2 };",
     },
     {
+      // "hour" rather than a calendar unit: year through day take the fused
+      // civil route and never reach oneOf, so their slots stay empty and a
+      // misread of one falls through to the fallback, which computes the right
+      // object anyway. The sub-day units are what oneOf exists for.
       name: "endOf hands every unit the same object",
       find: "+  let one = oneOfCache[unit];",
-      replace: '+  let one = oneOfCache["day"];',
+      replace: '+  let one = oneOfCache["hour"];',
     },
     {
       name: "keeps the one-unit objects on a bag with Object.prototype behind it",
@@ -131,6 +139,11 @@ const set: MutationSet = {
       name: "lets a unit it could not place through to the matrix",
       find: "+    if (at < 0) throw new InvalidUnitError(unit);",
       replace: "+    if (at < -1) throw new InvalidUnitError(unit);",
+      survives:
+        "this patch requires G, whose null-prototype unit table makes " +
+        "normalizeUnit throw for anything it cannot place before this line " +
+        "runs, so `at` is always a real index. The guard is the documented " +
+        "fallback for a tree without G, which withNeeds never builds.",
     },
     {
       name: "answers for an invalid duration instead of refusing",
@@ -141,6 +154,92 @@ const set: MutationSet = {
       name: "reads a default matrix rather than the one the duration carries",
       find: "+    const matrix = this.matrix;",
       replace: "+    const matrix = casualMatrix;",
+    },
+    // ---- dayOfWeek and daysFromCivil ----
+    {
+      name: "every weekday shifts by one",
+      find: "+  const js = (((daysFromCivil(year, month, day) + 4) % 7) + 7) % 7;",
+      replace: "+  const js = (((daysFromCivil(year, month, day) + 3) % 7) + 7) % 7;",
+    },
+    {
+      name: "weekdays before the epoch keep their negative remainder",
+      find: "+  const js = (((daysFromCivil(year, month, day) + 4) % 7) + 7) % 7;",
+      replace: "+  const js = (daysFromCivil(year, month, day) + 4) % 7;",
+    },
+    {
+      name: "the march-first year shift is lost",
+      find: "+  y -= m <= 2 ? 1 : 0;",
+      replace: "+  y -= 0;",
+    },
+    {
+      name: "ancient eras round toward zero",
+      find: "+  const era = Math.floor(y / 400);",
+      replace: "+  const era = Math.trunc(y / 400);",
+    },
+    {
+      name: "century years count as leap",
+      find: "+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy + d - 1;",
+      replace: "+  const doe = yoe * 365 + Math.floor(yoe / 4) + doy + d - 1;",
+    },
+    // ---- startOf("week") ----
+    {
+      name: "startOf week lands on Sunday",
+      find: "+        o.day = c.day - (dayOfWeek(c.year, c.month, c.day) - 1);",
+      replace: "+        o.day = c.day - dayOfWeek(c.year, c.month, c.day);",
+    },
+    // ---- the endOf boundaries ----
+    {
+      name: "endOf week stops a day short",
+      find: "+          day = c.day + 8 - dayOfWeek(c.year, c.month, c.day);",
+      replace: "+          day = c.day + 7 - dayOfWeek(c.year, c.month, c.day);",
+    },
+    {
+      name: "endOf day reaches into tomorrow",
+      find: "+          day = c.day + 1;",
+      replace: "+          day = c.day + 2;",
+    },
+    {
+      name: "the quarter boundary lands mid-quarter",
+      find: "+          const next = Math.floor((c.month - 1) / 3) * 3 + 4;",
+      replace: "+          const next = Math.floor((c.month - 1) / 3) * 3 + 3;",
+    },
+    {
+      name: "december wraps without carrying the year",
+      find: "+          if (c.month === 12) {",
+      replace: "+          if (false) {",
+      survives:
+        "the uncarried boundary is { year, month: 13 }, and Date.UTC inside " +
+        "objToLocalTS carries a thirteenth month into January itself -- the " +
+        "explicit carry answers identically and exists for the reader (and " +
+        "because the week and day cases need the locals anyway). The same " +
+        "argument covers the two-digit-year repair: setUTCFullYear(year, 12, 1) " +
+        "rolls the same way.",
+    },
+    {
+      name: "sub-day units join the fused route",
+      find: "+    if (year !== undefined) {",
+      replace: "+    if (true) {",
+    },
+    {
+      name: "options objects are forgotten before routing",
+      find: "+    let year, month, day;",
+      replace: "+    let year, month, day; opts = undefined;",
+    },
+    // ---- the folded minus(1) ----
+    {
+      name: "the boundary is the answer, not the millisecond before it",
+      find: "+      return clone(this, { ts: boundaryTS - 1, wasHole: false });",
+      replace: "+      return clone(this, { ts: boundaryTS, wasHole: false });",
+    },
+    {
+      name: "the folded minus claims the receiver's hole",
+      find: "+      return clone(this, { ts: boundaryTS - 1, wasHole: false });",
+      replace: "+      return clone(this, { ts: boundaryTS - 1, wasHole: this.wasHole });",
+    },
+    {
+      name: "the boundary is placed with a UTC guess",
+      find: "+        this.o,",
+      replace: "+        0,",
     },
   ],
 };

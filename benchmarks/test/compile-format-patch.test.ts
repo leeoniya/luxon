@@ -1,4 +1,4 @@
-// J's name memo has to be invisible, and the way it could fail is specific: it
+// F's name memo has to be invisible, and the way it could fail is specific: it
 // answers from a slot keyed by one field of the DateTime, so it is wrong exactly
 // when the rendered name depends on something else. Everything here is built to
 // find that.
@@ -45,7 +45,6 @@ import {
 import type { LuxonModule } from "../lib/luxon-types.ts";
 
 const compileFormat = patchKey("compileFormat");
-const numericPath = patchKey("numericPath");
 const VARIANTS: [string, PatchKey[]][] = [
   ["compileFormat", [compileFormat]],
   ["every patch", [...patchKeys]],
@@ -53,8 +52,8 @@ const VARIANTS: [string, PatchKey[]][] = [
 
 const stock = await loadLuxon([]);
 
-test("compileFormat replaces numericPath's formatter interpreter", async () => {
-  assert.deepEqual(withNeeds([compileFormat]), [numericPath, compileFormat]);
+test("compileFormat replaces the formatter interpreter", async () => {
+  assert.deepEqual(withNeeds([compileFormat]), [compileFormat]);
 
   const entry = await patchedEntry([compileFormat]);
   const formatter = await readFile(new URL("impl/formatter.js", entry), "utf8");

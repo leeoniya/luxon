@@ -1,15 +1,15 @@
 # benchmarks
 
-Luxon's own benchmark suite, plus a harness for eleven candidate upstream
+Luxon's own benchmark suite, plus a harness for nine candidate upstream
 patches to `src/`.
 
 The patches came out of profiling luxon against moment-timezone on a formatting
 workload: a column of timestamps rendered in a named IANA zone, which is what a
 dashboard or a data table produces thousands of at a time. Stock luxon runs that
 at ~3x moment-timezone with a plain `yyyy-MM-dd HH:mm:ss`, and ~26x once the
-pattern includes a zone abbreviation. All eleven are pure memoization or
-provable short-circuits: no API changes, and no output changes beyond the two
-argued boundary corrections `I` and `K` document, neither reachable from a
+pattern includes a zone abbreviation. All nine are pure memoization or
+provable short-circuits: no API changes, and no output changes beyond the
+argued boundary corrections `I` documents, neither reachable from a
 benchmark zone.
 
 Nothing here modifies `src/`. Each patch is a unified diff in
@@ -23,7 +23,7 @@ running one does not bury its numbers in several pages of explanation:
 
 | doc | what is in it |
 | --- | --- |
-| [`docs/upstream.md`](docs/upstream.md) | the eleven patches one by one, `D`'s tzdata precondition, and the order to file them in |
+| [`docs/upstream.md`](docs/upstream.md) | the nine patches one by one, `D`'s tzdata precondition, and the order to file them in |
 | [`docs/coverage.md`](docs/coverage.md) | the ladder's public API columns: why each is there, and where luxon still trails moment |
 | [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
 | [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
@@ -167,8 +167,9 @@ Each distinct subset of patches gets its own directory and therefore its own
 module instance, so one variant's internal caches can never warm another's. That
 matters more than it sounds — most of these patches *are* caches.
 
-Three patches are written against another's output and cannot be applied alone
-(`Requires:` says which); the loader pulls in what they need.
+Two patches require others (`Requires:` says which) — D's diff is written
+against A's and B's output, and I's civil math stands on the arithmetic G
+rebuilt; the loader pulls in what they need.
 
 ## Layout
 
@@ -178,7 +179,7 @@ suite.ts                         those 29 cases across build columns
 format.ts                        moment vs luxon vs luxon+easy-tz
 upstream.ts                      the patch ladder: what each is worth
 cross-engine.ts                  upstream.ts under node and bun, diffed
-patches/                         the eleven diffs
+patches/                         the nine diffs
 docs/                            what the tables mean
 test/                            parity tests for the patches that rewrite logic
 lib/                             harness (see each file's header)

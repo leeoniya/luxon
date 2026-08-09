@@ -21,7 +21,7 @@ import { describe, test } from "node:test";
 import { loadLuxon, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
 
 const VARIANTS: [string, PatchKey[]][] = [
-  ["numericPath", [patchKey("numericPath")]],
+  ["compileFormat", [patchKey("compileFormat")]],
   ["every patch", [...patchKeys]],
 ];
 
@@ -32,7 +32,7 @@ function same(a: any, b: any): boolean {
 
 const stock = await loadLuxon([]);
 
-describe("numericPath is invisible", () => {
+describe("compileFormat's numeric fast paths are invisible", () => {
   for (const [name, keys] of VARIANTS) {
     describe(name, () => {
       test("out-of-range and NaN instants degrade the same way", async () => {

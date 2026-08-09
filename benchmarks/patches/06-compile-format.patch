@@ -1,27 +1,71 @@
 Patch: compileFormat
-Letter: J
-Requires: F (numericPath)
-Files: src/impl/formatter.js
-Summary: Formatter: compile formats once, read shifted Duration fields directly, and memoize the name each DateTime token resolves to
-Description: benchmarks/docs/pr/10-compile-format.md
+Letter: F
+Requires: none
+Files: src/datetime.js, src/impl/formatter.js, src/impl/util.js
+Summary: fast paths along the route a numeric token takes, and the Formatter compiling formats once, reading shifted Duration fields directly, and memoizing the name each DateTime token resolves to
+Description: benchmarks/docs/pr/06-compile-format.md
 
+diff --git a/src/datetime.js b/src/datetime.js
+--- a/src/datetime.js
++++ b/src/datetime.js
+@@ -129,18 +129,35 @@
+ 
+ // convert an epoch timestamp into a calendar object with the given offset
+ function tsToObj(ts, offset) {
+-  ts += offset * 60 * 1000;
++  // UPSTREAM-F: new Date(ts) ran TimeClip on its argument first — round
++  // toward zero, NaN outside +/-MAX_DATE — before any field was read off it. The
++  // civil math below does neither, so both are explicit.
++  const clipped = ts + offset * 60 * 1000;
++  ts = Math.abs(clipped) > MAX_DATE ? NaN : Math.trunc(clipped);
+ 
+-  const d = new Date(ts);
++  // UPSTREAM-F: was `new Date(ts)` plus seven getUTC* calls. Same result, no
++  // allocation (Howard Hinnant's civil_from_days, valid for any Gregorian year).
++  const days = Math.floor(ts / 86400000);
++  const msOfDay = ts - days * 86400000;
+ 
++  const z = days + 719468;
++  const era = Math.floor(z / 146097);
++  const doe = z - era * 146097;
++  const yoe = Math.floor(
++    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365
++  );
++  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
++  const mp = Math.floor((5 * doy + 2) / 153);
++  const month = mp < 10 ? mp + 3 : mp - 9;
++
+   return {
+-    year: d.getUTCFullYear(),
+-    month: d.getUTCMonth() + 1,
+-    day: d.getUTCDate(),
+-    hour: d.getUTCHours(),
+-    minute: d.getUTCMinutes(),
+-    second: d.getUTCSeconds(),
+-    millisecond: d.getUTCMilliseconds(),
++    year: yoe + era * 400 + (month <= 2 ? 1 : 0),
++    month,
++    day: doy - Math.floor((153 * mp + 2) / 5) + 1,
++    hour: Math.floor(msOfDay / 3600000),
++    minute: Math.floor(msOfDay / 60000) % 60,
++    second: Math.floor(msOfDay / 1000) % 60,
++    millisecond: msOfDay % 1000,
+   };
+ }
+ 
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
-index 4c80d34..a68bc57 100644
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -2,18 +2,358 @@ import * as English from "./english.js";
+@@ -1,16 +1,359 @@
+ import * as English from "./english.js";
  import * as Formats from "./formats.js";
- import { padStart, roundTo } from "./util.js";
+-import { padStart } from "./util.js";
++import { padStart, roundTo } from "./util.js";
  
 -function stringifyTokens(splits, tokenToString) {
--  // UPSTREAM-F: indexed loop and a verbatim check so punctuation skips
--  // tokenToString entirely.
 -  let s = "";
--  for (let i = 0; i < splits.length; i++) {
--    const token = splits[i];
--    if (token.literal || token.verbatim) {
--      s += token.val;
-+// ---- UPSTREAM-J: compiled format programs ----------------------------------
+-  for (const token of splits) {
++// ---- UPSTREAM-F: compiled format programs ----------------------------------
 +// A format string compiles to alternating literal/handler runs. Handlers take
 +// (formatter, dateTime, knownEnglish, useDateTimeFormatter) so that a program
 +// depends on the pattern alone and can be shared across locales and formatters.
@@ -237,7 +281,8 @@ index 4c80d34..a68bc57 100644
 +  let lit = "";
 +
 +  for (const token of Formatter.parseFormat(fmt)) {
-+    if (token.literal) {
+     if (token.literal) {
+-      s += token.val;
 +      lit += token.val;
 +      continue;
 +    }
@@ -361,7 +406,7 @@ index 4c80d34..a68bc57 100644
 +      signDisplay = "auto";
 +    }
 +
-+    // UPSTREAM-J: field is already canonical and shiftTo filled values in that
++    // UPSTREAM-F: field is already canonical and shiftTo filled values in that
 +    // shape, so get() would only normalize the same known unit again.
 +    let value = (collapsed.values[field] || 0) * (secondaryNegative ? -1 : 1);
 +
@@ -377,7 +422,62 @@ index 4c80d34..a68bc57 100644
    return s;
  }
  
-@@ -193,304 +533,14 @@ export default class Formatter {
+@@ -41,12 +384,31 @@
+  * @private
+  */
+ 
++// UPSTREAM-F: parseFormat cache. Bounded so a caller generating unique format
++// strings can't grow it without limit.
++const parseFormatCache = new Map();
++const PARSE_FORMAT_CACHE_MAX = 1000;
++
+ export default class Formatter {
+   static create(locale, opts = {}) {
+     return new Formatter(locale, opts);
+   }
+ 
+   static parseFormat(fmt) {
++    let cached = parseFormatCache.get(fmt);
++
++    if (cached == null) {
++      cached = Formatter.parseFormatUncached(fmt);
++
++      if (parseFormatCache.size < PARSE_FORMAT_CACHE_MAX) {
++        parseFormatCache.set(fmt, cached);
++      }
++    }
++
++    return cached;
++  }
++
++  static parseFormatUncached(fmt) {
+     // white-space is always considered a literal in user-provided formats
+     // the " " token has a special meaning (see unitForToken)
+ 
+@@ -132,6 +503,22 @@
+       return padStart(n, p);
+     }
+ 
++    // UPSTREAM-F: the one caller that reaches here is DateTime#toFormat, whose
++    // Formatter carries no options at all -- a duration token always arrives with
++    // a signDisplay, and toISO's formatter sets forceSimple, so both return above
++    // this. With no options PolyNumberFormatter reduces to padStart(roundTo(n, 3),
++    // p), so do that directly rather than allocating an options object, a
++    // formatter and a key array for every numeric token.
++    if (signDisplay == null) {
++      if (this.simpleNumsCached == null) {
++        this.simpleNumsCached = this.loc.fastNumbers && Object.keys(this.opts).length === 0;
++      }
++
++      if (this.simpleNumsCached) {
++        return padStart(roundTo(n, 3), p);
++      }
++    }
++
+     const opts = { ...this.opts };
+ 
+     if (p > 0) {
+@@ -145,304 +532,14 @@
    }
  
    formatDateTimeFromString(dt, fmt) {
@@ -608,7 +708,7 @@ index 4c80d34..a68bc57 100644
 -      };
 -
 -    return stringifyTokens(Formatter.parseFormat(fmt), tokenToString);
-+    // UPSTREAM-J: compiled program; see cfRun above.
++    // UPSTREAM-F: compiled program; see cfRun above.
 +    return cfRun(this, dt, fmt);
    }
  
@@ -682,9 +782,40 @@ index 4c80d34..a68bc57 100644
 -        largestUnit: Object.keys(collapsed.values)[0],
 -      };
 -    return stringifyTokens(tokens, tokenToString(collapsed, durationInfo));
-+    // UPSTREAM-J: the fields, widths and literal runs depend on the pattern
++    // UPSTREAM-F: the fields, widths and literal runs depend on the pattern
 +    // alone. Compile them once instead of rebuilding three closures and four
 +    // temporary arrays around every Duration render.
 +    return cfRunDuration(this, dur, fmt);
    }
  }
+diff --git a/src/impl/util.js b/src/impl/util.js
+--- a/src/impl/util.js
++++ b/src/impl/util.js
+@@ -122,7 +122,14 @@
+   return x - n * Math.floor(x / n);
+ }
+ 
++// UPSTREAM-F: "00".."99", for the pad-to-two case that dominates date formatting
++const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => String(i).padStart(2, "0"));
++
+ export function padStart(input, n = 2) {
++  if (n === 2 && Number.isInteger(input) && input >= 0 && input < 100) {
++    return PAD_TO_2[input];
++  }
++
+   const isNeg = input < 0;
+   let padded;
+   if (isNeg) {
+@@ -160,6 +167,12 @@
+ }
+ 
+ export function roundTo(number, digits, rounding = "round") {
++  // UPSTREAM-F: every rounding mode is the identity on an integer once digits is
++  // non-negative, and that is what every DateTime numeric token arrives as.
++  if (digits >= 0 && Number.isInteger(number)) {
++    return number;
++  }
++
+   const factor = 10 ** digits;
+   switch (rounding) {
+     case "expand":

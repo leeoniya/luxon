@@ -98,28 +98,29 @@ Which internals a column reaches is in
 does not follow the timings, and the places it comes apart are the interesting
 ones. `toLocaleString` routes through E and barely moves, because E interns
 locales and these cases hold the locale fixed. `toISO` never reaches the
-`Formatter` at all — it builds its string directly — so J does nothing for it and
-F does.
+`Formatter` at all — it builds its string directly — so F's compiled programs
+do nothing for it and its `tsToObj` rewrite does.
 
 ### The format-pattern columns
 
 `toFormat` appears several times because the pattern decides which internals run,
 and for a long time every formatting bench in this repo used one shape: all
 numeric, en-US, gregorian calendar. That is exactly the input F's numeric fast
-paths were written for, so a table containing only it credits F with most of what
-J does and makes J look redundant.
+paths were written for, so a table containing only it credits those fast paths
+with most of what F's compiled programs do and makes the compilation look
+redundant.
 
 The other shapes are not that. A month or weekday **name** never reaches a
-numeric fast path at all, so in the text columns F has nothing to contribute and the
-interpreter J replaces is the whole cost. A **wide** pattern multiplies that,
-because the per-token switch runs once per token per value while the other
+numeric fast path at all, so in the text columns the interpreter the compiled
+program replaces is the whole cost. A **wide** pattern multiplies that,
+because the per-token switch ran once per token per value while the other
 patches' savings are per value. And words in a **non-English** locale leave the
 English short-circuit for `Locale#extract` and ICU entirely, asking for a name
-per token per value — the branch J's name memo answers from a per-locale slot
+per token per value — the branch F's name memo answers from a per-locale slot
 instead, and the one no other patch touches. That last is the largest of the
 three by some distance: the columns naming a month or weekday in `fr` are the
 only ones in the whole ladder that sit flat down every rung and then collapse on
-J's, because every other patch is on a path they never take.
+F's, because every patch above it is on a path they never take.
 
 `toRFC2822` and `toHTTP` are the text shape with the pattern fixed by a standard
 rather than by the caller, which makes them the formatting most likely to sit on
@@ -163,12 +164,11 @@ are worth saying what became of, because none was fixed the same way.
 
 `endOf` was the longest-standing. It made three `DateTime`s — a `plus` of one
 unit, a `startOf`, and a `minus(1)` — where moment writes fields in place. I
-combined the first two for year, quarter and month by setting the next civil
-month boundary directly, which closed the V8 gap on the month column. K finishes
-the job: day and week join the fused route, the `minus(1)` folds into it, and
-the weekday behind the week columns is integer math instead of a `Date`
-allocation per read, so all three `endOf` columns now lead moment core. What
-that took is in [pr/11-boundary-math.md](pr/11-boundary-math.md).
+sets the next civil boundary directly for every calendar unit and folds the
+`minus(1)` in behind it, and the weekday behind the week columns is integer
+math instead of a `Date` allocation per read, so all three `endOf` columns now
+lead moment core. What that took is in
+[pr/09-boundary-math.md](pr/09-boundary-math.md).
 
 `Duration#as` was `shiftTo` and `normalizeValues` — a whole `Duration` built,
 walked and cloned so one number could be read off it, against moment's `asHours`,
@@ -186,7 +186,7 @@ about 40% of the method. E also fills the result list directly instead of
 allocating and filtering an eight-slot intermediate array. What is left is
 mostly the ICU boundary, and that part is the trade rather than an oversight.
 
-`hasSame` has left this group too: G took it to parity, and K — whose fused
+`hasSame` has left this group too: G took it to parity, and I — whose fused
 `endOf` is half of what `hasSame day` does — puts it clearly ahead of both
 moment rows.
 

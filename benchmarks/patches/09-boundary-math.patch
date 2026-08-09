@@ -1,0 +1,308 @@
+Patch: boundaryMath
+Letter: I
+Requires: G (arithDirect)
+Files: src/datetime.js, src/duration.js, src/impl/conversions.js, src/impl/diff.js, src/impl/util.js
+Summary: read-once objects dropped (clone's config, as()'s Duration, diff's single-lower-unit merge) and calendar boundaries as civil math on a fused endOf route
+Description: benchmarks/docs/pr/09-boundary-math.md
+
+diff --git a/src/datetime.js b/src/datetime.js
+--- a/src/datetime.js
++++ b/src/datetime.js
+@@ -31,6 +31,7 @@
+   TokenParser,
+ } from "./impl/tokenParser.js";
+ import {
++  dayOfWeek,
+   gregorianToWeek,
+   weekToGregorian,
+   gregorianToOrdinal,
+@@ -54,6 +55,22 @@
+ const INVALID = "Invalid DateTime";
+ const MAX_DATE = 8.64e15;
+ 
++// UPSTREAM-I: endOf built `{ [unit]: 1 }` per call, and there are nine of them.
++// A null-prototype bag rather than a literal because the key is whatever the
++// caller passed: on a literal, oneOf["constructor"] would find Object before
++// the cache was ever written to, and hand plus() a function.
++const oneOfCache = Object.create(null);
++
++function oneOf(unit) {
++  let one = oneOfCache[unit];
++
++  if (one == null) {
++    one = oneOfCache[unit] = { [unit]: 1 };
++  }
++
++  return one;
++}
++
+ function unsupportedZone(zone) {
+   return new Invalid("unsupported zone", `the zone "${zone.name}" is not supported`);
+ }
+@@ -97,7 +114,23 @@
+     invalid: inst.invalid,
+     wasHole: inst.wasHole,
+   };
+-  return new DateTime({ ...current, ...alts, old: current });
++  // UPSTREAM-I: was `new DateTime({ ...current, ...alts, old: current })`, a
++  // second object merged out of the first. `alts` is a different set of keys at
++  // each call site, so the config the constructor reads was a different shape on
++  // every path into it; naming the fields gives it one.
++  //
++  // `c` and `o` are not among them. The constructor never reads `config.c`, and
++  // it reads `config.o` only when `config.old` is unset, which cannot happen
++  // here. Both still reach it on `old`, which is where it looks for them.
++  // No clone call site replaces invalidity; it always comes from the receiver.
++  return new DateTime({
++    ts: alts.ts == null ? current.ts : alts.ts,
++    zone: alts.zone == null ? current.zone : alts.zone,
++    loc: alts.loc == null ? current.loc : alts.loc,
++    invalid: current.invalid,
++    wasHole: alts.wasHole == null ? current.wasHole : alts.wasHole,
++    old: current,
++  });
+ }
+ 
+ // find the right offset a given local time. The o input is our guess, which determines which
+@@ -1781,7 +1814,14 @@
+         }
+         o.weekday = startOfWeek;
+       } else {
+-        o.weekday = 1;
++        // UPSTREAM-I: was `o.weekday = 1`, which sent set() through the week
++        // round trip -- gregorianToWeek to name this week, weekToGregorian to
++        // find that week's Monday -- to land weekday - 1 days back of here.
++        // Counted off directly instead. Date.UTC inside objToLocalTS borrows a
++        // day of 0 or less from the previous month exactly, the same way
++        // adjustTime's day field already leans on it to carry.
++        const c = this.c;
++        o.day = c.day - (dayOfWeek(c.year, c.month, c.day) - 1);
+       }
+     }
+ 
+@@ -1806,11 +1846,90 @@
+    * @return {DateTime}
+    */
+   endOf(unit, opts) {
+-    return this.isValid
+-      ? this.plus({ [unit]: 1 })
+-          .startOf(unit, opts)
+-          .minus(1)
+-      : this;
++    if (!this.isValid) return this;
++
++    const normalized = typeof unit === "string" ? unit.toLowerCase() : unit;
++
++    // UPSTREAM-I: every calendar unit combines the plus().startOf() pair into
++    // one construction targeting the first civil millisecond of the next
++    // period. Year, quarter and month target a month edge; days and weeks a
++    // day count, and Date.UTC inside objToLocalTS carries an overflowed day
++    // into the next month exactly, the same way adjustTime's day field
++    // already leans on it.
++    //
++    // An options object still goes through startOf(), even though its only
++    // option affects weeks: destructuring it (and any getter) is observable.
++    let year, month, day;
++
++    if (opts === undefined) {
++      const c = this.c;
++
++      switch (normalized) {
++        case "year":
++        case "years":
++          year = c.year + 1;
++          month = 1;
++          day = 1;
++          break;
++        case "quarter":
++        case "quarters": {
++          const next = Math.floor((c.month - 1) / 3) * 3 + 4;
++          if (next > 12) {
++            year = c.year + 1;
++            month = 1;
++          } else {
++            year = c.year;
++            month = next;
++          }
++          day = 1;
++          break;
++        }
++        case "month":
++        case "months":
++          if (c.month === 12) {
++            year = c.year + 1;
++            month = 1;
++          } else {
++            year = c.year;
++            month = c.month + 1;
++          }
++          day = 1;
++          break;
++        case "week":
++        case "weeks":
++          // the Monday after this week's: back to it, forward seven
++          year = c.year;
++          month = c.month;
++          day = c.day + 8 - dayOfWeek(c.year, c.month, c.day);
++          break;
++        case "day":
++        case "days":
++          year = c.year;
++          month = c.month;
++          day = c.day + 1;
++          break;
++      }
++    }
++
++    if (year !== undefined) {
++      // UPSTREAM-I: was plus({ [unit]: 1 }).startOf(unit).minus(1), three
++      // DateTimes built to reach one timestamp. fixOffset
++      // places the boundary's first millisecond exactly as set() would -- same
++      // civil target, same offset guess -- and stepping back a millisecond is
++      // the timestamp alone: the constructor re-derives the offset for any
++      // changed ts itself. wasHole is false for the same reason minus(1) left
++      // it false: a pure timestamp shift is never a hole resolution.
++      const boundaryTS = fixOffset(
++        objToLocalTS({ year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 }),
++        this.o,
++        this.zone
++      )[0];
++
++      return clone(this, { ts: boundaryTS - 1, wasHole: false });
++    }
++
++    // UPSTREAM-I: was this.plus({ [unit]: 1 }); see oneOf() at the top of the file
++    return this.plus(oneOf(unit)).startOf(unit, opts).minus(1);
+   }
+ 
+   // OUTPUT
+diff --git a/src/duration.js b/src/duration.js
+--- a/src/duration.js
++++ b/src/duration.js
+@@ -767,7 +767,48 @@
+    * @return {number}
+    */
+   as(unit) {
+-    return this.isValid ? this.shiftTo(unit).get(unit) : NaN;
++    if (!this.isValid) return NaN;
++
++    // UPSTREAM-I: was this.shiftTo(unit).get(unit) — a Duration built, walked,
++    // normalized and cloned so that one number could be read back off it. With a
++    // single target unit shiftTo's loop is the sum below: everything ordered
++    // above the target converted up into it, everything below divided into it.
++    //
++    // One thing is copied out of shiftTo rather than simplified away: its
++    // trunc-and-remainder split is not the identity in floating point, and
++    // whole + remainder is the number callers get today.
++    const u = Duration.normalizeUnit(unit);
++    const at = orderedUnits.indexOf(u);
++
++    // With patch G's null-prototype table, normalizeUnit answers every non-unit
++    // with a throw and `at` is always a real index. Without it, stock's table
++    // leaks Object.prototype values for "__proto__" and "constructor", and
++    // shiftTo's answer for those was a TypeError out of the conversion matrix.
++    // An InvalidUnitError is the deliberate replacement for that accident.
++    if (at < 0) throw new InvalidUnitError(unit);
++
++    const vals = this.values;
++    const matrix = this.matrix;
++
++    let own = 0;
++
++    for (let i = 0; i < at; i++) {
++      const higher = orderedUnits[i];
++      if (isNumber(vals[higher])) own += matrix[higher][u] * vals[higher];
++    }
++
++    if (isNumber(vals[u])) own += vals[u];
++
++    const whole = Math.trunc(own);
++    const rest = (own * 1000 - whole * 1000) / 1000;
++    let out = whole + rest;
++
++    for (let i = at + 1; i < orderedUnits.length; i++) {
++      const lower = orderedUnits[i];
++      if (isNumber(vals[lower]) && vals[lower] !== 0) out += vals[lower] / matrix[u][lower];
++    }
++
++    return out;
+   }
+ 
+   /**
+diff --git a/src/impl/conversions.js b/src/impl/conversions.js
+--- a/src/impl/conversions.js
++++ b/src/impl/conversions.js
+@@ -7,6 +7,7 @@
+   weeksInWeekYear,
+   isInteger,
+   isUndefined,
++  daysFromCivil,
+ } from "./util.js";
+ import Invalid from "./invalid.js";
+ import { ConflictingSpecificationError } from "../errors.js";
+@@ -22,14 +23,13 @@
+ }
+ 
+ export function dayOfWeek(year, month, day) {
+-  const d = new Date(Date.UTC(year, month - 1, day));
++  // UPSTREAM-I: was new Date(Date.UTC(year, month - 1, day)) and getUTCDay(),
++  // with a setUTCFullYear repair for years 0-99 -- an allocation per call, and
++  // the week conversions below make up to four of them per operation. Day
++  // zero, 1970-01-01, was a Thursday (JS weekday 4); the second modulo keeps
++  // earlier dates, whose day count is negative, on the same wheel.
++  const js = (((daysFromCivil(year, month, day) + 4) % 7) + 7) % 7;
+ 
+-  if (year < 100 && year >= 0) {
+-    d.setUTCFullYear(d.getUTCFullYear() - 1900);
+-  }
+-
+-  const js = d.getUTCDay();
+-
+   return js === 0 ? 7 : js;
+ }
+ 
+diff --git a/src/impl/diff.js b/src/impl/diff.js
+--- a/src/impl/diff.js
++++ b/src/impl/diff.js
+@@ -83,6 +83,17 @@
+     }
+   }
+ 
++  // UPSTREAM-I: the common mixed-unit shape has one lower-order unit. `as`
++  // answers exactly what shiftTo(unit).get(unit) answered, and writing that
++  // value into the result avoids the final Duration#plus and its clone.
++  if (lowerOrderUnits.length === 1) {
++    const unit = lowerOrderUnits[0];
++
++    results[unit] = Duration.fromMillis(remainingMillis, opts).as(unit);
++
++    return Duration.fromObject(results, opts);
++  }
++
+   const duration = Duration.fromObject(results, opts);
+ 
+   if (lowerOrderUnits.length > 0) {
+diff --git a/src/impl/util.js b/src/impl/util.js
+--- a/src/impl/util.js
++++ b/src/impl/util.js
+@@ -200,6 +200,20 @@
+   }
+ }
+ 
++// UPSTREAM-I: days since the epoch for a proleptic-gregorian date (Howard
++// Hinnant's days_from_civil; the same routine UPSTREAM-B keeps privately in
++// IANAZone.js). Exported for the weekday math in conversions.js. Hoisting
++// IANAZone's copy out to here would put churn in an unrelated patch, so the
++// two stand until a merge unifies them.
++export function daysFromCivil(y, m, d) {
++  y -= m <= 2 ? 1 : 0;
++  const era = Math.floor(y / 400);
++  const yoe = y - era * 400;
++  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5);
++  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy + d - 1;
++  return era * 146097 + doe - 719468;
++}
++
+ // convert a calendar object to a local timestamp (epoch, but with the offset baked in)
+ export function objToLocalTS(obj) {
+   let d = Date.UTC(

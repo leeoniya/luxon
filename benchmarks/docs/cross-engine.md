@@ -61,12 +61,12 @@ Two things it taught are worth keeping even without the table:
 
 ## What it found
 
-The large rungs — the structural formatter change and the merged fast paths —
-hold on both engines by a wide margin, and neither depends on which engine you
-believe.
+The largest rung — `F`, the structural formatter change with its numeric fast
+paths — holds on both engines by a wide margin, and does not depend on which
+engine you believe.
 
-The reason `F` is one patch and not six is visible here in the negative. While
-those six were separate patches with rows of their own, they disagreed across the
-engines: some resolved on V8 only, one on JavaScriptCore only, one on neither.
-Merged, the result holds on both. Filing them separately would have meant six
-patches each of which looks marginal on one engine or the other.
+Those fast paths ride in `F` as one diff rather than a patch apiece because
+they do not agree on which engine they help: priced separately, some resolve
+on V8 only, one on JavaScriptCore only, one on neither, and only together do
+they hold on both. Filed separately, each would look marginal on one engine or
+the other.
