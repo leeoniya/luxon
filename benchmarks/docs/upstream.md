@@ -735,16 +735,18 @@ caller who never configures one gets.
 
 Luxon falls back to `SystemZone`, whose `offset()` is a `getTimezoneOffset` call
 rather than an Intl one, so stock is already far cheaper there than against a
-named zone. A, B and D exist to remove Intl calls, so against the default zone
-there is much less for them to remove. What is left is C on the reading cases, E,
-and G — its hoisted constants and the `adjustTime` fast path, none of which is an
-Intl call to begin with.
+named zone. A, B and D exist to remove IANAZone's Intl calls, so against the
+default zone they have nothing to remove. The rest of the set still reaches it:
+C on the token-reading case, E and F wherever a locale or a number is written, H
+under `toRelative`, J under the format writers, and G and I under the arithmetic
+— none of which was a named-zone cost to begin with.
 
-The table is short for that reason. Several of its cases have no patch on them at
-all, and a run where those sit inside the floor printed under the table is the
-table working rather than a null result. It reads like the tables above — the
-moment-timezone/moment/stock-luxon block on top, shaded against its first row —
-and its last block, under the rule, is the two luxon builds again with a zone
+Some of its cases still have no patch on them at all, and a run where those sit
+inside the floor printed under the table is the table working rather than a null
+result. It reads like the tables above — a moment/moment-timezone/stock-luxon
+block on top, shaded against its first row, which here is local-mode moment core
+rather than moment-timezone because the zoneless configuration is the one being
+measured — and its last block, under the rule, is the two luxon builds again with a zone
 named, which is what the ladder measures: a baseline for how much of stock's
 cost was the named zone in the first place, and what the patches do to that
 configuration measured as these whole operations, not a control.

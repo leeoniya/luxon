@@ -158,8 +158,8 @@ the trade each library made rather than something to fix here.
 itself: both sides are well under a millisecond for the whole batch. The stock
 row is where that column's argument is, and it is a large one.
 
-**`endOf` and `diff`** are the remaining like-for-like arithmetic columns to
-watch. `endOf` used to make three `DateTime`s — a `plus` of one unit, a
+**`endOf`** is the remaining like-for-like arithmetic column to
+watch. It used to make three `DateTime`s — a `plus` of one unit, a
 `startOf`, and a `minus(1)` — where moment writes fields in place. I now combines
 the first two for year, quarter and month by setting the next civil month
 boundary directly, while retaining `minus(1)` for offset-transition semantics.
@@ -197,8 +197,14 @@ now walks hours the way a caller filling a calendar does. The old shape is a rea
 cost of D, and a caller who really does hop between months pays it; it just is
 not what a column named `fromObject` should be reporting.
 
-`diff` is the one left with an obvious next step, and it is not a leaf. It walks
-units largest-first and calls `earlier.plus(results)` once or twice per unit to
+`diff` left the group by being split into what it always was: two different
+comparisons sharing a cell. A difference in a single lower-order unit
+(`diff hours`) is one subtraction and a division in all three libraries, and the
+finished tree leads moment there. Decomposing into days and hours (`diff d+h`)
+walks the calendar through the zone, which neither moment's nor date-fns's
+single-unit difference APIs can express, so that column is luxon-only and reads
+against the stock row. The walk is the part with an obvious next step, and it is
+not a leaf. It walks units largest-first and calls `earlier.plus(results)` once or twice per unit to
 test each guess, so it pays `adjustTime` up to ten times for one answer. I now
 avoids the final `Duration#plus` when the result has one lower-order unit — the
 measured `["days", "hours"]` shape — by writing `as("hours")` into the result
@@ -229,7 +235,7 @@ now.
 
 The general shape — that a wasted lookup in a cached zone costs more than the
 lookup, because of what it does to the next one — is the thing to carry to the
-rest of this list. `diff` is the obvious place to look for it next.
+rest of this list. The `diff d+h` walk is the obvious place to look for it next.
 
 ## Investigated and dropped
 

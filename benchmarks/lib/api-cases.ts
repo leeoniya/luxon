@@ -270,11 +270,18 @@ export const API_CASES: ApiCase[] = [
     momentShape: (mo) => mo({ year: 2024, month: 0, day: 1, hour: 0 }),
   },
   {
+    // One construction in all three cells: moment's zone comes off its ambient
+    // default and date-fns names it in the constructor, so luxon spells "now in
+    // a zone" the one-step way too. now().setZone(ZONE) would build a second
+    // DateTime and re-pay what the setZone column already measures.
     key: "now",
     band: "parsing",
     zoned: true,
     live: true,
-    luxon: (m) => () => m.DateTime.now().setZone(ZONE).valueOf(),
+    luxon: (m) => {
+      const options = { zone: ZONE };
+      return () => m.DateTime.local(options).valueOf();
+    },
     dateFns: ({ tz }) => () => new tz.TZDate(Date.now(), ZONE).valueOf(),
     moment: (mo) => () => mo().valueOf(),
     momentShape: (mo) => mo(),
@@ -449,13 +456,13 @@ export const API_CASES: ApiCase[] = [
     },
   },
   {
-    key: "diff",
+    // the like-for-like half of diff: a single lower-order unit is one
+    // subtraction and a division in all three libraries, and no zone is asked
+    key: "diff hours",
     band: "other",
-    zoned: true,
     luxon: (m) => {
       const p = pool(m);
-      const units: ("days" | "hours")[] = ["days", "hours"];
-      return (ts) => p[idx(ts)]!.diff(p[(idx(ts) + 137) % POOL]!, units).hours;
+      return (ts) => p[idx(ts)]!.diff(p[(idx(ts) + 137) % POOL]!, "hours").hours;
     },
     dateFns: (api) => {
       const p = dateFnsPool(api);
@@ -464,6 +471,19 @@ export const API_CASES: ApiCase[] = [
     moment: (mo) => {
       const p = momentPool(mo);
       return (ts) => p[idx(ts)]!.diff(p[(idx(ts) + 137) % POOL]!, "hours");
+    },
+  },
+  {
+    // the calendar half: decomposing into days and hours walks the calendar
+    // through the zone, which neither moment's nor date-fns's single-unit
+    // difference APIs can express — so this column is luxon-only
+    key: "diff d+h",
+    band: "other",
+    zoned: true,
+    luxon: (m) => {
+      const p = pool(m);
+      const units: ("days" | "hours")[] = ["days", "hours"];
+      return (ts) => p[idx(ts)]!.diff(p[(idx(ts) + 137) % POOL]!, units).hours;
     },
   },
   {
@@ -781,10 +801,13 @@ export const API_CASES: ApiCase[] = [
     },
   },
   {
+    // both sides construct from the same pooled object — moment also has a
+    // number+unit signature, but handing it a different input shape would
+    // compare its cheapest constructor against luxon's only one
     key: "Duration as",
     band: "other",
     luxon: (m) => (ts) => m.Duration.fromObject(MINUTE_INPUTS[idx(ts)]!).as("hours"),
-    moment: (mo) => (ts) => mo.duration(100 + idx(ts), "minutes").asHours(),
+    moment: (mo) => (ts) => mo.duration(MINUTE_INPUTS[idx(ts)]!).asHours(),
   },
   {
     key: "Duration as pooled",
@@ -875,6 +898,10 @@ export const API_CASES: ApiCase[] = [
       return (ts) => m.Interval.fromDateTimes(p[idx(ts)]!, p[idx(ts)]!.plus(duration)).length("days");
     },
     dateFns: (api) => {
+      // date-fns has no fractional-day difference, so this cell is millisecond
+      // arithmetic where luxon's length("days") walks the calendar. The answers
+      // agree here — January plus two months never crosses a DST transition —
+      // but the means differ, the same way the diff columns' halves do.
       const p = dateFnsPool(api);
       return (ts) => {
         const start = p[idx(ts)]!;
@@ -939,17 +966,14 @@ export const API_CASES: ApiCase[] = [
       return (ts) => p[idx(ts)]!.count("days");
     },
     dateFns: (api) => {
+      // the endpoints are the pool, mirroring intervalPool: "pooled" means the
+      // receiver is prebuilt, so the add() that makes each end stays out of the
+      // timed call here too
       const p = dateFnsPool(api);
-      const durations = Array.from({ length: POOL }, (_, i) => ({
-        months: 2,
-        days: i % 7,
-        minutes: i % 60,
-      }));
+      const ends = p.map((start, i) => api.core.add(start, { months: 2, days: i % 7, minutes: i % 60 }));
       return (ts) => {
         const i = idx(ts);
-        const start = p[i]!;
-        const end = api.core.add(start, durations[i]!);
-        return api.core.differenceInCalendarDays(end, start) + 1;
+        return api.core.differenceInCalendarDays(ends[i]!, p[i]!) + 1;
       };
     },
   },

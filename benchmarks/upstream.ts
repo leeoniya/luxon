@@ -52,7 +52,7 @@
 //
 // The three tables can be run alone, which is the loop for iterating on a patch:
 // --patches (~1s), --ladder (~80s under node, ~90s under bun — the reading half
-// costs JSC more, see PARSE_PASSES), --default (~25s). Any combination works,
+// costs JSC more, see PARSE_PASSES), --default (~45s). Any combination works,
 // and naming none runs all three. Only a full run writes the JSON that
 // cross-engine.ts reads.
 //
@@ -1415,13 +1415,14 @@ if (parseBroken.length > 0) {
 // one — so stock is already several times cheaper there, and the Intl-removing
 // patches have correspondingly less to remove. This table is here so that gap is
 // a measured number rather than an assumption, and so the rungs that do reach
-// the default path (C, E, F, G) are visible somewhere.
+// the default path (C on token reading, and E through J across the writers and
+// the arithmetic) are visible somewhere.
 //
 // It shares the ladder's kernel and its shape — builds down the side, operations
 // across the top, the moment pair on top as the block every other row is shaded
 // against — but reads its own cases: these are whole operations rather than
-// formatter closures, since the point is the API a caller uses, and half of them
-// do not format anything.
+// formatter closures, since the point is the API a caller uses, and several of
+// them do not format anything.
 //
 // The moment rows are the same configurations the tables above time — a
 // configured default (moment-timezone's setDefault, core's process TZ) is the
@@ -1440,11 +1441,17 @@ interface DefaultCase {
   system: (m: LuxonModule) => Work;
   /** the same against ZONE, for the block that says what the default is worth */
   named: (m: LuxonModule) => Work;
-  /** moment's own idiom — the configured default, never a zone per call */
-  moment: (mo: MomentTz) => Work;
+  /** moment's own idiom — the configured default, never a zone per call.
+   * Absent when moment has no equivalent operation; those cells print `--`
+   * the way the tables above print a case a build cannot answer. */
+  moment?: (mo: MomentTz) => Work;
   /** the shape of the Moment this builds, for the instance roles — see momentRole */
   momentShape?: (mo: MomentTz) => object;
 }
+
+// the band tables' relative base, rebuilt here: far enough from every timed
+// instant that the wording is calendar units rather than "in N seconds"
+const DEFAULT_REL_BASE = BASE_TS + 90 * 24 * 3_600_000;
 
 const DEFAULT_CASES: DefaultCase[] = [
   {
@@ -1453,6 +1460,42 @@ const DEFAULT_CASES: DefaultCase[] = [
     system: (m) => (ts) => m.DateTime.fromMillis(ts).toFormat(NUM_PATTERN).length,
     named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).toFormat(NUM_PATTERN).length,
     moment: (mo) => (ts) => mo(ts).format(MO_NUM_PATTERN).length,
+  },
+  {
+    key: "toLocaleString",
+    what: "toLocaleString(DATETIME_MED), the Intl-backed writer",
+    system: (m) => {
+      const preset = m.DateTime.DATETIME_MED;
+      return (ts) => m.DateTime.fromMillis(ts).toLocaleString(preset).length;
+    },
+    named: (m) => {
+      const preset = m.DateTime.DATETIME_MED;
+      return (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).toLocaleString(preset).length;
+    },
+    moment: (mo) => (ts) => mo(ts).format("lll").length,
+  },
+  {
+    key: "toRelative",
+    what: "toRelative() against a fixed base, the other Intl-backed writer",
+    system: (m) => {
+      const options = { base: m.DateTime.fromMillis(DEFAULT_REL_BASE) };
+      return (ts) => m.DateTime.fromMillis(ts).toRelative(options)!.length;
+    },
+    named: (m) => {
+      const options = { base: m.DateTime.fromMillis(DEFAULT_REL_BASE, { zone: ZONE }) };
+      return (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).toRelative(options)!.length;
+    },
+    moment: (mo) => {
+      const base = mo(DEFAULT_REL_BASE);
+      return (ts) => mo(ts).from(base).length;
+    },
+  },
+  {
+    key: "toISO",
+    what: "toISO(), the all-numeric writer",
+    system: (m) => (ts) => m.DateTime.fromMillis(ts).toISO()!.length,
+    named: (m) => (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).toISO()!.length,
+    moment: (mo) => (ts) => mo(ts).toISOString(true).length,
   },
   {
     key: "fromISO",
@@ -1510,6 +1553,36 @@ const DEFAULT_CASES: DefaultCase[] = [
     moment: (mo) => (ts) => mo(ts).add(1, "day").valueOf(),
   },
   {
+    key: "diff hours",
+    what: "diff() to a single hours unit — pure arithmetic in both libraries",
+    system: (m) => {
+      const anchor = m.DateTime.fromMillis(DEFAULT_REL_BASE);
+      return (ts) => m.DateTime.fromMillis(ts).diff(anchor, "hours").hours;
+    },
+    named: (m) => {
+      const anchor = m.DateTime.fromMillis(DEFAULT_REL_BASE, { zone: ZONE });
+      return (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).diff(anchor, "hours").hours;
+    },
+    moment: (mo) => {
+      const anchor = mo(DEFAULT_REL_BASE);
+      return (ts) => mo(ts).diff(anchor, "hours");
+    },
+  },
+  {
+    key: "diff d+h",
+    what: "diff() decomposed to days and hours — the calendar walk moment's single-unit diff() cannot express",
+    system: (m) => {
+      const anchor = m.DateTime.fromMillis(DEFAULT_REL_BASE);
+      const units: ("days" | "hours")[] = ["days", "hours"];
+      return (ts) => m.DateTime.fromMillis(ts).diff(anchor, units).hours;
+    },
+    named: (m) => {
+      const anchor = m.DateTime.fromMillis(DEFAULT_REL_BASE, { zone: ZONE });
+      const units: ("days" | "hours")[] = ["days", "hours"];
+      return (ts) => m.DateTime.fromMillis(ts, { zone: ZONE }).diff(anchor, units).hours;
+    },
+  },
+  {
     key: "now",
     what: "DateTime.now(), which can only be the default zone",
     system: (m) => () => m.DateTime.now().valueOf(),
@@ -1562,18 +1635,27 @@ if (tables.has("default")) {
   const momentCoreInstance = (kase: DefaultCase) =>
     momentCoreFor(momentCoreRole(kase.momentShape ?? defaultMomentShape));
 
-  // The baseline block the other tables open with — moment-timezone, moment,
-  // stock luxon — then the patched build, and then, under a rule, the same two
-  // luxon builds with the zone NAMED. The named block is a baseline rather than
-  // a control: it is the configuration every other table on this page measures,
-  // here so the reader can see how much of stock's cost was the named zone in
-  // the first place, and what the patches do to that configuration measured as
-  // these whole operations. `pathId` names the build whose bundle the bytes
-  // column reports.
+  // The baseline block the other tables open with, except moment core leads:
+  // in a table about the zoneless configuration, local-mode moment is the
+  // natural baseline to shade against, and moment-timezone is the variant
+  // carrying zone machinery. Then the patched build, and then, under a rule,
+  // the two luxon builds with the zone NAMED. The named block is a baseline
+  // rather than a control: it is the configuration every other table on this
+  // page measures, here so the reader can see how much of stock's cost was the
+  // named zone in the first place, and what the patches do to that
+  // configuration measured as these whole operations. `pathId` names the build
+  // whose bundle the bytes column reports.
   const patchedLabel = FULL.replace("luxon ", "");
-  const DEFAULT_ROWS: { pathId: string; label: string; group: number; work: (kase: DefaultCase) => Work }[] = [
-    { pathId: "moment", label: "moment-timezone", group: 0, work: (kase) => kase.moment(momentTzInstance(kase)) },
-    { pathId: "moment-core", label: "moment", group: 0, work: (kase) => kase.moment(momentCoreInstance(kase)) },
+  // `work` answers undefined for a case the build has no equivalent of, and the
+  // cell prints `--`, both as the tables above do
+  const DEFAULT_ROWS: {
+    pathId: string;
+    label: string;
+    group: number;
+    work: (kase: DefaultCase) => Work | undefined;
+  }[] = [
+    { pathId: "moment-core", label: "moment", group: 0, work: (kase) => kase.moment?.(momentCoreInstance(kase)) },
+    { pathId: "moment", label: "moment-timezone", group: 0, work: (kase) => kase.moment?.(momentTzInstance(kase)) },
     { pathId: "luxon (stock)", label: "luxon", group: 0, work: (kase) => kase.system(stock) },
     { pathId: FULL, label: patchedLabel, group: 1, work: (kase) => kase.system(patched) },
     { pathId: "luxon (stock)", label: `luxon, ${ZONE}`, group: 2, work: (kase) => kase.named(stock) },
@@ -1593,7 +1675,7 @@ if (tables.has("default")) {
   const bytesWidth = Math.max(...[...bytesFor.values()].map((v) => v.length));
 
   // What every other row is shaded against, filled by the first row that has a
-  // value — the moment-timezone row, as on every other table.
+  // value — local-mode moment, the zoneless baseline.
   const anchor = new Map<string, number>();
   /** rules go where the block changes, as the other tables place theirs */
   const ruleAt = new Set(
@@ -1617,7 +1699,11 @@ if (tables.has("default")) {
     // cooled down from the previous row, exactly as the tables above measure
     (row) => [
       {
-        entries: DEFAULT_CASES.map((kase) => ({ key: kase.key, work: row.work(kase) })),
+        entries: DEFAULT_CASES.flatMap((kase) => {
+          const work = row.work(kase);
+
+          return work === undefined ? [] : [{ key: kase.key, work }];
+        }),
         passBudget: DEFAULT_PASSES,
         budgetMs: PASS_BUDGET_MS,
       },
@@ -1636,9 +1722,9 @@ if (tables.has("default")) {
       table.row([
         row.label,
         ...DEFAULT_CASES.map((kase) => {
-          const v = measured.best.get(kase.key)!;
+          const v = measured.best.get(kase.key);
 
-          return shade(v.toFixed(1), v, anchor.get(kase.key));
+          return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(kase.key));
         }),
         bytesFor.get(row.pathId)!,
       ]);
