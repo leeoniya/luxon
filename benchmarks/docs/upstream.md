@@ -4,9 +4,12 @@
 > [methodology.md](methodology.md); the patches themselves are in
 > [`../patches/`](../patches), each with its reasoning in its header.
 
-What can be removed from *inside* luxon, patch by patch. Ten candidate patches,
-lettered A through J, all of them memoization or provable short-circuits: no API
-changes, no output changes.
+What can be removed from *inside* luxon, patch by patch. Eleven candidate
+patches, lettered A through K, all of them memoization or provable
+short-circuits: no API changes, and no output changes beyond the two argued
+boundary corrections I and K document
+([9](pr/09-trim-allocs.md), [11](pr/11-boundary-math.md)), neither of which a
+benchmark zone can reach.
 
 The workload is a column of timestamps rendered in a named IANA zone — what a
 dashboard or a data table produces thousands of at a time — plus the same column
@@ -22,7 +25,7 @@ zone.
 | default | `--default` | the same ladder with no zone named at all |
 
 Any combination can be run alone, which is the loop for iterating on one patch:
-`--patches` (~1s), `--ladder` (~80s), `--default` (~13s). `--verify` turns on
+`--patches` (~1s), `--ladder` (~90s), `--default` (~13s). `--verify` turns on
 every correctness check, including the output-parity table and the two that run
 during setup — see [methodology.md](methodology.md#correctness-before-speed) for
 why they are off by default. Verification also disables row cooldowns unless an
@@ -168,31 +171,36 @@ of it. E is the clearest case: interning `Locale` objects barely shows against a
 pattern that holds its locale fixed, and the calls it was written for are in the
 `other` table — see [coverage.md](coverage.md).
 
-### Why J is last
+### Why J follows everything it overlaps, and K comes after that
 
-Nine of the ten patches have a rung. J does not, so the final row is the one
-that adds it, and the last two rows of the table differ by J alone.
+Ten of the eleven patches have a rung. K does not, so the final row is the one
+that adds it, and the last two rows of the table differ by K alone.
 
-That position answers a different question from the rest of the ladder, and it is
-the question J needed answering. Every other rung is priced by what it **adds** to
-a partial tree — the "should this land" question. Whichever patch goes last is
-priced by what the **complete tree loses without it**, which is the "should this
-stay" question, and the two differ by exactly the overlap between that patch and
-everything below it.
+The last position answers a different question from the rest of the ladder.
+Every other rung is priced by what it **adds** to a partial tree — the "should
+this land" question. Whichever patch goes last is priced by what the **complete
+tree loses without it**, which is the "should this stay" question, and the two
+differ by exactly the overlap between that patch and everything below it.
 
 For most of these patches the overlap is small and the distinction does not
 matter. For J it is neither. J and F both take work off the route a numeric token
 walks, so a J measured before F would be credited with savings F would also have
 found, and a reader comparing a rung priced that way against F's further down
-would be seeing part of the same work billed twice. Ordering J last removes the
-double count. The step from `A+B+C+D+E+F+G+H+I` to `all (A-J)` is what J is worth
+would be seeing part of the same work billed twice. Ordering J after F removes
+the double count; J's rung, the step from `A+B+C+D+E+F+G+H+I` to one with J in
+it, is what J is worth with everything it overlaps already in.
+
+K sits after J for the same reason pointed at G and I: it rewrites the `endOf`
+route I fused and leans on the arithmetic G rebuilt, so it requires both and is
+measured with both already priced. It overlaps J not at all — nothing K touches
+formats or parses — so nothing about J's measurement moved when K took the last
+slot. The step from `A+B+C+D+E+F+G+H+I+J` to `all (A-K)` is what K is worth
 with everything else already in, which is the only form of the question a
 shipping decision turns on.
 
-Exactly one patch can occupy that slot, so the cost of the choice lands on F:
-F's rung is now measured in J's absence and reads larger than the F in the tree
-that actually ships. That trade is worth making in this direction because F was
-never the patch in doubt.
+The cost of J's placement still lands on F: F's rung is measured in J's absence
+and reads larger than the F in the tree that actually ships. That trade is worth
+making in this direction because F was never the patch in doubt.
 
 ## The patches
 
@@ -504,8 +512,10 @@ same reason as above from the other direction: on a plain object
 to `plus()`, so `endOf("__proto__")` would quietly behave like `startOf` instead
 of throwing. Year, quarter and month also combine `plus().startOf()` into one
 `set()` of the next civil month boundary and retain `minus(1)`, removing one
-DateTime without changing offset-transition behavior. Week keeps the general
-path because its boundary may be locale-based.
+DateTime. The boundary's offset guess becomes the receiver's own rather than one
+read a month ahead, which moves the answer only in zones that fall back across
+local midnight — K widens this route and carries the argument. Week keeps the
+general path here because its boundary may be locale-based.
 
 `diff`'s measured `["days", "hours"]` shape has one lower-order unit. In that
 case `fromMillis(...).as("hours")` is the value `shiftTo("hours").get("hours")`
@@ -574,9 +584,9 @@ flooring and fractional behavior. Numeric and literal-heavy pooled cases both
 improved by low-twenties percent on Node and Bun; the complete patch is 412
 minified bytes over stock.
 
-It is also the patch this table was rearranged for. J is the one patch without a
-rung, so the step onto the final row is what J is worth with every other patch
-already applied, and it moves all four writing columns on both engines. The reading
+It is also the patch this table was rearranged for. J's rung sits after every
+patch it overlaps, so its step is what J is worth with all of them already
+applied, and it moves all four writing columns on both engines. The reading
 columns are the control: J never touches parsing, so they should not move, and a
 run where they do is a run whose row-to-row noise is worth checking before the
 writing columns are believed.
@@ -584,9 +594,10 @@ writing columns are believed.
 Read that step against the row above it, not as a share of the milliseconds
 between stock and the full set. Late rungs are compressed on that second measure,
 because each one only ever takes a fraction of what the rungs above it left — but
-compressed is not the same as negligible, and the size of a last rung is still
-mostly about the patch. The rung that held that slot before J was roughly twice
-J's size, which is a real difference and not an artefact of the position. That
+compressed is not the same as negligible, and the size of a late rung is still
+mostly about the patch. Before K took the final slot, J held it, and the rung
+that held it before J was roughly twice J's size, which is a real difference and
+not an artefact of the position. That
 rung was the merged patch F, G and H came out of, so the comparison below is
 against an F larger than the one that ships; F alone still owns the formatting
 half of it, which is the half the comparison turns on.
@@ -638,6 +649,31 @@ formatting — are the `toFormat` columns in the `formatting` table rather than
 variations on these four, since they vary the caller's pattern rather than the
 patch set. [coverage.md](coverage.md) reads them.
 
+### K — `boundaryMath`
+
+Calendar boundaries computed as integer math rather than assembled from
+intermediate `DateTime`s. Three changes share one idea: `dayOfWeek` loses its
+per-call `Date` allocation to the same Hinnant civil-day math B and F
+already use on their paths; `startOf("week")` stops asking what week it is and
+steps back `weekday - 1` days directly; and `endOf` fuses to a single
+construction for every calendar unit — day and week join the year/quarter/month
+route I built, and the trailing `minus(1)` folds into it, since the constructor
+re-derives the offset for a changed timestamp anyway.
+
+Its step — the last two rows of the ladder, which differ by K alone — is the
+three `endOf` columns and `hasSame day`, which is `startOf` and `endOf` back to
+back. `endOf day` and `endOf month` move from behind moment-timezone to ahead
+of moment core; `endOf week` was the worst arithmetic column in the table and
+lands the same place, because the week round trip it no longer takes was
+calling the old `dayOfWeek` four times per operation.
+
+K requires G and I: it rewrites the `endOf` text I fused and stands on
+arithmetic G rebuilt. It is also the one patch whose document argues two output
+corrections rather than none — the midnight-fold rule it inherits from I's
+month route and extends, and the weekday of leap days before year 100, which
+stock reads off March 1 — both unreachable from any benchmark zone, both pinned
+by its fixtures ([11-boundary-math.md](pr/11-boundary-math.md)).
+
 ### What the merge cost
 
 J subsumes two of F's six formatter fast paths by construction, since it parses
@@ -672,10 +708,10 @@ Two cautions on reading that difference. It is a comparison **between two runs**
 where every other comparison this bench makes is between cells interleaved inside
 one process, so it carries drift that nothing cancels — read it against the
 per-column floors and prefer a margin several times them. And it is not needed for
-J, whose answer is already the last step of the ladder in a single run.
+K, whose answer is already the last step of the ladder in a single run.
 
 Rows that collapse into the one above them are folded away — including the last
-row under `--drop J`, since J is the only patch without a rung and the ladder
+row under `--drop K`, since K is the only patch without a rung and the ladder
 therefore already ends at the full set without it. Rung labels spell out every
 letter they hold, so a dropped patch shows as a gap in them; the last row is the
 only one that abbreviates, and it says `all (no C)` rather than a range when

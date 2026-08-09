@@ -84,7 +84,12 @@ describe("date-fns API columns", () => {
 
     assert.deepEqual(missing, [
       "fromFormatParser",
+      // the calendar-aware two-unit decomposition no date-fns API expresses
+      "diff d+h",
       "getPossibleOffsets",
+      "Info.months en",
+      "Info.months fr",
+      "Info.weekdays fr",
       "Duration plus pooled",
       "Duration as",
       "Duration as pooled",
@@ -94,9 +99,6 @@ describe("date-fns API columns", () => {
       "Duration toFormat text",
       "Interval splitBy",
       "Interval toDuration pooled",
-      "Info.months en",
-      "Info.months fr",
-      "Info.weekdays fr",
     ]);
   });
 });

@@ -4,7 +4,7 @@
 > methodology is in [methodology.md](methodology.md).
 
 Luxon's own benchmark cases from `benchmarks/datetime.js` and `benchmarks/info.js`,
-reproduced across stock and three patched builds instead of run against a single
+reproduced across stock and the full patched build instead of run against a single
 one. The deviations from the originals are listed at the top of `suite.ts`.
 
 The value of using luxon's own cases is that nobody chose them to make these

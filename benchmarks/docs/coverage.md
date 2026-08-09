@@ -149,7 +149,7 @@ the columns are against.
 ## Where luxon still trails moment
 
 Read it off the shading: a red cell in the bottom rung is a column the finished
-tree is still behind moment on. They fall into three groups.
+tree is still behind moment on. They fall into two groups.
 
 **The not-like-for-like columns** are the ICU boundary described above, and are
 the trade each library made rather than something to fix here.
@@ -158,16 +158,17 @@ the trade each library made rather than something to fix here.
 itself: both sides are well under a millisecond for the whole batch. The stock
 row is where that column's argument is, and it is a large one.
 
-**`endOf`** is the remaining like-for-like arithmetic column to
-watch. It used to make three `DateTime`s — a `plus` of one unit, a
-`startOf`, and a `minus(1)` — where moment writes fields in place. I now combines
-the first two for year, quarter and month by setting the next civil month
-boundary directly, while retaining `minus(1)` for offset-transition semantics.
-The table measures month; that removes one of its three constructions and closes
-the V8 gap on this host, while JavaScriptCore still trails.
+This group used to have five like-for-like arithmetic columns in it, and they
+are worth saying what became of, because none was fixed the same way.
 
-This group used to have four in it, and the others are worth saying what became
-of, because none was fixed the same way.
+`endOf` was the longest-standing. It made three `DateTime`s — a `plus` of one
+unit, a `startOf`, and a `minus(1)` — where moment writes fields in place. I
+combined the first two for year, quarter and month by setting the next civil
+month boundary directly, which closed the V8 gap on the month column. K finishes
+the job: day and week join the fused route, the `minus(1)` folds into it, and
+the weekday behind the week columns is integer math instead of a `Date`
+allocation per read, so all three `endOf` columns now lead moment core. What
+that took is in [pr/11-boundary-math.md](pr/11-boundary-math.md).
 
 `Duration#as` was `shiftTo` and `normalizeValues` — a whole `Duration` built,
 walked and cloned so one number could be read off it, against moment's `asHours`,
@@ -185,8 +186,9 @@ about 40% of the method. E also fills the result list directly instead of
 allocating and filtering an eight-slot intermediate array. What is left is
 mostly the ICU boundary, and that part is the trade rather than an oversight.
 
-`hasSame` has left this group too, quietly: it is at or slightly ahead of moment
-now, which it was not before G.
+`hasSame` has left this group too: G took it to parity, and K — whose fused
+`endOf` is half of what `hasSame day` does — puts it clearly ahead of both
+moment rows.
 
 `fromObject` was a measurement artifact. Its inputs advanced month, day and hour
 off one counter, which lands every construction in a different month from the one
@@ -241,7 +243,7 @@ rest of this list. The `diff d+h` walk is the obvious place to look for it next.
 
 **A `toLocaleString` identity cache.** `toLocaleString` is the formatting API
 luxon's own docs steer callers toward, and nothing in the patch set moves it.
-Profiled under all ten patches it is 61–66% `Intl.DateTimeFormat#format` across
+Profiled under the full ladder it is 61–66% `Intl.DateTimeFormat#format` across
 the presets, which nothing can remove without changing what luxon returns, and
 another ~8% is the `Date` that `format` has to be handed, whose instant varies
 per call. Of the ~29% left, ~9% is the `JSON.stringify` key `getCachedDTF` builds

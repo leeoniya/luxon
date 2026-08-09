@@ -52,8 +52,14 @@ and `oneOf["constructor"]` on a literal would find `Object` off its own
 prototype — before the cache was ever written to — and hand `plus()` a
 function. Year, quarter and month take a larger shared shortcut: each sets the
 first civil millisecond of its next month boundary directly and keeps the
-existing `minus(1)`. That removes one `DateTime` while preserving the old answer
-at offset transitions. Week is excluded because its boundary may be locale-based.
+existing `minus(1)`, removing one `DateTime`. One transition case moves: the
+boundary is now placed with the receiver's own offset rather than one read a
+month ahead, which changes the answer only in zones that fall back across local
+midnight — where the old chain ended a month an hour inside the next one, and
+this route ends it on the receiver's side. K widens the same route to day and
+week, and its document carries the argument and the scan
+([11-boundary-math.md](11-boundary-math.md)). Week is excluded here because its
+boundary may be locale-based.
 
 **`diff` has a cheap common case after the calendar walk.** When its unit list
 contains one lower-order unit, `Duration#fromMillis(...).as(unit)` answers the

@@ -33,10 +33,11 @@
 // — everything that neither writes a string nor reads one. Those were a table of
 // their own until the patch set outgrew the two directions. G replaces the
 // Duration round trip inside adjustTime, H stops toRelative asking for diffs it
-// can already answer, and I trims allocations from setters, endOf and diff; none
-// of the three is reachable from a format string or a parse, and all were found
-// by profiling rather than by any column here. The cases are in
-// lib/api-cases.ts and the reading of them is in benchmarks/docs/coverage.md.
+// can already answer, I trims allocations from setters, endOf and diff, and K
+// turns the startOf/endOf boundaries into civil math; none of the four is
+// reachable from a format string or a parse, and all were found by profiling
+// rather than by any column here. The cases are in lib/api-cases.ts and the
+// reading of them is in benchmarks/docs/coverage.md.
 //
 // Each build is also reported by what it costs to ship: the minified bytes of
 // everything that build bundles. What it costs to hold — rss and Intl formatter
@@ -189,7 +190,17 @@ const OFFSET = inPlay(["offsetScan"]);
 // format path reaches it. The ladder's reading columns are where it shows, and
 // it has a rung of its own.
 const PARSE = inPlay(["tokenParserCache"]);
-const UPSTREAM = [...ALL_PATCHES, ...OFFSET, ...PARSE, ...inPlay(["transitionInterval"])];
+// K is neither a cache nor on either string direction: it turns the
+// startOf/endOf boundary work into civil math, and its columns are all in the
+// `other` band.
+const BOUNDARY = inPlay(["boundaryMath"]);
+const UPSTREAM = [
+  ...ALL_PATCHES,
+  ...OFFSET,
+  ...PARSE,
+  ...inPlay(["transitionInterval"]),
+  ...BOUNDARY,
+];
 
 // The letters are the patch files' own, not this file's numbering, so a report
 // row and the diff it refers to cannot drift apart.
@@ -229,22 +240,25 @@ if (UPSTREAM.length !== patchKeys.length) {
 // patch files are lettered and numbered in this order, so a rung's label reads in
 // the order it built and the letter of the patch without a rung is the last one.
 //
-// J is deliberately absent, and is what the final row adds.
+// K is deliberately absent, and is what the final row adds.
 //
 // Exactly one patch can be in that position, because the rungs are cumulative:
 // every other patch is priced by what it ADDS to a partial tree, and whichever
 // one goes last is priced by what the COMPLETE tree LOSES without it. Those are
 // different questions, and for most patches the first is the one worth asking —
-// it is the "should this land" question. J is the exception. It overlaps F,
-// which is a rung, so a J measured before F would be credited with savings F
-// would also have found, and a reader comparing a J-shaped rung against an
-// F-shaped one further down would be comparing two prices for some of the same
-// work. Putting J last removes the double count: the last two rows differ by J
-// alone, so the step between them is what J is worth with everything else
-// already in, which is the only form of the question a shipping decision turns
-// on.
+// it is the "should this land" question.
 //
-// The cost of that choice is F's rung, which is now measured in J's absence and
+// Two patches need to be late. J overlaps F, which is a rung, so a J measured
+// before F would be credited with savings F would also have found, and a reader
+// comparing a J-shaped rung against an F-shaped one further down would be
+// comparing two prices for some of the same work; its rung sits after every
+// patch it overlaps. K rewrites the endOf route I fused and stands on G's
+// arithmetic — it requires both — and it overlaps J not at all, so it takes the
+// final slot: the last two rows differ by K alone, and the step between them is
+// what K is worth with everything else already in, which is the only form of
+// the question a shipping decision turns on.
+//
+// The cost of J's placement is F's rung, which is measured in J's absence and
 // so reads larger than the F in the shipped tree. See "What the merge cost".
 //
 // E's rung is the one to read across the whole width rather than off the
@@ -267,7 +281,8 @@ const RUNG_ORDER = [
   "numericPath", // F
   "arithDirect", // G
   "relativeSkip", // H
-  "trimAllocs", // I, and last of the rungs because J is not one
+  "trimAllocs", // I
+  "compileFormat", // J, and last of the rungs because K is not one
 ];
 
 /** each rung is the one above it plus one patch, so the list above is the table */
@@ -282,7 +297,7 @@ const RUNGS: string[][] = RUNG_ORDER.map((_, i) => RUNG_ORDER.slice(0, i + 1));
 const LADDER: { id: string; keys: PatchKey[] }[] = [...RUNGS.map(inPlay), UPSTREAM]
   // each row has to hold something the row above it did not. the everything row
   // is in the same filter as the rungs because it is the one that collapses when
-  // J is dropped: J is the only patch with no rung of its own, so without it the
+  // K is dropped: K is the only patch with no rung of its own, so without it the
   // last rung already is the everything build
   .filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length))
   .map((keys, i, all) => ({
@@ -1832,8 +1847,10 @@ if (tables.has("ladder") && withVerify) {
 
   console.log(
     patchedMismatches === 0
-      ? `\nall ${UPSTREAM.length} patches are output-identical to stock luxon; the only differences are the\n` +
-          `intended easy-tz abbreviations and independently reported baseline-library semantics.`
+      ? `\nall ${UPSTREAM.length} patches are output-identical to stock luxon over every column here; the only\n` +
+          `differences are the intended easy-tz abbreviations and independently reported\n` +
+          `baseline-library semantics. (The two boundary corrections I and K argue need a zone\n` +
+          `that transitions at local midnight, which no column uses — see docs/pr/11-boundary-math.md.)`
       : `\nFAIL: ${patchedMismatches} unexpected mismatch(es) — a patch changed behavior.`
   );
 
