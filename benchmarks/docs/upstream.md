@@ -46,7 +46,7 @@ there were forty of them: `text` formats a pattern, `tokens` parses one, and
 - **`parsing`** — reading one, plus the two constructors that take no string.
 - **`other — DateTime`** — `DateTime` operations that neither write a string nor
   read one.
-- **`other — Duration, Interval and Info`** — the remaining non-string API
+- **`other — Info, Duration and Interval`** — the remaining non-string API
   operations.
 
 Each heading carries the unit — `formatting (ms)` — because no column does. The

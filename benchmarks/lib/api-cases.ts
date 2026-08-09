@@ -784,6 +784,42 @@ export const API_CASES: ApiCase[] = [
     },
   },
 
+  // ---- Info: straight into the locale machinery ----
+  //
+  // In English these do not reach it at all. Locale#months routes through
+  // listStuff, which for an English listingMode returns English.months — a
+  // module-level array — without constructing anything or calling Intl. Both
+  // spellings are here because the difference is the point: the en case is the
+  // one most callers hit and costs a Locale construction and nothing else, and
+  // the fr case is what the locale machinery actually costs when it runs.
+  {
+    key: "Info.months en",
+    band: "other",
+    luxon: (m) => {
+      const options = { locale: LOCALE };
+      return () => m.Info.months("long", options).length;
+    },
+    moment: (mo) => () => mo.localeData("en").months().length,
+  },
+  {
+    key: "Info.months fr",
+    band: "other",
+    luxon: (m) => {
+      const options = { locale: OTHER_LOCALE };
+      return () => m.Info.months("long", options).length;
+    },
+    moment: (mo) => () => mo.localeData(OTHER_LOCALE).months().length,
+  },
+  {
+    key: "Info.weekdays fr",
+    band: "other",
+    luxon: (m) => {
+      const options = { locale: OTHER_LOCALE };
+      return () => m.Info.weekdays("long", options).length;
+    },
+    moment: (mo) => () => mo.localeData(OTHER_LOCALE).weekdays().length,
+  },
+
   // ---- Duration ----
   //
   // The original three cases below construct their receiver in the timed call.
@@ -978,41 +1014,6 @@ export const API_CASES: ApiCase[] = [
     },
   },
 
-  // ---- Info: straight into the locale machinery ----
-  //
-  // In English these do not reach it at all. Locale#months routes through
-  // listStuff, which for an English listingMode returns English.months — a
-  // module-level array — without constructing anything or calling Intl. Both
-  // spellings are here because the difference is the point: the en case is the
-  // one most callers hit and costs a Locale construction and nothing else, and
-  // the fr case is what the locale machinery actually costs when it runs.
-  {
-    key: "Info.months en",
-    band: "other",
-    luxon: (m) => {
-      const options = { locale: LOCALE };
-      return () => m.Info.months("long", options).length;
-    },
-    moment: (mo) => () => mo.localeData("en").months().length,
-  },
-  {
-    key: "Info.months fr",
-    band: "other",
-    luxon: (m) => {
-      const options = { locale: OTHER_LOCALE };
-      return () => m.Info.months("long", options).length;
-    },
-    moment: (mo) => () => mo.localeData(OTHER_LOCALE).months().length,
-  },
-  {
-    key: "Info.weekdays fr",
-    band: "other",
-    luxon: (m) => {
-      const options = { locale: OTHER_LOCALE };
-      return () => m.Info.weekdays("long", options).length;
-    },
-    moment: (mo) => () => mo.localeData(OTHER_LOCALE).weekdays().length,
-  },
 ];
 
 /** the default shape: built from a timestamp, which is what all but the parsing cases do */

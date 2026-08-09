@@ -1225,11 +1225,16 @@ if (tables.has("ladder")) {
       ],
     },
     {
-      label: "other — Duration, Interval and Info",
+      label: "other — Info, Duration and Interval",
       segments: [
         lean(inBand("other").filter((key) => /^(?:Duration |Interval |Info\.)/.test(key))),
       ],
       groups: [
+        {
+          label: "Info",
+          prefix: "Info.",
+          keys: inBand("other").filter((key) => key.startsWith("Info.")),
+        },
         {
           label: "Duration",
           prefix: "Duration ",
@@ -1239,11 +1244,6 @@ if (tables.has("ladder")) {
           label: "Interval",
           prefix: "Interval ",
           keys: inBand("other").filter((key) => key.startsWith("Interval ")),
-        },
-        {
-          label: "Info",
-          prefix: "Info.",
-          keys: inBand("other").filter((key) => key.startsWith("Info.")),
         },
       ],
     },
