@@ -6,9 +6,9 @@
 // of Intl calls.
 //
 // So this file is in two halves, and the counting half is not a lesser kind of
-// test here: running benchmarks/mutations/04-transition-interval.ts shows six of
-// the sixteen ways to break this patch are caught by a count and by nothing
-// else.
+// test here: running benchmarks/mutations/04-transition-interval.ts shows seven
+// of the seventeen ways to break this patch are caught by a count and by
+// nothing else.
 //
 // The comparison half checks against the pre-patch lookups recomputed in
 // lib/stock-zone.ts, so no value below is recorded.
@@ -295,6 +295,66 @@ describe("transitionInterval actually caches", () => {
         );
       });
     }
+
+    // The third span's reason to exist: an operation that constructs a DateTime
+    // and then diffs it across a transition asks about three transition-free
+    // regions per call — the construction's own, and one each side of the
+    // transition (toRelative against a base beyond a DST jump is the archetype,
+    // and the default-vs-named-zone table's toRelative column measures exactly
+    // it). Three regions through two slots is a miss on every lookup, so this
+    // pattern is what distinguishes three spans from two, which the plain
+    // interleaved case above cannot.
+    test(`${label} > three interleaved regions are all served — construct, then diff across a transition`, async () => {
+      // New York 2026: spring forward Mar 8, fall back Nov 1. January, July and
+      // December sit in three distinct transition-free intervals.
+      const run = Array.from({ length: 400 }, (_, i) => Date.UTC(2026, 0, 1) + i * 3_600_000);
+      const july = Date.UTC(2026, 6, 15);
+      const december = Date.UTC(2026, 11, 15);
+
+      const perLookup = await intlReadsPerLookup(
+        keys,
+        "America/New_York",
+        run.flatMap((ts) => [july, december, ts])
+      );
+
+      assert.ok(
+        perLookup < 0.3,
+        `three interleaved regions cost ${perLookup.toFixed(2)} Intl reads per lookup — ` +
+          `a working set of three is thrashing the spans rather than residing in them`
+      );
+    });
+
+    // The hit paths promote what they hit, and with three spans the only way to
+    // see a missing promotion is to hit a span while it sits in the middle slot
+    // and then miss twice before coming back: promoted, it rides the two shifts
+    // into the last slot and survives; unpromoted, the second shift pushes it
+    // out. The pattern below does exactly that once per period — X is hit right
+    // after one stranger displaced it, then two more strangers pass through —
+    // so a cache that promotes pays three misses per period and one that does
+    // not pays four. The margin is thin but exact: the counts are deterministic
+    // (spans, probes and budgets move only with the access sequence, and every
+    // instant sits days from any transition), measuring 1.83 reads per lookup
+    // promoted and 2.00 unpromoted, so the threshold sits midway.
+    test(`${label} > a span the caller keeps coming back to outlives strangers passing through`, async () => {
+      const X = Date.UTC(2026, 0, 15);
+      // one fresh transition-free region per stranger: January and July of each
+      // later year sit on opposite sides of that year's DST jumps
+      const fresh = (k: number) => Date.UTC(2027 + (k >> 1), k % 2 === 0 ? 0 : 6, 15);
+      const list: number[] = [];
+
+      for (let period = 0; period < 100; period++) {
+        const k = period * 3;
+        list.push(X, fresh(k), X, fresh(k + 1), fresh(k + 2), X);
+      }
+
+      const perLookup = await intlReadsPerLookup(keys, "America/New_York", list);
+
+      assert.ok(
+        perLookup < 1.92,
+        `the returning caller cost ${perLookup.toFixed(2)} Intl reads per lookup — a span that was just ` +
+          `hit is being evicted ahead of colder ones, so the hit is not promoting it`
+      );
+    });
 
     // The budget is what the last span paid back, so a run long enough to reach
     // the ceiling should cost less per lookup than a short one. A span pinned at

@@ -713,9 +713,11 @@ next, so a span never survives to be hit and the budget that would widen it neve
 grows. That version hit exactly never on the no-offset column while hitting 99%
 of the time on the column that makes one lookup — and not because the instants
 were far apart, either. It missed as reliably reading today's dates as dates
-years out. Two spans, anchored around the instant that missed rather than
-extended the way the last miss went, close it, and the two ISO shapes end up
-level because the count stops mattering once the lookups are free.
+years out. Spans anchored around the instant that missed rather than extended
+the way the last miss went close it — two for the parse pattern, and a third
+for the whole operations that construct and then diff across a transition — and
+the two ISO shapes end up level because the count stops mattering once the
+lookups are free.
 
 (A `fixOffset` that asked for the offset once instead of three times would reach
 the same place from the other direction, and is a larger change to argue for.)

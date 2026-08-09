@@ -22,12 +22,30 @@ also 6.96 days, so the 2-day spacing keeps its ~3.5x margin either way. The tool
 that checks the bound reads the runtime's ICU rather than bundled tzdata. A
 future interval below four days would otherwise permit a stale name or offset.
 
-**Two spans per zone, each anchored around the instant that missed** rather than
-one span extended in the direction of the last miss. Placing a local time asks
-the zone about a seed instant and twice around the target; one span is therefore
-evicted before it can widen. Two spans retain the seed and target working sets.
-Each widens according to prior hits, so sequential reads approach the cap while
-scattered reads stay near the one-probe floor.
+**Three spans per zone, each anchored around the instant that missed** rather
+than one span extended in the direction of the last miss. Placing a local time
+asks the zone about a seed instant and twice around the target; one span is
+therefore evicted before it can widen, and two retain the seed and target
+working sets. The third is for the other common caller: an operation that
+builds a DateTime and then diffs it across a transition — `toRelative` against
+a base beyond a DST jump is the archetype — touches the construction's interval
+plus one on each side of the transition, and three regions through two slots is
+a miss on every lookup. Each span widens according to prior hits, so sequential
+reads approach the cap while scattered reads stay near the one-probe floor.
+
+**The pattern is established practice, one layer down.** V8's own `DateCache`
+(`src/date/date.h`) serves `Date`'s local-time conversions from an array of
+segments "where the time zone offset does not change", replaced by LRU and
+extended as adjacent queries agree — and guards them with a 19-day bound whose
+comment cites Egypt suspending DST for Ramadan in 2010, the same argument shape
+as the 6.96-day bound above. Joda-Time's `CachedDateTimeZone` does it for
+arbitrary zones on the JVM, caching offsets and name keys over transition-free
+stretches. Both enjoy an oracle this patch does not: V8 asks the OS for the
+offset at an instant and Joda's `DateTimeZone` enumerates `nextTransition`
+directly, where Intl only answers point queries — which is what the probe loop
+substitutes for. V8 affords 32 segments for the one system zone every `Date`
+shares; this cache is per zone and each fill costs ICU calls, so it carries
+three, the measured working set.
 
 **Invalidation.** `IANAZone` keeps a map keyed by zone, cleared by its existing
 `resetCache()`. The name side hangs its interval off the scanner A already caches

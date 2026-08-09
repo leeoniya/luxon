@@ -9,7 +9,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
 index a2d21d7..fcd33d4 100644
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
-@@ -254,6 +254,87 @@ export function resetZoneNameCache() {
+@@ -254,6 +254,102 @@ export function resetZoneNameCache() {
    nameScanCache.clear();
  }
  
@@ -24,18 +24,23 @@ index a2d21d7..fcd33d4 100644
 +const INTERVAL_MAX_REACH = 256;
 +const INTERVAL_MAX_TS = 8.64e15;
 +
-+// Two spans, most-recently-used first. One is not enough, and the reason is the
-+// caller rather than the data: placing a local time asks the zone about three
-+// instants -- fixOffset seeds itself with the offset at Settings.now(), then
-+// probes twice around the target -- so a single span is evicted by the next
-+// lookup in the same parse, every parse. Two is the structural minimum, one for
-+// the seed and one for the target, whose probes sit about an hour apart and so
-+// share a span unless a transition falls between them. A third for that case
-+// measured as nothing on any realistic range and is not worth its branches.
++// Three spans, most-recently-used first. One is not enough, and the reason is
++// the caller rather than the data: placing a local time asks the zone about
++// three instants -- fixOffset seeds itself with the offset at Settings.now(),
++// then probes twice around the target -- so a single span is evicted by the
++// next lookup in the same parse, every parse. Two covers that, one for the seed
++// and one for the target, but not the other common caller: an operation that
++// builds a DateTime and then diffs it across a transition -- toRelative against
++// a base on the far side of a DST jump is the archetype -- touches the
++// construction's interval plus one on each side of the transition. Three
++// regions through two slots is a miss on every lookup, and a miss re-anchors a
++// span by calling Intl one-plus-probes times, so that caller ran seven times
++// slower than its parts until the third slot. Nothing measured wants a fourth.
 +export function newInterval() {
 +  return {
 +    lo0: 1, hi0: 0, val0: null,
 +    lo1: 1, hi1: 0, val1: null,
++    lo2: 1, hi2: 0, val2: null,
 +    reach: 0, hits: 0,
 +  };
 +}
@@ -59,8 +64,18 @@ index a2d21d7..fcd33d4 100644
 +    return st.val0;
 +  }
 +
++  if (t >= st.lo2 && t <= st.hi2) {
++    st.hits++;
++    const lo = st.lo1, hi = st.hi1, v = st.val1;
++    st.lo1 = st.lo0; st.hi1 = st.hi0; st.val1 = st.val0;
++    st.lo0 = st.lo2; st.hi0 = st.hi2; st.val0 = st.val2;
++    st.lo2 = lo; st.hi2 = hi; st.val2 = v;
++    return st.val0;
++  }
++
 +  const val = lookup(ctx, t);
 +
++  st.lo2 = st.lo1; st.hi2 = st.hi1; st.val2 = st.val1;
 +  st.lo1 = st.lo0; st.hi1 = st.hi0; st.val1 = st.val0;
 +  st.val0 = val;
 +  st.lo0 = t;
@@ -97,7 +112,7 @@ index a2d21d7..fcd33d4 100644
  // Either side of a DST boundary, and one that renders a one-digit hour if the
  // locale does not honor 2-digit: a surround that is not fixed-width shows up as
  // a disagreement here rather than as a wrong name later.
-@@ -296,7 +377,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
+@@ -296,7 +392,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
      }
    }
  
@@ -106,7 +121,7 @@ index a2d21d7..fcd33d4 100644
  }
  
  function zoneNameScanner(locale, offsetFormat, timeZone) {
-@@ -320,7 +401,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
+@@ -320,7 +416,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
    const scan = zoneNameScanner(locale, offsetFormat, timeZone);
  
    if (scan != null) {

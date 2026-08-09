@@ -57,13 +57,27 @@ const set: MutationSet = {
 
     // ---- the parts that only a count can see ----
     {
-      name: "keeps one span instead of two",
+      name: "loses the second span's hit path",
       find: nl(
         "+  if (t >= st.lo1 && t <= st.hi1) {",
         "+    st.hits++;",
         "+    const lo = st.lo0, hi = st.hi0, v = st.val0;",
         "+    st.lo0 = st.lo1; st.hi0 = st.hi1; st.val0 = st.val1;",
         "+    st.lo1 = lo; st.hi1 = hi; st.val1 = v;",
+        "+    return st.val0;",
+        "+  }"
+      ),
+      replace: "",
+    },
+    {
+      name: "keeps two spans instead of three",
+      find: nl(
+        "+  if (t >= st.lo2 && t <= st.hi2) {",
+        "+    st.hits++;",
+        "+    const lo = st.lo1, hi = st.hi1, v = st.val1;",
+        "+    st.lo1 = st.lo0; st.hi1 = st.hi0; st.val1 = st.val0;",
+        "+    st.lo0 = st.lo2; st.hi0 = st.hi2; st.val0 = st.val2;",
+        "+    st.lo2 = lo; st.hi2 = hi; st.val2 = v;",
         "+    return st.val0;",
         "+  }"
       ),

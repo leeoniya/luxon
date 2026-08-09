@@ -225,7 +225,7 @@ anything but zero — a unit cannot reach 1 unless the instants are at least one
 it apart, and the shortest each unit can be in local time is a constant.
 
 Neither is large on its own, and that is the part that generalises. Each `plus`
-walks D's transition-free interval cache, which holds two spans, so the calls
+walks D's transition-free interval cache, which holds three spans, so the calls
 that did not need making were evicting the working set and the calls that did
 need making then missed. Removing them takes the column's ICU traffic to zero,
 not down. Both are in H, which is a patch rather than two lines folded into G

@@ -118,7 +118,8 @@ for (const [label, keys] of VARIANTS) {
           // offset at Settings.now() and then probes around the instant it is
           // actually placing, so the zone is asked about the two in turn,
           // forever. It is the pattern a one-span cache cannot serve — each
-          // lookup evicts the other's span — and the reason there are two.
+          // lookup evicts the other's span — and the reason there is more
+          // than one.
           ["interleaved with now", points.flatMap((ts) => [now, ts])],
         ];
 
