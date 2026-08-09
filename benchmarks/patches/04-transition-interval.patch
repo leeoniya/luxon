@@ -9,7 +9,7 @@ diff --git a/src/impl/util.js b/src/impl/util.js
 index a2d21d7..fcd33d4 100644
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
-@@ -254,6 +254,95 @@ export function resetZoneNameCache() {
+@@ -254,6 +254,87 @@ export function resetZoneNameCache() {
    nameScanCache.clear();
  }
  
@@ -17,12 +17,9 @@ index a2d21d7..fcd33d4 100644
 +// lookups that want one -- IANAZone#offset over in zones/IANAZone.js, and
 +// parseZoneInfo below.
 +//
-+// An offset or a name only changes at a transition, so a value inside a span
-+// that two agreeing probes prove transition-free needs no Intl call at all. The
-+// span is exact rather than a guess: probes sit 2 days apart, and the shortest
-+// window in which any zone's offset or CLDR name departs and returns is 6.96
-+// days, so departing and returning unseen between one probe and the next cannot
-+// happen.
++// Probes sit 2 days apart, and the shortest window in which any zone's offset
++// or CLDR name departs and returns is 6.96 days, so departing and returning
++// unseen between one probe and the next cannot happen.
 +const INTERVAL_PROBE_MS = 2 * 86400000;
 +const INTERVAL_MAX_REACH = 256;
 +const INTERVAL_MAX_TS = 8.64e15;
@@ -54,8 +51,6 @@ index a2d21d7..fcd33d4 100644
 +    return st.val0;
 +  }
 +
-+  // a hit in the colder span swaps it to the front, so the one a miss evicts is
-+  // always the less recently used
 +  if (t >= st.lo1 && t <= st.hi1) {
 +    st.hits++;
 +    const lo = st.lo0, hi = st.hi0, v = st.val0;
@@ -77,9 +72,6 @@ index a2d21d7..fcd33d4 100644
 +  // backward over ground it has already left. One probe each way is the floor,
 +  // because a span that reaches nothing can never be hit, and a budget that only
 +  // grows after a hit can then never grow.
-+  //
-+  // reach is the budget for the pair, so widening costs what it always did; only
-+  // the floor is new.
 +  const side = (st.reach >> 1) + 1;
 +
 +  for (let k = 1; k <= side; k++) {
@@ -105,7 +97,7 @@ index a2d21d7..fcd33d4 100644
  // Either side of a DST boundary, and one that renders a one-digit hour if the
  // locale does not honor 2-digit: a surround that is not fixed-width shows up as
  // a disagreement here rather than as a wrong name later.
-@@ -296,7 +385,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
+@@ -296,7 +377,7 @@ function makeNameScanner(locale, offsetFormat, timeZone) {
      }
    }
  
@@ -114,10 +106,10 @@ index a2d21d7..fcd33d4 100644
  }
  
  function zoneNameScanner(locale, offsetFormat, timeZone) {
-@@ -320,7 +409,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
+@@ -320,7 +401,7 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
    const scan = zoneNameScanner(locale, offsetFormat, timeZone);
  
-   if (scan !== null) {
+   if (scan != null) {
 -    return scanName(scan, ts);
 +    return intervalLookup(scan.iv, scanName, scan, ts);
    }
@@ -149,7 +141,7 @@ index b5235ba..99f0ab3 100644
 +
 +function offsetInterval(zoneName) {
 +  let st = intervalCache.get(zoneName);
-+  if (st === undefined) intervalCache.set(zoneName, (st = newInterval()));
++  if (st == null) intervalCache.set(zoneName, (st = newInterval()));
 +  return st;
 +}
 +
@@ -167,7 +159,7 @@ index b5235ba..99f0ab3 100644
  
    /**
 @@ -283,7 +304,7 @@ export default class IANAZone extends Zone {
-     if (scan !== null) {
+     if (scan != null) {
        const t = Math.trunc(ts);
        if (Number.isNaN(t) || Math.abs(t) > 8.64e15) return NaN;
 -      return scan(t);

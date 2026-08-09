@@ -15,33 +15,33 @@ const set: MutationSet = {
     // ---- who is allowed to share ----
     {
       name: "interns locales that carry a numbering system",
-      find: '+      numberingSystem || weekSettings || (outputCalendar && outputCalendar !== "gregory")',
-      replace: '+      weekSettings || (outputCalendar && outputCalendar !== "gregory")',
+      find: '+    if (!numberingSystem && !weekSettings && (!outputCalendar || outputCalendar === "gregory")) {',
+      replace: '+    if (!weekSettings && (!outputCalendar || outputCalendar === "gregory")) {',
     },
     {
       name: "interns locales that carry week settings",
-      find: '+      numberingSystem || weekSettings || (outputCalendar && outputCalendar !== "gregory")',
-      replace: '+      numberingSystem || (outputCalendar && outputCalendar !== "gregory")',
+      find: '+    if (!numberingSystem && !weekSettings && (!outputCalendar || outputCalendar === "gregory")) {',
+      replace: '+    if (!numberingSystem && (!outputCalendar || outputCalendar === "gregory")) {',
     },
     {
       name: "interns every output calendar, not just gregory",
-      find: '+      numberingSystem || weekSettings || (outputCalendar && outputCalendar !== "gregory")',
-      replace: "+      numberingSystem || weekSettings",
+      find: '+    if (!numberingSystem && !weekSettings && (!outputCalendar || outputCalendar === "gregory")) {',
+      replace: "+    if (!numberingSystem && !weekSettings) {",
     },
     {
       name: "keeps gregory and no-calendar locales in one map",
-      find: nl("+        : outputCalendar", "+          ? gregoryLocaleCache", "+          : localeCache;"),
-      replace: nl("+        : outputCalendar", "+          ? localeCache", "+          : localeCache;"),
+      find: "+      cache = outputCalendar ? gregoryLocaleCache : localeCache;",
+      replace: "+      cache = localeCache;",
     },
     {
       name: "lets a defaultToEN locale share with one that is not",
-      find: '+    const cacheKey = cache === null ? null : defaultToEN ? "!" + (locale || "") : locale || "";',
-      replace: "+    const cacheKey = cache === null ? null : locale || \"\";",
+      find: '+    const cacheKey = cache == null ? null : defaultToEN ? "!" + (locale || "") : locale || "";',
+      replace: "+    const cacheKey = cache == null ? null : locale || \"\";",
     },
     {
       name: "lets the intern grow without a ceiling",
-      find: "+    if (cache !== null && cache.size < LOCALE_CACHE_MAX) {",
-      replace: "+    if (cache !== null) {",
+      find: "+    if (cache != null && cache.size < LOCALE_CACHE_MAX) {",
+      replace: "+    if (cache != null) {",
     },
 
     // ---- staleness ----

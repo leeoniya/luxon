@@ -151,15 +151,15 @@ const set: MutationSet = {
         "on this function's own parameter -- padStart cannot render a sign, " +
         "whatever the options happen to hold -- where the reads it replaced " +
         "were assumptions about options this path never receives.",
-      find: "+    if (signDisplay === undefined) {",
+      find: "+    if (signDisplay == null) {",
       replace: "+    if (true) {",
     },
 
     // ---- padStart's table ----
     {
       name: "builds the two-digit table without its leading zeroes",
-      find: '+const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);',
-      replace: "+const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => \"\" + i);",
+      find: '+const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => String(i).padStart(2, "0"));',
+      replace: "+const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => String(i));",
     },
     {
       name: "reads the two-digit table for a negative number",

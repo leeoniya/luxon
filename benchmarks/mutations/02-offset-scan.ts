@@ -43,8 +43,8 @@ const set: MutationSet = {
     },
     {
       name: "counts the era as a field",
-      find: '+    if (part.type !== "era" && typeToPos[part.type] !== undefined) layout.push(part.type);',
-      replace: "+    if (typeToPos[part.type] !== undefined) layout.push(part.type);",
+      find: '+    if (part.type !== "era" && typeToPos[part.type] != null) layout.push(part.type);',
+      replace: "+    if (typeToPos[part.type] != null) layout.push(part.type);",
     },
     {
       name: "stops noticing BC dates",
@@ -75,8 +75,8 @@ const set: MutationSet = {
     },
     {
       name: "floors sub-second remainders towards zero, not down",
-      find: "+    return (asUTC - (t - (over >= 0 ? over : 1000 + over))) / 60000;",
-      replace: "+    return (asUTC - (t - over)) / 60000;",
+      find: "+    return (asUTC - Math.floor(t / 1000) * 1000) / 60000;",
+      replace: "+    return (asUTC - Math.trunc(t / 1000) * 1000) / 60000;",
     },
     {
       name: "takes the fractional part of the timestamp with it",

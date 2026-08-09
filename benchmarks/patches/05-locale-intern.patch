@@ -46,14 +46,13 @@ index 76f08a7..05e57d7 100644
  const fallbackWeekSettings = {
    firstDay: 1,
    minimalDays: 4,
-@@ -352,17 +382,57 @@ export default class Locale {
+@@ -352,17 +382,55 @@ export default class Locale {
    }
  
    static create(locale, numberingSystem, outputCalendar, weekSettings, defaultToEN = false) {
 +    // UPSTREAM-E: see benchmarks/patches/. Only the plain shapes are interned:
 +    // no numbering system and no week settings, and either no outputCalendar or
 +    // the "gregory" that Info.months and Info.monthsFormat pass explicitly.
-+    // Anything else falls through to the original uncached path.
 +    //
 +    // Two maps rather than one compound key, so the key stays the locale string
 +    // itself and the common path allocates nothing to look itself up. The two
@@ -61,22 +60,21 @@ index 76f08a7..05e57d7 100644
 +    // intlConfigString and the DTF opts read it.
 +    localeSettingsGen();
 +
-+    const cache =
-+      numberingSystem || weekSettings || (outputCalendar && outputCalendar !== "gregory")
-+        ? null
-+        : outputCalendar
-+          ? gregoryLocaleCache
-+          : localeCache;
++    let cache = null;
++
++    if (!numberingSystem && !weekSettings && (!outputCalendar || outputCalendar === "gregory")) {
++      cache = outputCalendar ? gregoryLocaleCache : localeCache;
++    }
 +
 +    // the "!" prefix keeps the two defaultToEN families apart: they resolve a
 +    // missing locale differently (en-US versus the system locale), so the same
 +    // locale string must not share an entry across them
-+    const cacheKey = cache === null ? null : defaultToEN ? "!" + (locale || "") : locale || "";
++    const cacheKey = cache == null ? null : defaultToEN ? "!" + (locale || "") : locale || "";
 +
-+    if (cache !== null) {
++    if (cache != null) {
 +      const interned = cache.get(cacheKey);
 +
-+      if (interned !== undefined) {
++      if (interned != null) {
 +        return interned;
 +      }
 +    }
@@ -90,7 +88,7 @@ index 76f08a7..05e57d7 100644
 -    return new Locale(localeR, numberingSystemR, outputCalendarR, weekSettingsR, specifiedLocale);
 +    const built = new Locale(localeR, numberingSystemR, outputCalendarR, weekSettingsR, specifiedLocale);
 +
-+    if (cache !== null && cache.size < LOCALE_CACHE_MAX) {
++    if (cache != null && cache.size < LOCALE_CACHE_MAX) {
 +      cache.set(cacheKey, built);
 +    }
 +
@@ -105,7 +103,7 @@ index 76f08a7..05e57d7 100644
      intlDTCache.clear();
      intlNumCache.clear();
      intlRelCache.clear();
-@@ -423,6 +490,18 @@ export default class Locale {
+@@ -423,6 +491,18 @@ export default class Locale {
    }
  
    redefaultToEN(alts = {}) {
@@ -124,15 +122,13 @@ index 76f08a7..05e57d7 100644
      return this.clone({ ...alts, defaultToEN: true });
    }
  
-@@ -525,6 +604,47 @@ export default class Locale {
+@@ -525,6 +605,45 @@ export default class Locale {
      return getCachedLF(this.intl, opts);
    }
  
 +  // UPSTREAM-E: Duration#toHuman asks for one number formatter per unit it
-+  // prints and one list formatter, and builds fresh option objects for each to
-+  // ask with — so a two-unit duration pays three JSON.stringify cache keys and
-+  // two PolyNumberFormatters per call. Called with no options, every one of
-+  // them is determined by this locale and the unit alone.
++  // prints and one list formatter. Called with no options, every one of them
++  // is determined by this locale and the unit alone.
 +  //
 +  // Memoized here rather than in duration.js so that localeSettingsGen()
 +  // reaches it. A Duration built before Settings.resetCaches() still holds this
@@ -153,7 +149,7 @@ index 76f08a7..05e57d7 100644
 +  humanNumberFormatter(unit) {
 +    let nf = this.humanNum.get(unit);
 +
-+    if (nf === undefined) {
++    if (nf == null) {
 +      nf = this.numberFormatter({ style: "unit", unitDisplay: "long", unit: unit.slice(0, -1) });
 +      this.humanNum.set(unit, nf);
 +    }
@@ -162,7 +158,7 @@ index 76f08a7..05e57d7 100644
 +  }
 +
 +  humanListFormatter() {
-+    if (this.humanList === undefined) {
++    if (this.humanList == null) {
 +      this.humanList = this.listFormatter({ type: "conjunction", style: "narrow" });
 +    }
 +
@@ -176,7 +172,7 @@ diff --git a/src/duration.js b/src/duration.js
 index ed27f9c..27343c5 100644
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -524,30 +524,50 @@ export default class Duration {
+@@ -524,30 +524,49 @@ export default class Duration {
      if (!this.isValid) return INVALID;
  
      const showZeros = opts.showZeros !== false;
@@ -196,8 +192,7 @@ index ed27f9c..27343c5 100644
 -          return null;
 +    // UPSTREAM-E: any option at all is spread into both formatters' options
 +    // below, so the memo is only good for the call that passed none — which is
-+    // the call toHuman() makes. for-in rather than Object.keys, which would
-+    // allocate an array per call just to answer empty-or-not.
++    // the call toHuman() makes.
 +    let hasOpts = false;
 +
 +    for (const k in opts) {
@@ -235,7 +230,7 @@ index ed27f9c..27343c5 100644
 +      }
 +      l.push(
 +        (
-+          memo === null
++          memo == null
 +            ? this.loc.numberFormatter({ style: "unit", unitDisplay: "long", ...opts, unit: unit.slice(0, -1) })
 +            : memo.humanNumberFormatter(unit)
 +        ).format(val)
@@ -243,7 +238,7 @@ index ed27f9c..27343c5 100644
 +    }
 +
 +    return (
-+      memo === null
++      memo == null
 +        ? this.loc.listFormatter({ type: "conjunction", style: opts.listStyle || "narrow", ...opts })
 +        : memo.humanListFormatter()
 +    ).format(l);

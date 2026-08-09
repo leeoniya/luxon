@@ -9,13 +9,13 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 index 4c80d34..a68bc57 100644
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -2,18 +2,362 @@ import * as English from "./english.js";
+@@ -2,18 +2,358 @@ import * as English from "./english.js";
  import * as Formats from "./formats.js";
  import { padStart, roundTo } from "./util.js";
  
 -function stringifyTokens(splits, tokenToString) {
--  // UPSTREAM-F: indexed loop (no iterator allocation per format) and a verbatim
--  // check so punctuation skips tokenToString entirely.
+-  // UPSTREAM-F: indexed loop and a verbatim check so punctuation skips
+-  // tokenToString entirely.
 -  let s = "";
 -  for (let i = 0; i < splits.length; i++) {
 -    const token = splits[i];
@@ -32,40 +32,36 @@ index 4c80d34..a68bc57 100644
 +
 +const cfExtract = (f, dt, opts, field) => f.loc.extract(dt, opts, field);
 +
-+// Name tokens, memoized per locale.
-+//
-+// A name token — a month, a weekday, an era, a day period — has no fast path the
-+// way a numeric one does. English reads a constant array; every other locale
-+// calls loc.extract(), which is an Intl.DateTimeFormat.formatToParts() plus a
-+// find() over its parts, once per token per value. "cccc, LLLL d, yyyy 'at'
-+// h:mm a" in fr is three of those per value and ~20x the same pattern in en.
-+//
-+// Locale already caches these lists — monthsCache, weekdaysCache, meridiemCache
-+// — but only Info.months and its neighbours read them; the formatter has always
-+// gone straight to extract(). Which is how Info.months in fr costs ~1ms per 20k
-+// while formatting a pattern that names a month costs ~150ms.
-+//
-+// Reading Locale's lists from here is the obvious fix and the wrong one: it does
-+// not pass the Intl options the formatter passes — a format-context weekday
-+// there carries year: "numeric", here it does not — and swapping them silently
-+// changes what fi and fa render. So this memoizes the formatter's OWN extract
-+// call, keyed by the field the answer depends on: same options, same call, same
-+// string, once per distinct field value instead of once per value.
++// Name tokens: memoize the formatter's own extract() call per locale, keyed by
++// the field the answer depends on. Locale's cached month/weekday lists are not
++// read from here: they pass different Intl options (a format-context weekday
++// carries year: "numeric"), and swapping them silently changes what fi and fa
++// render.
 +const cfNames = new WeakMap();
 +const cfCalendars = new WeakMap();
 +
 +function cfMemo(f, dt, opts, field, key, size, at) {
 +  let per = cfNames.get(f.loc);
 +
-+  if (per === undefined) cfNames.set(f.loc, (per = new Map()));
++  if (per == null) {
++    per = new Map();
++    cfNames.set(f.loc, per);
++  }
 +
 +  let slots = per.get(key);
 +
-+  if (slots === undefined) per.set(key, (slots = new Array(size)));
++  if (slots == null) {
++    slots = new Array(size);
++    per.set(key, slots);
++  }
 +
 +  const hit = slots[at];
 +
-+  return hit !== undefined ? hit : (slots[at] = f.loc.extract(dt, opts, field));
++  // extract() can answer null, and a stored null is a hit; only an empty
++  // slot (undefined) re-runs it, so the test must be strict
++  if (hit !== undefined) return hit;
++
++  return (slots[at] = f.loc.extract(dt, opts, field));
 +}
 +
 +// Whether the calendar these names come out of is the one dt's fields are in. A
@@ -78,8 +74,9 @@ index 4c80d34..a68bc57 100644
 +function cfGregorian(loc) {
 +  let ok = cfCalendars.get(loc);
 +
-+  if (ok === undefined) {
-+    cfCalendars.set(loc, (ok = new Intl.DateTimeFormat(loc.intl).resolvedOptions().calendar === "gregory"));
++  if (ok == null) {
++    ok = new Intl.DateTimeFormat(loc.intl).resolvedOptions().calendar === "gregory";
++    cfCalendars.set(loc, ok);
 +  }
 +
 +  return ok;
@@ -97,7 +94,6 @@ index 4c80d34..a68bc57 100644
 +}
 +
 +function cfMonth(length, standalone) {
-+  // hoisted: the interpreter rebuilt this literal on every value
 +  const opts = standalone ? { month: length } : { month: length, day: "numeric" };
 +  const key = (standalone ? "L" : "M") + length;
 +
@@ -174,10 +170,7 @@ index 4c80d34..a68bc57 100644
 +  // meridiems
 +  // Keyed by hour across 24 slots rather than by hour < 12 across two. The opts
 +  // name only the hour, so the hour is the whole of what the answer can depend
-+  // on, and keying on it directly costs 22 array slots and assumes nothing. Two
-+  // slots would instead bake in Locale#meridiems' assumption that a locale has
-+  // exactly two day periods — which its own comment calls "probably wrong", and
-+  // which is not this code's assumption to make.
++  // on. Two slots would bake in Locale#meridiems' two-day-period assumption.
 +  a: (f, dt, en) =>
 +    en ? English.meridiemForDateTime(dt) : cfMemo(f, dt, CF_DAYPERIOD, "dayperiod", "a", 24, dt.hour),
 +  // dates
@@ -251,7 +244,7 @@ index 4c80d34..a68bc57 100644
 +
 +    const handler = cfHandlers[token.val];
 +
-+    if (handler !== undefined) {
++    if (handler != null) {
 +      lits.push(lit);
 +      lit = "";
 +      fns.push(handler);
@@ -280,7 +273,7 @@ index 4c80d34..a68bc57 100644
 +function cfRun(f, dt, fmt) {
 +  let program = cfPrograms.get(fmt);
 +
-+  if (program === undefined) {
++  if (program == null) {
 +    program = cfCompile(fmt);
 +
 +    if (cfPrograms.size < CF_CACHE_MAX) {
@@ -321,7 +314,7 @@ index 4c80d34..a68bc57 100644
 +  for (const token of Formatter.parseFormat(fmt)) {
 +    const field = token.literal ? undefined : cfDurationFields[token.val[0]];
 +
-+    if (field === undefined) {
++    if (field == null) {
 +      lit += token.val;
      } else {
 -      s += tokenToString(token.val);
@@ -340,7 +333,7 @@ index 4c80d34..a68bc57 100644
 +function cfRunDuration(f, dur, fmt) {
 +  let program = cfDurationPrograms.get(fmt);
 +
-+  if (program === undefined) {
++  if (program == null) {
 +    program = cfCompileDuration(fmt);
 +
 +    if (cfDurationPrograms.size < CF_CACHE_MAX) {
@@ -358,12 +351,15 @@ index 4c80d34..a68bc57 100644
 +  for (let i = 0; i < fields.length; i++) {
 +    const field = fields[i];
 +    const secondaryNegative = signMode === "negativeLargestOnly" && negative && field !== largest;
-+    const signDisplay =
-+      signMode === "negativeLargestOnly" && field !== largest
-+        ? "never"
-+        : signMode === "all"
-+          ? "always"
-+          : "auto";
++    let signDisplay;
++
++    if (signMode === "negativeLargestOnly" && field !== largest) {
++      signDisplay = "never";
++    } else if (signMode === "all") {
++      signDisplay = "always";
++    } else {
++      signDisplay = "auto";
++    }
 +
 +    // UPSTREAM-J: field is already canonical and shiftTo filled values in that
 +    // shape, so get() would only normalize the same known unit again.
@@ -381,7 +377,7 @@ index 4c80d34..a68bc57 100644
    return s;
  }
  
-@@ -193,304 +537,14 @@ export default class Formatter {
+@@ -193,304 +533,14 @@ export default class Formatter {
    }
  
    formatDateTimeFromString(dt, fmt) {
@@ -612,7 +608,7 @@ index 4c80d34..a68bc57 100644
 -      };
 -
 -    return stringifyTokens(Formatter.parseFormat(fmt), tokenToString);
-+    // UPSTREAM-J: see benchmarks/patches/
++    // UPSTREAM-J: compiled program; see cfRun above.
 +    return cfRun(this, dt, fmt);
    }
  

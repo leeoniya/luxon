@@ -29,12 +29,12 @@ const set: MutationSet = {
     },
     {
       name: "no longer skips an undefined field",
-      find: "+      if (raw === undefined || raw === null) continue;",
+      find: "+      if (raw == null) continue;",
       replace: "+      if (raw === null) continue;",
     },
     {
       name: "no longer skips a null field",
-      find: "+      if (raw === undefined || raw === null) continue;",
+      find: "+      if (raw == null) continue;",
       replace: "+      if (raw === undefined) continue;",
       survives:
         "asNumber(null) is 0, and 0 is what an absent unit already reads as, so " +
@@ -90,15 +90,15 @@ const set: MutationSet = {
     },
     {
       name: "takes the precomputed sum for a fractional duration",
-      find: "+    millisToAdd = !Number.isNaN(wholeSum)",
-      replace: "+    millisToAdd = true",
+      find: "+    millisToAdd = whole\n",
+      replace: "+    millisToAdd = true\n",
     },
 
     // ---- adjustTime: the calendar-free fast path ----
     {
       name: "takes the fast path with days set",
-      find: nl("+    durDays === 0 &&", "+    !Number.isNaN"),
-      replace: "+    !Number.isNaN",
+      find: nl("+    durDays === 0 &&", "+    whole"),
+      replace: "+    whole",
     },
     {
       name: "takes the fast path with weeks set",
@@ -107,7 +107,7 @@ const set: MutationSet = {
     },
     {
       name: "takes the fast path for a fractional duration",
-      find: nl("+    !Number.isNaN(wholeSum)", "+  ) {"),
+      find: nl("+    whole", "+  ) {"),
       replace: nl("+    true", "+  ) {"),
     },
     {

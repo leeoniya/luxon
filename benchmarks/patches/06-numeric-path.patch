@@ -9,7 +9,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..cbe5009 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -129,18 +129,39 @@ function fixOffset(localTS, o, tz) {
+@@ -129,18 +129,35 @@ function fixOffset(localTS, o, tz) {
  
  // convert an epoch timestamp into a calendar object with the given offset
  function tsToObj(ts, offset) {
@@ -18,11 +18,7 @@ index fd32d47..cbe5009 100644
 -  const d = new Date(ts);
 +  // UPSTREAM-F: new Date(ts) ran TimeClip on its argument first — round
 +  // toward zero, NaN outside +/-MAX_DATE — before any field was read off it. The
-+  // civil math below does neither, so both are explicit. A fractional timestamp
-+  // comes from fromSeconds and from a plus with a fractional millisecond; an
-+  // out-of-range one from a plus whose milliseconds overflow, which happens past
-+  // the objToLocalTS step that catches calendar-unit overflow. NaN here reaches
-+  // the constructor as a NaN year, which is how it reads invalidity.
++  // civil math below does neither, so both are explicit.
 +  const clipped = ts + offset * 60 * 1000;
 +  ts = Math.abs(clipped) > MAX_DATE ? NaN : Math.trunc(clipped);
 +
@@ -70,8 +66,8 @@ index ae6218e..4c80d34 100644
 +import { padStart, roundTo } from "./util.js";
  
  function stringifyTokens(splits, tokenToString) {
-+  // UPSTREAM-F: indexed loop (no iterator allocation per format) and a verbatim
-+  // check so punctuation skips tokenToString entirely.
++  // UPSTREAM-F: indexed loop and a verbatim check so punctuation skips
++  // tokenToString entirely.
    let s = "";
 -  for (const token of splits) {
 -    if (token.literal) {
@@ -81,13 +77,12 @@ index ae6218e..4c80d34 100644
        s += token.val;
      } else {
        s += tokenToString(token.val);
-@@ -41,12 +44,32 @@ const macroTokenToFormatOpts = {
+@@ -41,12 +44,31 @@ const macroTokenToFormatOpts = {
   * @private
   */
  
-+// UPSTREAM-F: format strings are overwhelmingly reused (one pattern, a whole
-+// column of values), but parseFormat re-tokenized on every call. Bounded so a
-+// caller generating unique format strings can't grow it without limit.
++// UPSTREAM-F: parseFormat cache. Bounded so a caller generating unique format
++// strings can't grow it without limit.
 +const parseFormatCache = new Map();
 +const PARSE_FORMAT_CACHE_MAX = 1000;
 +
@@ -99,7 +94,7 @@ index ae6218e..4c80d34 100644
    static parseFormat(fmt) {
 +    let cached = parseFormatCache.get(fmt);
 +
-+    if (cached === undefined) {
++    if (cached == null) {
 +      cached = Formatter.parseFormatUncached(fmt);
 +
 +      if (parseFormatCache.size < PARSE_FORMAT_CACHE_MAX) {
@@ -114,7 +109,7 @@ index ae6218e..4c80d34 100644
      // white-space is always considered a literal in user-provided formats
      // the " " token has a special meaning (see unitForToken)
  
-@@ -84,6 +107,15 @@ export default class Formatter {
+@@ -84,6 +106,15 @@ export default class Formatter {
        splits.push({ literal: bracketed || /^\s+$/.test(currentFull), val: currentFull });
      }
  
@@ -130,7 +125,7 @@ index ae6218e..4c80d34 100644
      return splits;
    }
  
-@@ -132,6 +164,22 @@ export default class Formatter {
+@@ -132,6 +163,22 @@ export default class Formatter {
        return padStart(n, p);
      }
  
@@ -140,8 +135,8 @@ index ae6218e..4c80d34 100644
 +    // this. With no options PolyNumberFormatter reduces to padStart(roundTo(n, 3),
 +    // p), so do that directly rather than allocating an options object, a
 +    // formatter and a key array for every numeric token.
-+    if (signDisplay === undefined) {
-+      if (this.simpleNumsCached === undefined) {
++    if (signDisplay == null) {
++      if (this.simpleNumsCached == null) {
 +        this.simpleNumsCached = this.loc.fastNumbers && Object.keys(this.opts).length === 0;
 +      }
 +
@@ -162,7 +157,7 @@ index 32a5d9d..32505a9 100644
  }
  
 +// UPSTREAM-F: "00".."99", for the pad-to-two case that dominates date formatting
-+const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => (i < 10 ? "0" : "") + i);
++const PAD_TO_2 = Array.from({ length: 100 }, (_, i) => String(i).padStart(2, "0"));
 +
  export function padStart(input, n = 2) {
 +  if (n === 2 && Number.isInteger(input) && input >= 0 && input < 100) {

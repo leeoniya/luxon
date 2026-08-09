@@ -14,17 +14,17 @@ const set: MutationSet = {
     // ---- clone, one per field ----
     {
       name: "clone ignores a new timestamp",
-      find: "+    ts: alts.ts === undefined ? current.ts : alts.ts,",
+      find: "+    ts: alts.ts == null ? current.ts : alts.ts,",
       replace: "+    ts: current.ts,",
     },
     {
       name: "clone ignores a new zone",
-      find: "+    zone: alts.zone === undefined ? current.zone : alts.zone,",
+      find: "+    zone: alts.zone == null ? current.zone : alts.zone,",
       replace: "+    zone: current.zone,",
     },
     {
       name: "clone ignores a new locale",
-      find: "+    loc: alts.loc === undefined ? current.loc : alts.loc,",
+      find: "+    loc: alts.loc == null ? current.loc : alts.loc,",
       replace: "+    loc: current.loc,",
     },
     {
@@ -34,7 +34,7 @@ const set: MutationSet = {
     },
     {
       name: "clone forgets the instant was in a hole",
-      find: "+    wasHole: alts.wasHole === undefined ? current.wasHole : alts.wasHole,",
+      find: "+    wasHole: alts.wasHole == null ? current.wasHole : alts.wasHole,",
       replace: "+    wasHole: current.wasHole,",
     },
     {
@@ -44,8 +44,8 @@ const set: MutationSet = {
     },
     {
       name: "clone reads the alternatives the wrong way round",
-      find: "+    ts: alts.ts === undefined ? current.ts : alts.ts,",
-      replace: "+    ts: current.ts === undefined ? alts.ts : current.ts,",
+      find: "+    ts: alts.ts == null ? current.ts : alts.ts,",
+      replace: "+    ts: current.ts == null ? alts.ts : current.ts,",
     },
     // ---- endOf ----
     {

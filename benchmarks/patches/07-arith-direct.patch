@@ -18,24 +18,13 @@ index fd32d47..c674ee0 100644
  } from "./impl/util.js";
  import { normalizeZone } from "./impl/zoneUtil.js";
  import diff from "./impl/diff.js";
-@@ -149,31 +151,197 @@ function objToTS(obj, offset, zone) {
+@@ -149,31 +151,181 @@ function objToTS(obj, offset, zone) {
    return fixOffset(objToLocalTS(obj), offset, zone);
  }
  
 +// UPSTREAM-G: the nine numbers adjustTime reads, produced without the Duration
-+// that used to carry them. plus and minus called Duration.fromDurationLike on
-+// their argument, which for the object literal every caller writes is a
-+// normalizeObject building a keyed object, a Locale lookup and a Duration
-+// allocation — all so adjustTime could read nine getters off it and drop it.
-+//
-+// The record below is what those nine reads wanted. Its shape is fixed, which
-+// is the other half of the win: normalizeObject's result has computed keys and
-+// a shape that depends on which units the caller named, so the getters reading
-+// it could not settle.
-+//
-+// This is a normalization, not a validation shortcut. Every input normalizeObject
-+// rejects is still rejected here, with the same error and the same message,
-+// which is what the sweep in benchmarks/test/arith-direct-patch.test.ts is for.
++// that used to carry them. Every input normalizeObject rejects is still
++// rejected here, with the same error and the same message.
 +function durationValues(durationLike, negate) {
 +  const v = {
 +    years: 0,
@@ -54,7 +43,7 @@ index fd32d47..c674ee0 100644
 +    // that literal cannot fail to normalize, so only the value check is left
 +    v.milliseconds = asNumber(durationLike);
 +  } else if (
-+    durationLike !== null &&
++    durationLike != null &&
 +    typeof durationLike === "object" &&
 +    durationLike.isLuxonDuration !== true
 +  ) {
@@ -63,12 +52,9 @@ index fd32d47..c674ee0 100644
 +
 +      const raw = durationLike[u];
 +
-+      // normalizeObject's filter, kept in its shape rather than its effect. A
-+      // mutation dropping the null half survives every test here and always
-+      // will: asNumber(null) is 0, and 0 is what an absent unit already reads
-+      // as, so the two are the same answer by a different route. It is written
-+      // out so the two functions can be diffed against each other.
-+      if (raw === undefined || raw === null) continue;
++      // normalizeObject's filter: skip absent fields. asNumber(null) would be
++      // 0, which reads the same as absent anyway.
++      if (raw == null) continue;
 +
 +      // normalizeUnit before asNumber, because normalizeObject writes
 +      // `normalized[normalizer(u)] = asNumber(v)` and a member expression is
@@ -148,7 +134,7 @@ index fd32d47..c674ee0 100644
 +    // flows into the timestamp instead, and an overflowing addition produces
 +    // an invalid DateTime. That divergence is deliberate: an error you can see
 +    // beats an addition that silently never happened.
-+    wholeSum =
++    whole =
 +      Number.isInteger(durYears) &&
 +      Number.isInteger(durQuarters) &&
 +      Number.isInteger(durMonths) &&
@@ -157,9 +143,10 @@ index fd32d47..c674ee0 100644
 +      Number.isInteger(durHours) &&
 +      Number.isInteger(durMinutes) &&
 +      Number.isInteger(durSeconds) &&
-+      Number.isInteger(durMilliseconds)
-+        ? durHours * 3600000 + durMinutes * 60000 + durSeconds * 1000 + durMilliseconds
-+        : NaN;
++      Number.isInteger(durMilliseconds),
++    wholeSum = whole
++      ? durHours * 3600000 + durMinutes * 60000 + durSeconds * 1000 + durMilliseconds
++      : 0;
 +
 +  // UPSTREAM-G: with no calendar field set, the civil object below is inst.c
 +  // unchanged, so objToLocalTS(c) is this instance's own local time and
@@ -169,15 +156,15 @@ index fd32d47..c674ee0 100644
 +  // re-derivation cannot reach fixOffset's hole branch and wasHole is false
 +  // here exactly as it is there.
 +  //
-+  // The NaN check is the same one below and for the same reason — NaN is the
-+  // sentinel for a fractional field, which has to keep taking the old path.
++  // The whole check is the same one below and for the same reason — a
++  // fractional field has to keep taking the old path.
 +  if (
 +    durYears === 0 &&
 +    durQuarters === 0 &&
 +    durMonths === 0 &&
 +    durWeeks === 0 &&
 +    durDays === 0 &&
-+    !Number.isNaN(wholeSum)
++    whole
 +  ) {
 +    const only = inst.ts + wholeSum;
 +
@@ -215,7 +202,7 @@ index fd32d47..c674ee0 100644
 -      seconds: dur.seconds,
 -      milliseconds: dur.milliseconds,
 -    }).as("milliseconds"),
-+    millisToAdd = !Number.isNaN(wholeSum)
++    millisToAdd = whole
 +      ? wholeSum
 +      : Duration.fromObject({
 +          years: durYears - Math.trunc(durYears),
@@ -231,16 +218,13 @@ index fd32d47..c674ee0 100644
      localTS = objToLocalTS(c);
  
    let [ts, o, wasHole] = fixOffset(localTS, oPre, inst.zone);
-@@ -342,33 +510,37 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
+@@ -342,33 +494,38 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
    orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
  
  // standardize case and plurality in units
-+// UPSTREAM-G: hoisted. This table is a constant, and was being built
-+// per call to read one key off it. Null-prototype, so a unit named after
-+// something on Object.prototype ("__proto__", "constructor") misses and throws
-+// InvalidUnitError like any other non-unit. The per-call literal leaked those
-+// inherited values past the truthiness check below; that accident is not
-+// carried over.
++// UPSTREAM-G: null-prototype unit table. Prototype-key names ("__proto__",
++// "constructor") miss and throw InvalidUnitError; the per-call literal leaked
++// those inherited values past the truthiness check below.
 +const normalizedUnits = Object.assign(Object.create(null), {
 +  year: "year",
 +  years: "year",
@@ -299,7 +283,7 @@ index fd32d47..c674ee0 100644
  
    if (!normalized) throw new InvalidUnitError(unit);
  
-@@ -1713,8 +1885,9 @@ export default class DateTime {
+@@ -1713,8 +1870,9 @@ export default class DateTime {
     */
    plus(duration) {
      if (!this.isValid) return this;
@@ -311,7 +295,7 @@ index fd32d47..c674ee0 100644
    }
  
    /**
-@@ -1725,8 +1898,9 @@ export default class DateTime {
+@@ -1725,8 +1883,9 @@ export default class DateTime {
     */
    minus(duration) {
      if (!this.isValid) return this;
@@ -331,10 +315,8 @@ index ed27f9c..2d997e3 100644
  // for toHuman due to missing support from Intl.
  // if value is set, then key is what to convert to and value is what to convert
  // if value is null, then key is a unit to be ignored
-+// UPSTREAM-G: hoisted out of Duration.normalizeUnit, which was building
-+// it per call. Null-prototype for the same reason as DateTime's table: a
-+// prototype-key unit name now throws InvalidUnitError instead of leaking an
-+// inherited value past the check.
++// UPSTREAM-G: null-prototype unit table, same reason as DateTime's: a
++// prototype-key unit name throws InvalidUnitError instead of leaking.
 +const normalizedUnits = Object.assign(Object.create(null), {
 +  year: "years",
 +  years: "years",
@@ -431,17 +413,13 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
 index ebd129e..6790fd3 100644
 --- a/src/impl/diff.js
 +++ b/src/impl/diff.js
-@@ -1,9 +1,35 @@
+@@ -1,9 +1,25 @@
  import Duration from "../duration.js";
 +import { objToLocalTS } from "./util.js";
 +
-+// UPSTREAM-G: was dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
-+// inline in dayDiff. Both steps clone, and both clones reconstruct, so reading
-+// one number cost four DateTimes. What the expression asks for is the UTC
-+// midnight of the civil date, and the civil date is what dt.c already holds:
-+// keepLocalTime carries c across unchanged, UTC's offset is 0 so objToTS is
-+// objToLocalTS, and startOf("day") only zeroes the time fields. objToLocalTS and
-+// not Date.UTC because years 0-99 need the fixup it does.
++// UPSTREAM-G: was dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf().
++// dt.c is already that civil date; objToLocalTS (not Date.UTC) because years
++// 0-99 need the fixup it does.
 +const utcDayStart = (dt) =>
 +  objToLocalTS({
 +    year: dt.c.year,
@@ -458,16 +436,13 @@ index ebd129e..6790fd3 100644
 -    ms = utcDayStart(later) - utcDayStart(earlier);
 -  return Math.floor(Duration.fromMillis(ms).as("days"));
 +  const ms = utcDayStart(later) - utcDayStart(earlier);
-+  // UPSTREAM-G: was Math.floor(Duration.fromMillis(ms).as("days")) — a Duration
-+  // built and converted to reach one division, since shiftTo puts a lone
-+  // milliseconds value into days through its leftover loop. Both endpoints are
-+  // UTC midnights of valid DateTimes, so ms is finite and a whole number of
-+  // days.
++  // UPSTREAM-G: was Math.floor(Duration.fromMillis(ms).as("days")). Both
++  // endpoints are UTC midnights, so ms is a whole number of days.
 +  return Math.floor(ms / 86400000);
  }
  
  function highOrderDiffs(cursor, later, units) {
-@@ -65,6 +91,12 @@ function highOrderDiffs(cursor, later, units) {
+@@ -65,6 +81,12 @@ function highOrderDiffs(cursor, later, units) {
  }
  
  export default function (earlier, later, units, opts) {

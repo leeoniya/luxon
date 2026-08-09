@@ -95,7 +95,6 @@ index 32a5d9d..a2d21d7 100644
 +      s += part.value;
 +    }
 +
-+    // no name in the output, or format() is not the parts joined
 +    if (at < 0 || dtf.format(probe) !== s) return null;
 +
 +    if (pre < 0) {
@@ -114,6 +113,7 @@ index 32a5d9d..a2d21d7 100644
 +  const key = locale + "|" + offsetFormat + "|" + timeZone;
 +  let scan = nameScanCache.get(key);
 +
++  // a refused layout is memoized as null, so the miss test must be strict
 +  if (scan === undefined) {
 +    nameScanCache.set(key, (scan = makeNameScanner(locale, offsetFormat, timeZone)));
 +  }
@@ -130,7 +130,7 @@ index 32a5d9d..a2d21d7 100644
  export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
 +  const scan = zoneNameScanner(locale, offsetFormat, timeZone);
 +
-+  if (scan !== null) {
++  if (scan != null) {
 +    return scanName(scan, ts);
 +  }
 +

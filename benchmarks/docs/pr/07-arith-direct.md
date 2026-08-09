@@ -30,8 +30,8 @@ general. Anything fractional still takes the old path.
 ~1.8e305 overflowed to `NaN` and the milliseconds getter's `|| 0` silently
 dropped the whole addition — `plus({ seconds: 1e308 })` added nothing. That was
 a bug, and this patch corrects rather than preserves it: an overflowing sum
-flows into the timestamp and produces an invalid DateTime. The `NaN` check on
-`wholeSum` is only the fractional-field sentinel, not an overflow guard.
+flows into the timestamp and produces an invalid DateTime. The `whole` flag
+only routes fractional fields to the old path; it is not an overflow guard.
 
 **Legacy years.** `utcDayStart` goes through `objToLocalTS` and not `Date.UTC`,
 which is the same call with the same arguments except that `objToLocalTS` reverts

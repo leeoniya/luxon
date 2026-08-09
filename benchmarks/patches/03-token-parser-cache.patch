@@ -21,8 +21,7 @@ index db93f98..8bf60bb 100644
 -          all[h.token.val[0]] = h.deser(matches.slice(matchIndex, matchIndex + groups));
 -        }
 -        matchIndex += groups;
-+    // UPSTREAM-C: handlers is the parser's dense unit array. Walking its values
-+    // directly avoids enumerating array keys and checking each one again.
++    // UPSTREAM-C: handlers is the parser's dense unit array.
 +    for (const h of handlers) {
 +      const groups = h.groups ? h.groups + 1 : 1;
 +      if (!h.literal && h.token) {
@@ -32,7 +31,7 @@ index db93f98..8bf60bb 100644
      }
      return [matches, all];
    } else {
-@@ -487,9 +487,41 @@ export class TokenParser {
+@@ -487,9 +485,39 @@ export class TokenParser {
    }
  }
  
@@ -41,20 +40,13 @@ index db93f98..8bf60bb 100644
 +// pattern and compiling it to a RegExp, all to read one string. None of that
 +// depends on the input, only on the format and the locale.
 +//
-+// That the object survives reuse is not an assumption being made here: luxon
-+// already exports it through DateTime.buildFormatParser, whose entire purpose is
-+// to let a caller hoist this out of a loop and hand the same parser back to
-+// fromFormatParser. This does it for the callers who did not, which is
-+// fromFormat and everything routed through it.
-+//
 +// Keyed on the three fields Locale#equals compares, which are also the only part
 +// of a Locale a parser reads: text tokens go through loc.eras, loc.months,
 +// loc.weekdays and loc.meridiems, and each of those is a function of exactly
-+// those three. JSON.stringify for the composite key is the shape luxon's own
-+// DTF, number, relative and resolved-options caches already use.
++// those three.
 +const parserCache = new Map();
 +// the key embeds a caller-supplied format string, so cap the cache the way the
-+// locale and format caches are capped: stop taking entries once it is full
++// locale and format caches are capped
 +const PARSER_CACHE_MAX = 1000;
 +
 +export function resetTokenParserCache() {
@@ -65,7 +57,7 @@ index db93f98..8bf60bb 100644
 +  const key = JSON.stringify([locale.locale, locale.numberingSystem, locale.outputCalendar, format]);
 +  let parser = parserCache.get(key);
 +
-+  if (parser === undefined) {
++  if (parser == null) {
 +    parser = new TokenParser(locale, format);
 +
 +    if (parserCache.size < PARSER_CACHE_MAX) parserCache.set(key, parser);

@@ -9,7 +9,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..2009215 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -469,6 +469,33 @@ function quickDT(obj, opts) {
+@@ -469,6 +469,32 @@ function quickDT(obj, opts) {
    return new DateTime({ ts, zone, loc, o, wasHole });
  }
  
@@ -42,7 +42,7 @@ index fd32d47..2009215 100644
  function diffRelative(start, end, opts) {
    const round = isUndefined(opts.round) ? true : opts.round,
      rounding = isUndefined(opts.rounding) ? "trunc" : opts.rounding,
-@@ -491,7 +518,15 @@ function diffRelative(start, end, opts) {
+@@ -491,7 +517,14 @@ function diffRelative(start, end, opts) {
      return format(differ(opts.unit), opts.unit);
    }
  
@@ -52,13 +52,12 @@ index fd32d47..2009215 100644
 +  const spread = opts.calendary ? -1 : Math.abs(end.ts - start.ts);
 +
    for (const unit of opts.units) {
-+    // skipping a diff whose result is already known, not deciding it differently
 +    if (spread >= 0 && spread < relativeFloor[unit]) continue;
 +
      const count = differ(unit);
      if (Math.abs(count) >= 1) {
        return format(count, unit);
-@@ -2295,7 +2330,9 @@ export default class DateTime {
+@@ -2295,7 +2328,9 @@ export default class DateTime {
        units = options.unit;
        unit = undefined;
      }

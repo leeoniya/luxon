@@ -96,8 +96,8 @@ const set: MutationSet = {
     },
     {
       name: "asks loc.outputCalendar instead of the calendar Intl resolved",
-      find: '+    cfCalendars.set(loc, (ok = new Intl.DateTimeFormat(loc.intl).resolvedOptions().calendar === "gregory"));',
-      replace: '+    cfCalendars.set(loc, (ok = !loc.outputCalendar || loc.outputCalendar === "gregory"));',
+      find: '+    ok = new Intl.DateTimeFormat(loc.intl).resolvedOptions().calendar === "gregory";',
+      replace: '+    ok = !loc.outputCalendar || loc.outputCalendar === "gregory";',
     },
     {
       name: "skips the calendar check for eras",
@@ -148,8 +148,8 @@ const set: MutationSet = {
     },
     {
       name: "drops Duration literal runs",
-      find: "+    if (field === undefined) {\n+      lit += token.val;\n     } else {",
-      replace: "+    if (field === undefined) {\n     } else {",
+      find: "+    if (field == null) {\n+      lit += token.val;\n     } else {",
+      replace: "+    if (field == null) {\n     } else {",
     },
     {
       name: "leaves secondary negative Duration fields negative",
