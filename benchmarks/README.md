@@ -177,7 +177,7 @@ rebuilt; the loader pulls in what they need.
 datetime.js  info.js  index.js   luxon's own suite, on tinybench
 suite.ts                         those 29 cases across build columns
 format.ts                        moment vs luxon vs luxon+easy-tz
-upstream.ts                      the patch ladder: what each is worth
+upstream.ts                      the patch ladder: what each is worth; writes upstream-bench.html
 cross-engine.ts                  upstream.ts under node and bun, diffed
 patches/                         the nine diffs
 docs/                            what the tables mean

@@ -64,8 +64,13 @@ export const colorEnabled: boolean = (() => {
  * A missing or nonsensical anchor leaves the text alone rather than guessing,
  * which is what a cell with no baseline to compare against should look like.
  */
-export function shade(text: string, value: number, anchor: number | undefined): string {
-  if (!colorEnabled || anchor === undefined || !(anchor > 0) || !(value > 0)) return text;
+export function shade(
+  text: string,
+  value: number,
+  anchor: number | undefined,
+  enabled = colorEnabled
+): string {
+  if (!enabled || anchor === undefined || !(anchor > 0) || !(value > 0)) return text;
 
   const d = Math.log2(value / anchor);
   const magnitude = Math.abs(d);
@@ -79,8 +84,13 @@ export function shade(text: string, value: number, anchor: number | undefined): 
   return `\u001b[38;5;${(d < 0 ? FASTER : SLOWER)[step]!}m${text}\u001b[0m`;
 }
 
+/** Removes the colour escapes emitted by `shade`. */
+export function stripColor(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
 /** Printable width, i.e. ignoring the escapes `shade` may have wrapped a cell in. */
 export function visibleWidth(text: string): number {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\u001b\[[0-9;]*m/g, "").length;
+  return stripColor(text).length;
 }

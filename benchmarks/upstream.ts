@@ -54,8 +54,8 @@
 // The three tables can be run alone, which is the loop for iterating on a patch:
 // --patches (~1s), --ladder (~80s under node, ~90s under bun — the reading half
 // costs JSC more, see PARSE_PASSES), --default (~45s). Any combination works,
-// and naming none runs all three. Only a full run writes the JSON that
-// cross-engine.ts reads.
+// and naming none runs all three. Every completed run writes upstream-bench.html;
+// only a full run writes the JSON that cross-engine.ts reads.
 //
 // The first two name a zone. --default is the same ladder with none named, which
 // is the configuration a caller who never sets one gets and the only one where
@@ -67,7 +67,7 @@
 
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
-import { promisify } from "node:util";
+import { format, promisify } from "node:util";
 import { bakedRules, canResolve, getTimeZoneAt, tablesHost, yearStart } from "./lib/easy-tz.ts";
 import { makeEasyZoneClass } from "./lib/easy-zone.ts";
 import {
@@ -119,10 +119,24 @@ import {
   writeEntry,
   type PatchKey,
 } from "./lib/patches.ts";
-import { shade } from "./lib/color.ts";
+import { colorEnabled, shade, stripColor } from "./lib/color.ts";
+import { htmlReport } from "./lib/html-report.ts";
 import { printTable } from "./lib/print-table.ts";
 import { streamTable } from "./lib/stream-table.ts";
 import { DateTime } from "./lib/stock.ts";
+
+// Keep the report as it is streamed to the terminal so the completed run can
+// also be written as a self-contained HTML artifact. Shading is always present
+// in the captured copy; redirected stdout still follows the normal no-colour
+// convention.
+const reportLines: string[] = [];
+const terminalLog = console.log.bind(console);
+
+console.log = (...values: unknown[]) => {
+  const line = format(...values);
+  reportLines.push(line);
+  terminalLog(colorEnabled ? line : stripColor(line));
+};
 
 const N = 20_000; // values the timings are reported per
 const STEP_MS = 60_000;
@@ -1370,7 +1384,7 @@ if (tables.has("ladder")) {
           ...columns.map((key) => {
             const v = measured.best.get(key);
 
-            return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(key));
+            return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(key), true);
           }),
           ...held,
           bytesFor.get(path.id)!,
@@ -1727,7 +1741,7 @@ if (tables.has("default")) {
         ...DEFAULT_CASES.map((kase) => {
           const v = measured.best.get(kase.key);
 
-          return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(kase.key));
+          return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(kase.key), true);
         }),
         bytesFor.get(row.pathId)!,
       ]);
@@ -1900,3 +1914,9 @@ if (allTables) {
 if (sink < 0) {
   throw new Error("unreachable");
 }
+
+console.log = terminalLog;
+await writeFile(
+  new URL("upstream-bench.html", import.meta.url),
+  htmlReport(`${reportLines.join("\n")}\n`, "Luxon upstream benchmark")
+);
