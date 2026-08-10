@@ -244,12 +244,8 @@ const contiguous = (letters: readonly string[]) =>
 /**
  * A rung's label: every letter it holds, spelled out.
  *
- * Ranges and an "all but X" for the rung one short of the set both read shorter,
- * and both were here. Together they put three notations in one column, so a
- * reader working out what "A-D" held had to first notice it was not "A+B+C" or
- * "all but I" — and the only thing this column exists to say is which patches a
- * row carries. Spelling them out is longer and cannot be misread, and the widest
- * label is the second-to-last row, which is not wide.
+ * The column exists only to say which patches a row carries. Spelling them out
+ * cannot be confused with a range or an omitted patch.
  */
 const rungLabel = (keys: readonly PatchKey[]) => keys.map(LETTER).sort().join("+");
 
@@ -260,27 +256,8 @@ if (UPSTREAM.length !== patchKeys.length) {
   );
 }
 
-// The headline result: stacked one patch at a time so each rung's cost is
-// attributable, and then everything piled on to show what the rest is worth once
-// these land.
-//
-// Ordered by how easy each is to argue for upstream rather than by size: A and E
-// are caches, B is a self-contained rewrite, C memoizes an object luxon already
-// hands out through buildFormatParser, D needs the tzdata-gap argument accepted,
-// F compiles the format walk and carries its leaf fast paths, and G and H are
-// sets of leaf short-circuits. J is the independent numbering-system table
-// consolidation.
-//
-// I is deliberately absent, and is what the final row adds.
-//
-// Exactly one patch can be in that position, because the rungs are cumulative:
-// every other patch is priced by what it ADDS to a partial tree, and whichever
-// one goes last is priced by what the COMPLETE tree LOSES without it. Those are
-// different questions, and for most patches the first is the one worth asking —
-// it is the "should this land" question. I takes the slot because its boundary
-// corrections are the set's only argued behavior changes, so the second
-// question is the form a shipping decision on it turns on. No patch overlaps
-// another, so no rung's price depends on this ordering.
+// The headline result: stacked one patch at a time in letter order so each
+// rung's cost is attributable.
 //
 // E's rung is the one to read across the whole width rather than off the
 // formatting columns alone: it interns Locales, which every direction builds one
@@ -301,7 +278,8 @@ const RUNG_ORDER = [
   "compileFormat", // F
   "arithDirect", // G
   "relativeSkip", // H
-  "numberingTable", // J, and last of the rungs because I is not one
+  "boundaryMath", // I
+  "numberingTable", // J
 ];
 
 /** each rung is the one above it plus one patch, so the list above is the table */
@@ -314,10 +292,8 @@ const RUNGS: string[][] = RUNG_ORDER.map((_, i) => RUNG_ORDER.slice(0, i + 1));
  * since two rows differing by nothing are two rows measuring the same build.
  */
 const LADDER: { id: string; keys: PatchKey[] }[] = [...RUNGS.map(inPlay), UPSTREAM]
-  // each row has to hold something the row above it did not. the everything row
-  // is in the same filter as the rungs because it is the one that collapses when
-  // I is dropped: I is the only patch with no rung of its own, so without it the
-  // last rung already is the everything build
+  // Each row has to hold something the row above it did not. The everything row
+  // duplicates the last complete rung unless --drop narrows one of them.
   .filter((keys, i, all) => keys.length > 0 && (i === 0 || keys.length > all[i - 1]!.length))
   .map((keys, i, all) => ({
     id: `luxon ${i === all.length - 1 ? `all (${fullLabel(keys)})` : rungLabel(keys)}`,

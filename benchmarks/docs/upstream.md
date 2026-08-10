@@ -170,22 +170,11 @@ of it. E is the clearest case: interning `Locale` objects barely shows against a
 pattern that holds its locale fixed, and the calls it was written for are in the
 `other` table — see [coverage.md](coverage.md).
 
-### Why I comes last
+### Why the ladder is alphabetical
 
-Nine of the ten patches have a rung. I does not, so the final row is the one
-that adds it, and the last two rows of the table differ by I alone.
-
-The last position answers a different question from the rest of the ladder.
-Every other rung is priced by what it **adds** to a partial tree — the "should
-this land" question. Whichever patch goes last is priced by what the **complete
-tree loses without it**, which is the "should this stay" question, and the two
-differ by exactly the overlap between that patch and everything below it.
-
-I takes the position because it is the patch the second question fits. Its
-civil math stands on the arithmetic G rebuilt, and it is the one patch arguing
-output corrections rather than none, so the number a shipping decision on it
-turns on is what the finished tree loses without it. No patch overlaps
-another, so no rung's price depends on an ordering choice this table made.
+The ten patches enter in A–J order. The final `all` row is the J step rather
+than a second copy of the same complete build. J is a data-table consolidation,
+so its useful result is expected in the byte column rather than the timings.
 
 ## The patches
 
@@ -636,8 +625,7 @@ numbering-system behavior.
 A rung measures what a patch adds *given everything above it*. That is the right
 question for "should this land", and the wrong one for "should this stay",
 because the two differ by exactly the overlap between the patch and everything
-below it. The ladder answers the second question for I, by putting it last — but
-it can only do that for one patch at a time.
+below it.
 
 `--drop <letters>` answers it for any of them, by leaving a patch out of every
 build a run makes — the ladder, the byte table, the parity scan, `suite`, and
@@ -648,19 +636,17 @@ everything else is in.
 Two cautions on reading that difference. It is a comparison **between two runs**,
 where every other comparison this bench makes is between cells interleaved inside
 one process, so it carries drift that nothing cancels — read it against the
-per-column floors and prefer a margin several times them. And it is not needed for
-I, whose answer is already the last step of the ladder in a single run.
+per-column floors and prefer a margin several times them.
 
-Rows that collapse into the one above them are folded away — including the last
-row under `--drop I`, since I is the only patch without a rung and the ladder
-therefore already ends at the full set without it. Rung labels spell out every
-letter they hold, so a dropped patch shows as a gap in them; the last row is the
-only one that abbreviates, and it says `all (no C)` rather than a range when
-`--drop` has made "all" not quite true.
+Rows that collapse into the one above them are folded away. Rung labels spell
+out every letter they hold, so a dropped patch shows as a gap in them; the last
+row is the only one that abbreviates, and it says `all (no C)` rather than a
+range when `--drop` has made "all" not quite true.
 
 A patch whose diff is written against another's output cannot be dropped alone.
-`--drop A` refuses and names the closure to use instead (`AD`), rather than
-quietly measuring a smaller set than the flag describes.
+`--drop A` refuses and names the dependent closure to use instead
+(`ABDFGHI`), rather than quietly measuring a smaller set than the flag
+describes.
 
 ## Reading dates
 
@@ -813,10 +799,9 @@ In the order they are lettered, which is what the letters are for.
 4. **G and H.** Both require B's shared civil-day conversion and otherwise sit
    off the string directions, so this table understates them; each is argued on
    [coverage.md](coverage.md), and each owns a column the other does not.
-5. **I.** File after G, whose arithmetic its civil math stands on, and last on
-   the ladder. It is the one patch arguing output corrections, so its position
-   asks "what does the finished tree lose without this" — and the answer is
-   the three `endOf` columns and `hasSame day`.
+5. **I.** File after G, whose arithmetic its civil math stands on. It is the one
+   patch arguing output corrections, concentrated in the three `endOf` columns
+   and `hasSame day`.
 6. **J.** Independent of the performance stack. It consolidates the parallel
    numbering-system tables and can be filed separately.
 
