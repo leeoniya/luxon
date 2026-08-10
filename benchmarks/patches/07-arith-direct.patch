@@ -1,8 +1,8 @@
 Patch: arithDirect
 Letter: G
-Requires: none
+Requires: B (offsetScan)
 Files: src/datetime.js, src/duration.js, src/impl/diff.js, src/impl/english.js, src/zones/systemZone.js
-Summary: arithmetic paths that built or normalized temporary objects per call to reach values already available directly
+Summary: arithmetic and local-construction paths that built or normalized temporary objects per call to reach values already available directly
 Description: benchmarks/docs/pr/07-arith-direct.md
 
 diff --git a/src/datetime.js b/src/datetime.js
@@ -283,7 +283,22 @@ index fd32d47..c674ee0 100644
  
    if (!normalized) throw new InvalidUnitError(unit);
  
-@@ -1713,8 +1870,9 @@ export default class DateTime {
+@@ -653,6 +810,14 @@ export default class DateTime {
+    * @return {DateTime}
+    */
+   static local() {
++    // UPSTREAM-G: the two "now" overloads have no calendar arguments. Avoid
++    // copying `arguments`, slicing it, destructuring seven missing fields and
++    // then building an object containing seven undefined values.
++    if (arguments.length === 0) return quickDT({}, {});
++    if (arguments.length === 1 && typeof arguments[0] === "object") {
++      return quickDT({}, arguments[0]);
++    }
++
+     const [opts, args] = lastOpts(arguments),
+       [year, month, day, hour, minute, second, millisecond] = args;
+     return quickDT({ year, month, day, hour, minute, second, millisecond }, opts);
+@@ -1713,8 +1881,9 @@ export default class DateTime {
     */
    plus(duration) {
      if (!this.isValid) return this;
@@ -413,32 +428,20 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
 index ebd129e..6790fd3 100644
 --- a/src/impl/diff.js
 +++ b/src/impl/diff.js
-@@ -1,9 +1,25 @@
+@@ -1,9 +1,13 @@
  import Duration from "../duration.js";
-+import { objToLocalTS } from "./util.js";
-+
-+// UPSTREAM-G: was dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf().
-+// dt.c is already that civil date; objToLocalTS (not Date.UTC) because years
-+// 0-99 need the fixup it does.
-+const utcDayStart = (dt) =>
-+  objToLocalTS({
-+    year: dt.c.year,
-+    month: dt.c.month,
-+    day: dt.c.day,
-+    hour: 0,
-+    minute: 0,
-+    second: 0,
-+    millisecond: 0,
-+  });
++import { daysFromCivil } from "./util.js";
  
  function dayDiff(earlier, later) {
 -  const utcDayStart = (dt) => dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
 -    ms = utcDayStart(later) - utcDayStart(earlier);
 -  return Math.floor(Duration.fromMillis(ms).as("days"));
-+  const ms = utcDayStart(later) - utcDayStart(earlier);
-+  // UPSTREAM-G: was Math.floor(Duration.fromMillis(ms).as("days")). Both
-+  // endpoints are UTC midnights, so ms is a whole number of days.
-+  return Math.floor(ms / 86400000);
++  // UPSTREAM-G: both values are already civil dates. The shared integer
++  // conversion preserves years 0-99 and removes two DateTimes and two Dates.
++  return (
++    daysFromCivil(later.c.year, later.c.month, later.c.day) -
++    daysFromCivil(earlier.c.year, earlier.c.month, earlier.c.day)
++  );
  }
  
  function highOrderDiffs(cursor, later, units) {

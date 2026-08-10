@@ -3,10 +3,11 @@ import type { MutationSet } from "../lib/mutations.ts";
 /**
  * F is a compiled program plus a handful of unrelated shortcuts sharing its
  * route. Two of the shortcuts replace a library call with arithmetic — the
- * civil math and the TimeClip it now has to do itself — and those are where the
- * interesting failures are: right in the middle of the range and wrong at its
- * edges, or right for positive timestamps and wrong before 1970. The rest are
- * guards, and a guard is wrong when it admits something it should not.
+ * timestamp split and the TimeClip it now has to do itself — and those are where
+ * the interesting failures are: wrong at the range edges or right for positive
+ * timestamps and wrong before 1970. B owns mutations for the shared civil
+ * conversion itself. The rest are guards, and a guard is wrong when it admits
+ * something it should not.
  *
  * The compiled half is a table and a memo. The table is checked by luxon's own
  * format tests — miswiring a token is what those already catch — so its
@@ -40,56 +41,11 @@ const set: MutationSet = {
       replace: "+  ts = Math.abs(clipped) > MAX_DATE ? NaN : Math.round(clipped);",
     },
 
-    // ---- civil_from_days ----
+    // ---- timestamp split and time fields around civil_from_days ----
     {
       name: "truncates the day count, so it is a day out before 1970",
       find: "+  const days = Math.floor(ts / 86400000);",
       replace: "+  const days = Math.trunc(ts / 86400000);",
-    },
-    {
-      name: "gets the shift onto the era calendar wrong",
-      find: "+  const z = days + 719468;",
-      replace: "+  const z = days + 719469;",
-    },
-    {
-      name: "truncates the era, so it is wrong before 1600",
-      find: "+  const era = Math.floor(z / 146097);",
-      replace: "+  const era = Math.trunc(z / 146097);",
-    },
-    {
-      name: "drops the 400-year rule from the year-of-era",
-      find: "+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365",
-      replace: "+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524)) / 365",
-    },
-    {
-      name: "drops the century rule from the year-of-era",
-      find: "+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365",
-      replace: "+    (doe - Math.floor(doe / 1460) - Math.floor(doe / 146096)) / 365",
-    },
-    {
-      name: "drops the leap rule from the day-of-year",
-      find: "+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));",
-      replace: "+  const doy = doe - (365 * yoe + Math.floor(yoe / 4));",
-    },
-    {
-      name: "gets the month-length series wrong",
-      find: "+  const mp = Math.floor((5 * doy + 2) / 153);",
-      replace: "+  const mp = Math.floor((5 * doy + 3) / 153);",
-    },
-    {
-      name: "puts the March-based month boundary in the wrong place",
-      find: "+  const month = mp < 10 ? mp + 3 : mp - 9;",
-      replace: "+  const month = mp < 9 ? mp + 3 : mp - 9;",
-    },
-    {
-      name: "carries the year over at the wrong month",
-      find: "+    year: yoe + era * 400 + (month <= 2 ? 1 : 0),",
-      replace: "+    year: yoe + era * 400 + (month < 2 ? 1 : 0),",
-    },
-    {
-      name: "counts days from zero rather than one",
-      find: "+    day: doy - Math.floor((153 * mp + 2) / 5) + 1,",
-      replace: "+    day: doy - Math.floor((153 * mp + 2) / 5),",
     },
     {
       name: "truncates the hour, so it is wrong before 1970",

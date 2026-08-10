@@ -19,11 +19,12 @@ Rendering `yyyy-MM-dd HH:mm:ss` walks all of these per value:
 | `util.js` | `padStart` | month, day, hour, minute and second all pad to two digits, so a `"00".."99"` table covers it without building either string |
 | `datetime.js` | `tsToObj` | integer civil math in place of a wrapper `Date` and seven getter calls |
 
-**Where the civil math comes from.** `tsToObj` uses Howard Hinnant's
-`civil_from_days` from [chrono-compatible low-level date
-algorithms](https://howardhinnant.github.io/date_algorithms.html), which is exact
-for any Gregorian year. This is the one change here that is off the formatter
-and is used by every `DateTime` that reads a calendar field.
+**Where the civil math comes from.** `tsToObj` uses B's shared
+`civilFromDays()` helper, Howard Hinnant's proleptic-Gregorian inverse
+conversion. It writes year, month and day into the same result object that holds
+the time fields, retaining one result allocation. This is the one change here
+that is off the formatter and is used by every `DateTime` that reads a calendar
+field.
 
 **TimeClip is now written out, because `new Date(ts)` used to run it.** Dropping
 the constructor dropped the truncation toward zero and the `±MAX_DATE` range

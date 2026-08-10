@@ -376,6 +376,24 @@ test("DateTime#diff backtracks calendar days when times of day do not match", ()
   expect(earlier.plus(diff).equals(later)).toBe(true);
 });
 
+test("DateTime#diff keeps civil-day semantics across date-line jumps and differing zones", () => {
+  const cases = [
+    [
+      DateTime.fromISO("2011-12-29T12:00", { zone: "Pacific/Apia" }),
+      DateTime.fromISO("2011-12-31T12:00", { zone: "Pacific/Apia" }),
+    ],
+    [
+      DateTime.fromISO("2024-03-09T23:00", { zone: "America/New_York" }),
+      DateTime.fromISO("2024-03-12T01:00", { zone: "Europe/Paris" }),
+    ],
+  ];
+
+  for (const [earlier, later] of cases) {
+    const result = later.diff(earlier, ["days", "hours"]);
+    expect(earlier.plus(result).valueOf()).toBe(later.valueOf());
+  }
+});
+
 test("DateTime#diff remains reversible from BCE into CE", () => {
   const earlier = DateTime.fromObject(
     { year: -5, month: 3, day: 1, hour: 13, minute: 30 },

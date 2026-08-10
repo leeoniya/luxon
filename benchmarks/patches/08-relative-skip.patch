@@ -1,15 +1,23 @@
 Patch: relativeSkip
 Letter: H
-Requires: none
+Requires: B (offsetScan)
 Files: src/datetime.js
-Summary: two calls toRelative makes that cannot affect its answer
+Summary: skip irrelevant toRelative work and compute equal-zone relative-calendar counts from civil fields
 Description: benchmarks/docs/pr/08-relative-skip.md
 
 diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..2009215 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -469,6 +469,32 @@ function quickDT(obj, opts) {
+@@ -21,6 +21,7 @@
+ } from "./impl/util.js";
+ import { normalizeZone } from "./impl/zoneUtil.js";
+ import diff from "./impl/diff.js";
++import { daysFromCivil } from "./impl/util.js";
+ import { parseRFC2822Date, parseISODate, parseHTTPDate, parseSQL } from "./impl/regexParser.js";
+ import {
+   parseFromTokens,
+@@ -469,6 +470,32 @@ function quickDT(obj, opts) {
    return new DateTime({ ts, zone, loc, o, wasHole });
  }
  
@@ -42,7 +50,49 @@ index fd32d47..2009215 100644
  function diffRelative(start, end, opts) {
    const round = isUndefined(opts.round) ? true : opts.round,
      rounding = isUndefined(opts.rounding) ? "trunc" : opts.rounding,
-@@ -491,7 +517,14 @@ function diffRelative(start, end, opts) {
+@@ -477,12 +504,41 @@ function diffRelative(start, end, opts) {
+       const formatter = end.loc.clone(opts).relFormatter(opts);
+       return formatter.format(c, unit);
+     },
+     differ = (unit) => {
+       if (opts.calendary) {
++        // UPSTREAM-H: equal-zone calendary differences are differences between
++        // civil boundaries already present in c. Avoid hasSame, startOf/endOf,
++        // generic set/diff and their intermediate DateTimes and Duration.
++        const zoneType = start.zone.type;
++        if (
++          start.isValid &&
++          end.isValid &&
++          (zoneType === "iana" || zoneType === "fixed" || zoneType === "system") &&
++          start.zone.equals(end.zone)
++        ) {
++          const sc = start.c;
++          const ec = end.c;
++
++          switch (unit) {
++            case "year":
++            case "years":
++              return ec.year - sc.year;
++            case "month":
++            case "months":
++              return (ec.year - sc.year) * 12 + ec.month - sc.month;
++            case "day":
++            case "days":
++              return (
++                daysFromCivil(ec.year, ec.month, ec.day) -
++                daysFromCivil(sc.year, sc.month, sc.day)
++              );
++          }
++        }
++
+         if (!end.hasSame(start, unit)) {
+           return end.startOf(unit).diff(start.startOf(unit), unit).get(unit);
+         } else return 0;
+       } else {
+         return end.diff(start, unit).get(unit);
+       }
+     };
+@@ -491,7 +543,14 @@ function diffRelative(start, end, opts) {
      return format(differ(opts.unit), opts.unit);
    }
  
@@ -57,7 +107,7 @@ index fd32d47..2009215 100644
      const count = differ(unit);
      if (Math.abs(count) >= 1) {
        return format(count, unit);
-@@ -2295,7 +2328,9 @@ export default class DateTime {
+@@ -2295,7 +2354,9 @@ export default class DateTime {
        units = options.unit;
        unit = undefined;
      }

@@ -171,39 +171,34 @@ const set: MutationSet = {
       replace: "",
     },
 
+    // ---- DateTime.local overload fast paths ----
+    {
+      name: "treats a positional year as an options object",
+      find: '+    if (arguments.length === 1 && typeof arguments[0] === "object") {',
+      replace: "+    if (arguments.length === 1) {",
+    },
+    {
+      name: "takes the options shortcut for non-objects",
+      find: '+    if (arguments.length === 1 && typeof arguments[0] === "object") {',
+      replace: '+    if (arguments.length === 1 && typeof arguments[0] !== "object") {',
+    },
+
     // ---- dayDiff ----
     {
-      name: "divides by the wrong number of milliseconds",
-      find: "Math.floor(ms / 86400000)",
-      replace: "Math.floor(ms / 86400001)",
-    },
-    {
-      name: "uses Date.UTC, losing the 0-99 year fixup",
+      name: "subtracts civil days in the wrong direction",
       find: nl(
-        "+const utcDayStart = (dt) =>",
-        "+  objToLocalTS({",
-        "+    year: dt.c.year,",
-        "+    month: dt.c.month,",
-        "+    day: dt.c.day,",
-        "+    hour: 0,",
-        "+    minute: 0,",
-        "+    second: 0,",
-        "+    millisecond: 0,",
-        "+  });"
+        "+    daysFromCivil(later.c.year, later.c.month, later.c.day) -",
+        "+    daysFromCivil(earlier.c.year, earlier.c.month, earlier.c.day)"
       ),
-      replace: "+const utcDayStart = (dt) => Date.UTC(dt.c.year, dt.c.month - 1, dt.c.day);",
+      replace: nl(
+        "+    daysFromCivil(earlier.c.year, earlier.c.month, earlier.c.day) -",
+        "+    daysFromCivil(later.c.year, later.c.month, later.c.day)"
+      ),
     },
     {
-      name: "measures from the civil time rather than its midnight",
-      find: "+    hour: 0,",
-      replace: "+    hour: dt.c.hour,",
-      survives:
-        "dayDiff only seeds highOrderDiffs. Keeping the time of day can only " +
-        "undershoot, and by at most a day; the two disagree exactly when the " +
-        "correct count overshoots `later`, which is the case highOrderDiffs " +
-        "backtracks — onto the value this mutation produces directly. Checked " +
-        "over 2,880 diffs across three zones, both directions and six unit " +
-        "lists. The zeroing stays because it is what startOf('day') did.",
+      name: "reads the later civil month one month ahead",
+      find: "+    daysFromCivil(later.c.year, later.c.month, later.c.day) -",
+      replace: "+    daysFromCivil(later.c.year, later.c.month + 1, later.c.day) -",
     },
     {
       name: "exact millisecond diff is one millisecond long",

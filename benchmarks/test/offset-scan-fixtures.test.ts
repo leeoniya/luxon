@@ -20,7 +20,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { loadLuxon, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
+import { loadLuxon, patchedEntry, patchKey, patchKeys, type PatchKey } from "../lib/patches.ts";
 import { stockOffset } from "../lib/stock-zone.ts";
 
 const VARIANTS: [string, PatchKey[]][] = [
@@ -61,6 +61,46 @@ const INSTANTS = [
 
 for (const [label, keys] of VARIANTS) {
   describe(`offsetScan fixtures > ${label}`, () => {
+    // JEST-MIRROR (sync until offsetScan merges, then remove): test/datetime/create.test.js — "DateTime civil conversion round-trips Gregorian edge cases"
+    test("shared civil conversion round-trips Gregorian edge cases", async () => {
+      const entry = await patchedEntry(keys);
+      const { daysFromCivil, civilFromDays } = (await import(new URL("impl/util.js", entry).href)) as {
+        daysFromCivil: (year: number, month: number, day: number) => number;
+        civilFromDays: (
+          days: number,
+          target: Record<string, number>
+        ) => { year: number; month: number; day: number };
+      };
+      const cases = [
+        [-271821, 4, 20],
+        [-400, 2, 29],
+        [-1, 12, 31],
+        [0, 2, 29],
+        [1, 3, 1],
+        [99, 12, 31],
+        [100, 1, 1],
+        [1600, 2, 29],
+        [1900, 3, 1],
+        [1970, 1, 1],
+        [1970, 3, 31],
+        [2000, 2, 29],
+        [275760, 9, 13],
+      ] as const;
+
+      for (const [year, month, day] of cases) {
+        const days = daysFromCivil(year, month, day);
+        const target = { marker: 1 };
+        const got = civilFromDays(days, target);
+
+        assert.equal(got, target, "writes into the supplied result");
+        assert.deepEqual(
+          { year: got.year, month: got.month, day: got.day },
+          { year, month, day },
+          `${year}-${month}-${day}`
+        );
+      }
+    });
+
     // JEST-MIRROR (sync until offsetScan merges, then remove): test/zones/IANA.test.js — "matches Intl across calendar, range, and sub-second partitions"
     test("the decoded offset matches the expression it replaced", async () => {
       const m = await loadLuxon(keys);

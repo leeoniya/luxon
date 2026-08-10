@@ -777,11 +777,6 @@ export const API_CASES: ApiCase[] = [
       const options = { locale: api.locales.enUS };
       return (ts) => api.core.formatRelative(p[idx(ts)]!, base, options).length;
     },
-    moment: (mo) => {
-      const p = momentPool(mo);
-      const base = mo(REL_BASE);
-      return (ts) => p[idx(ts)]!.calendar(base).length;
-    },
   },
 
   // ---- Info: straight into the locale machinery ----

@@ -500,6 +500,30 @@ test("DateTime#toRelativeCalendar keeps calendary boundary semantics", () => {
   expect(eve.toRelativeCalendar({ base: newYear })).toBe("last year");
 });
 
+test("DateTime#toRelativeCalendar preserves civil boundary counts across zones and directions", () => {
+  const cases = [
+    ["UTC", "2024-02-29T23:59", "2025-03-01T00:01", "years", "next year", "last year"],
+    ["America/New_York", "2024-03-09T23:00", "2024-03-11T01:00", "days", "in 2 days", "2 days ago"],
+    ["Pacific/Apia", "2011-12-29T12:00", "2011-12-31T12:00", "days", "in 2 days", "2 days ago"],
+    [
+      "Australia/Lord_Howe",
+      "2024-09-30T23:30",
+      "2024-11-01T00:30",
+      "months",
+      "in 2 months",
+      "2 months ago",
+    ],
+  ];
+
+  for (const [zone, from, to, unit, forward, reverse] of cases) {
+    const earlier = DateTime.fromISO(from, { zone });
+    const later = DateTime.fromISO(to, { zone });
+
+    expect(later.toRelativeCalendar({ base: earlier, unit })).toBe(forward);
+    expect(earlier.toRelativeCalendar({ base: later, unit })).toBe(reverse);
+  }
+});
+
 test("DateTime#toRelative padding crosses a day boundary in either direction", () => {
   const base = DateTime.fromISO("2024-01-10T00:00", { zone: "UTC" });
   const ahead = DateTime.fromISO("2024-01-10T23:00", { zone: "UTC" });

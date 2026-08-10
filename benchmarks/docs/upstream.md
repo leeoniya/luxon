@@ -215,9 +215,12 @@ name in it has nothing else left to pay for. On the abbreviated format it helps
 much less, because that one is still bounded by the name lookup no matter how
 cheap the offset gets.
 
-B is one of the three places in the whole set that restates logic rather than
-adding a cache or a short-circuit, so it is one of the places to look first. It
-is verified against stock `offset()` over every transition its zones have.
+B also owns the paired forward and inverse civil-date helpers used by F, G, H
+and I. Keeping the proleptic-Gregorian conversion in one utility prevents the
+offset scanner, DateTime field extraction, calendar differences and weekday
+math from drifting into separate implementations. It is verified across BCE,
+years 0–99, leap centuries, the Date limits, and against stock `offset()` over
+every transition its zones have.
 
 ### C — `tokenParserCache`
 
@@ -328,8 +331,9 @@ the compiler asks.
 
 The one that reaches furthest is `tsToObj`: integer civil math in place of a
 wrapper `Date` and seven getter calls, under every `DateTime` that reads a
-calendar field. That is why this patch moves `millis`, a column that formats
-nothing.
+calendar field. It writes B's shared inverse conversion into the result object,
+retaining one allocation. That is why this patch moves `millis`, a column that
+formats nothing.
 
 Writing the verification sweep turned up two bugs in that rewrite, both from the
 same cause: replacing `new Date(ts)` also dropped the TimeClip the constructor
@@ -425,7 +429,8 @@ is already carrying, one exact-unit shortcut, plus the four constants above.
 
 `adjustTime` was building a nine-key `Duration` and converting it to milliseconds
 on every `plus` and `minus`, where an integer sum will do; `impl/diff.js`'s
-`dayDiff` was building another to reach a single division. Every `plus` and
+`dayDiff` was building four DateTimes, two Dates and a Duration where subtracting
+B's shared civil-day values gives the result directly. Every `plus` and
 `minus` goes through `adjustTime`, which puts it under `endOf`, `hasSame`,
 `diff`, `toRelative` and `Interval#splitBy` as well — and the `formatting` and
 `parsing` tables have a column for none of those. The `other` table is where this
@@ -466,8 +471,8 @@ different object for `{ days: 1 }` than for `{ hours: 1 }`, and now see one.
 
 Neither of the first two replacements is unconditional, because `as()` is not the
 plain sum it looks like: the fast path holds only when every field is an integer
-and only while the sum stays finite, and `dayDiff`'s conversion has to be the one
-that does not read years under 100 as 19xx. The guards are the correctness
+and only while the sum stays finite. The shared civil conversion keeps
+`dayDiff` proleptic Gregorian and avoids treating years under 100 as 19xx. The guards are the correctness
 argument and the sweep is built to break them over five zones, 32 duration
 shapes and both DST directions, in
 [`test/arith-direct-patch.test.ts`](../test/arith-direct-patch.test.ts). Finding
@@ -490,24 +495,36 @@ or a cloned negated addend. An exact
 `diff(..., "milliseconds")` now returns the endpoint subtraction directly,
 which also reaches `Interval#toDuration("milliseconds")`.
 
+`DateTime.local()` and `DateTime.local(options)` now reach `quickDT` directly
+instead of copying and slicing `arguments`, destructuring seven absent fields,
+and rebuilding them as seven `undefined` properties. Positional overloads retain
+the generic parser, and the original options object remains observable.
+
 The four constants are moves rather than rewrites — none captures anything — so
 the same file checks every key of both unit tables in both spellings and mixed
 case, and interleaves zones across DST so a stale `SystemZone` probe would show
-up as one zone reading another's answer. The engine split runs through all ten
+up as one zone reading another's answer. The engine split runs through all twelve
 changes: V8 escape-analyzes some of these allocations away and JavaScriptCore
 does not.
 
 ### H — `relativeSkip`
 
-Two calls `toRelative` makes that cannot change its answer. `padding` defaults to
+Direct decisions on the relative-time path. `padding` defaults to
 0 and the method calls `this.plus(0)` regardless, cloning the receiver and
 re-deriving its offset to arrive back at the receiver. And its unit loop asks
 `diff` for years before months, so an answer in months pays for a calendar-year
 diff first — where a unit cannot reach 1 unless the instants are at least one of
 it apart, and the shortest each unit can be in local time is a constant. The
 floors are set below even that, so a zone rule nobody anticipated lands above
-them rather than under. The skip is off for `toRelativeCalendar`, whose units
-count boundary crossings rather than elapsed time.
+them rather than under.
+
+`toRelativeCalendar` counts boundaries instead of elapsed time, so it does not
+use those floors. For valid DateTimes in one built-in zone, its year, month and
+day counts come directly from the existing civil fields and B's shared
+`daysFromCivil()`. Differing or custom zones, weeks, quarters and unsupported
+units keep the generic `hasSame`/`startOf`/`diff` route. Moment's `calendar()`
+cell is blank for this benchmark because its 90-day input falls back to an
+absolute date rather than returning a comparable relative phrase.
 
 Neither is large by itself, and the reason the column moves as far as it does
 belongs partly to D. Every `plus` walks D's two-slot interval cache, so the calls
@@ -579,8 +596,8 @@ That skips `Duration#plus`, its unit walk and its clone; multiple lower-order
 units retain the general path.
 
 The boundary half is three changes sharing one idea. `dayOfWeek` loses its
-per-call `Date` allocation to the same Hinnant civil-day math B and F already
-use on their paths; `startOf("week")` stops asking what week it is and steps
+per-call `Date` allocation to B's shared Hinnant civil-day math;
+`startOf("week")` stops asking what week it is and steps
 back `weekday - 1` days directly; and `endOf` fuses to a single construction
 for every calendar unit, the trailing `minus(1)` folded in, since the
 constructor re-derives the offset for a changed timestamp anyway.
@@ -778,11 +795,12 @@ In the order they are lettered, which is what the letters are for.
    written against both lookup rewrites. It also needs the tzdata-gap argument
    accepted once, and pays off on both calls for it.
 3. **E, then F.** E interns the `Locale` objects F's name memo hangs off, so it
-   reads first; each is independently correct and only together fast. F is the
-   design review of the set — it changes how the `Formatter` is built rather
-   than what it calls — with its numeric fast paths riding along.
-4. **G and H.** Independent of the zone work and off the string directions
-   entirely, so this table understates them; each is argued on
+   reads first; each is independently correct and only together fast. F requires
+   B for the shared inverse civil conversion. It is the design review of the set
+   — changing how the `Formatter` is built rather than what it calls — with its
+   numeric fast paths riding along.
+4. **G and H.** Both require B's shared civil-day conversion and otherwise sit
+   off the string directions, so this table understates them; each is argued on
    [coverage.md](coverage.md), and each owns a column the other does not.
 5. **I.** File after G, whose arithmetic its civil math stands on, and last on
    the ladder. It is the one patch arguing output corrections, so its position

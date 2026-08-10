@@ -1,6 +1,6 @@
 Patch: compileFormat
 Letter: F
-Requires: none
+Requires: B (offsetScan)
 Files: src/datetime.js, src/impl/formatter.js, src/impl/util.js
 Summary: fast paths along the route a numeric token takes, and the Formatter compiling formats once, reading shifted Duration fields directly, and memoizing the name each DateTime token resolves to
 Description: benchmarks/docs/pr/06-compile-format.md
@@ -8,7 +8,15 @@ Description: benchmarks/docs/pr/06-compile-format.md
 diff --git a/src/datetime.js b/src/datetime.js
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -129,18 +129,35 @@
+@@ -3,6 +3,7 @@
+ import Settings from "./settings.js";
+ import Info from "./info.js";
+ import Formatter from "./impl/formatter.js";
++import { civilFromDays } from "./impl/util.js";
+ import FixedOffsetZone from "./zones/fixedOffsetZone.js";
+ import Locale from "./impl/locale.js";
+ import {
+@@ -129,18 +130,22 @@
  
  // convert an epoch timestamp into a calendar object with the given offset
  function tsToObj(ts, offset) {
@@ -25,17 +33,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 +  const days = Math.floor(ts / 86400000);
 +  const msOfDay = ts - days * 86400000;
  
-+  const z = days + 719468;
-+  const era = Math.floor(z / 146097);
-+  const doe = z - era * 146097;
-+  const yoe = Math.floor(
-+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365
-+  );
-+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
-+  const mp = Math.floor((5 * doy + 2) / 153);
-+  const month = mp < 10 ? mp + 3 : mp - 9;
-+
-   return {
+-  return {
 -    year: d.getUTCFullYear(),
 -    month: d.getUTCMonth() + 1,
 -    day: d.getUTCDate(),
@@ -43,14 +41,13 @@ diff --git a/src/datetime.js b/src/datetime.js
 -    minute: d.getUTCMinutes(),
 -    second: d.getUTCSeconds(),
 -    millisecond: d.getUTCMilliseconds(),
-+    year: yoe + era * 400 + (month <= 2 ? 1 : 0),
-+    month,
-+    day: doy - Math.floor((153 * mp + 2) / 5) + 1,
+-  };
++  return civilFromDays(days, {
 +    hour: Math.floor(msOfDay / 3600000),
 +    minute: Math.floor(msOfDay / 60000) % 60,
 +    second: Math.floor(msOfDay / 1000) % 60,
 +    millisecond: msOfDay % 1000,
-   };
++  });
  }
  
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js

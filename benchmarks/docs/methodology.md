@@ -61,10 +61,12 @@ is left to speak for itself and no underline is added.
 
 Columns for Luxon-only operations have no moment cell to shade against: moment
 ships no `Interval`, compiled format-parser API, `Duration#shiftTo`, or
-`Duration#toFormat`. Date-fns fills its row only where its public API expresses
-the same operation; it is not a shading anchor. Missing moment cells take stock
-luxon as their colour baseline instead, so they are read as what the patches did
-to luxon rather than as a comparison between libraries.
+`Duration#toFormat`. The `toRelativeCalendar` workload is also blank because
+moment's `calendar()` falls back to an absolute date at that distance instead of
+performing the same operation. Date-fns fills its row only where its public API
+expresses the same operation; it is not a shading anchor. Missing moment cells
+take stock luxon as their colour baseline instead, so they are read as what the
+patches did to luxon rather than as a comparison between libraries.
 
 A row is usually one interleaved group, but it can be several: `upstream`'s
 ladder times its writing and its reading columns as two, because they need

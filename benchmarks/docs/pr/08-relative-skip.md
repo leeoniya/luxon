@@ -1,4 +1,4 @@
-# H — two calls `toRelative` makes that cannot affect its answer
+# H — direct relative-time decisions
 
 `src/datetime.js`
 
@@ -25,13 +25,25 @@ changes include `Pacific/Apia` deleting a whole day and
 one day less the 26-hour offset bound is negative, so day diffs are never
 skipped.
 
-Two compatibility constraints bound the skip:
+Two compatibility constraints bound the elapsed-time skip:
 
 - The skip is off for `toRelativeCalendar`, whose units count boundary crossings
-  rather than elapsed time — 23:00 and 01:00 are two hours apart and one day
-  apart, so no spread implies anything about its answer.
+  rather than elapsed time.
 - A unit without a numeric floor is always asked, which keeps ordinary unknown
   units throwing `InvalidUnitError` where they threw before.
 
 The single-unit `toRelative({ unit })` branch is unchanged and remains the
 equivalent operation without the skip.
+
+## Relative calendar
+
+For valid DateTimes in the same built-in zone, year, month and day boundary
+counts are already scalar civil arithmetic: subtract years, subtract
+`year * 12 + month`, or subtract B's shared `daysFromCivil()` results.
+`toRelativeCalendar` uses those values before its formatter, avoiding
+`hasSame`, `startOf`, `diff` and their intermediate DateTimes and Duration.
+
+Weeks, quarters, unsupported units, differing zones and duck-typed custom zones
+keep the generic route. That preserves custom zone semantics and every option
+the formatter observes, while the built-in equal-zone path covers the benchmark
+and the common application case.

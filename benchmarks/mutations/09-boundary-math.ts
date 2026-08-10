@@ -7,9 +7,8 @@ import type { MutationSet } from "../lib/mutations.ts";
  * by one, or by reporting the boundary instead of the millisecond before it;
  * `as` fails the way any hand-rolled sum fails -- the matrix indexed the wrong
  * way round, a bound off by one, or a float subtlety copied out of shiftTo and
- * then simplified away. The weekday math fails the way calendar arithmetic
- * fails: a remainder that keeps its sign, a rule (century years, the
- * March-first year shift) quietly dropped.
+ * then simplified away. The weekday math here tests its epoch offset and
+ * negative remainder; B owns the shared civil conversion's calendar rules.
  */
 const set: MutationSet = {
   patch: "09-boundary-math.patch",
@@ -155,7 +154,7 @@ const set: MutationSet = {
       find: "+    const matrix = this.matrix;",
       replace: "+    const matrix = casualMatrix;",
     },
-    // ---- dayOfWeek and daysFromCivil ----
+    // ---- dayOfWeek ----
     {
       name: "every weekday shifts by one",
       find: "+  const js = (((daysFromCivil(year, month, day) + 4) % 7) + 7) % 7;",
@@ -165,21 +164,6 @@ const set: MutationSet = {
       name: "weekdays before the epoch keep their negative remainder",
       find: "+  const js = (((daysFromCivil(year, month, day) + 4) % 7) + 7) % 7;",
       replace: "+  const js = (daysFromCivil(year, month, day) + 4) % 7;",
-    },
-    {
-      name: "the march-first year shift is lost",
-      find: "+  y -= m <= 2 ? 1 : 0;",
-      replace: "+  y -= 0;",
-    },
-    {
-      name: "ancient eras round toward zero",
-      find: "+  const era = Math.floor(y / 400);",
-      replace: "+  const era = Math.trunc(y / 400);",
-    },
-    {
-      name: "century years count as leap",
-      find: "+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy + d - 1;",
-      replace: "+  const doe = yoe * 365 + Math.floor(yoe / 4) + doy + d - 1;",
     },
     // ---- startOf("week") ----
     {

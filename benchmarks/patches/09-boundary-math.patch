@@ -1,7 +1,7 @@
 Patch: boundaryMath
 Letter: I
 Requires: G (arithDirect)
-Files: src/datetime.js, src/duration.js, src/impl/conversions.js, src/impl/diff.js, src/impl/util.js
+Files: src/datetime.js, src/duration.js, src/impl/conversions.js, src/impl/diff.js
 Summary: read-once objects dropped (clone's config, as()'s Duration, diff's single-lower-unit merge) and calendar boundaries as civil math on a fused endOf route
 Description: benchmarks/docs/pr/09-boundary-math.md
 
@@ -179,7 +179,7 @@ diff --git a/src/datetime.js b/src/datetime.js
 diff --git a/src/duration.js b/src/duration.js
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -717,7 +717,76 @@
+@@ -717,7 +717,80 @@
     * @return {number}
     */
    as(unit) {
@@ -314,27 +314,3 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
    const duration = Duration.fromObject(results, opts);
  
    if (lowerOrderUnits.length > 0) {
-diff --git a/src/impl/util.js b/src/impl/util.js
---- a/src/impl/util.js
-+++ b/src/impl/util.js
-@@ -200,6 +200,20 @@
-   }
- }
- 
-+// UPSTREAM-I: days since the epoch for a proleptic-gregorian date (Howard
-+// Hinnant's days_from_civil; the same routine UPSTREAM-B keeps privately in
-+// IANAZone.js). Exported for the weekday math in conversions.js. Hoisting
-+// IANAZone's copy out to here would put churn in an unrelated patch, so the
-+// two stand until a merge unifies them.
-+export function daysFromCivil(y, m, d) {
-+  y -= m <= 2 ? 1 : 0;
-+  const era = Math.floor(y / 400);
-+  const yoe = y - era * 400;
-+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5);
-+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy + d - 1;
-+  return era * 146097 + doe - 719468;
-+}
-+
- // convert a calendar object to a local timestamp (epoch, but with the offset baked in)
- export function objToLocalTS(obj) {
-   let d = Date.UTC(

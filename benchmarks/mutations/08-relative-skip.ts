@@ -1,17 +1,47 @@
 import type { MutationSet } from "../lib/mutations.ts";
 
 /**
- * H is a table of lower bounds and one guard. A bound that is too low buys less
- * and is never wrong; a bound that is too high skips a unit whose answer was
- * one, and the caller is told days when the answer was a week. So most of these
- * raise a floor, and each is the floor a naive reading of tzdata would have
- * produced -- the seven-day week, the ninety-day quarter, the twenty-two-hour
- * day. One of them is not hypothetical: the weeks floor really was 6.9 days.
+ * H combines lower bounds for elapsed relative time with scalar civil counts
+ * for equal-zone relative-calendar calls. The first group exercises the
+ * built-in/equal-zone guard and each formula. The rest raise floors to values a
+ * naive reading of tzdata might suggest -- the seven-day week, the ninety-day
+ * quarter, the twenty-two-hour day -- and verify the padding shortcut.
  */
 const set: MutationSet = {
   patch: "08-relative-skip.patch",
   tests: ["test/relative-skip-fixtures.test.ts"],
   mutations: [
+    // ---- equal-zone calendary scalars ----
+    {
+      name: "lets custom zone semantics into the civil shortcut",
+      find: '+          (zoneType === "iana" || zoneType === "fixed" || zoneType === "system") &&',
+      replace: "+          true &&",
+    },
+    {
+      name: "takes the civil shortcut across differing zones",
+      find: "+          start.zone.equals(end.zone)",
+      replace: "+          !start.zone.equals(end.zone)",
+    },
+    {
+      name: "counts one extra civil year",
+      find: "+              return ec.year - sc.year;",
+      replace: "+              return ec.year - sc.year + 1;",
+    },
+    {
+      name: "forgets whole years in the civil month count",
+      find: "+              return (ec.year - sc.year) * 12 + ec.month - sc.month;",
+      replace: "+              return ec.month - sc.month;",
+    },
+    {
+      name: "subtracts civil days in the wrong direction",
+      find:
+        "+                daysFromCivil(ec.year, ec.month, ec.day) -\n" +
+        "+                daysFromCivil(sc.year, sc.month, sc.day)",
+      replace:
+        "+                daysFromCivil(sc.year, sc.month, sc.day) -\n" +
+        "+                daysFromCivil(ec.year, ec.month, ec.day)",
+    },
+
     // ---- floors raised to what tzdata looks like from a distance ----
     {
       name: "assumes a week is never shorter than seven days",

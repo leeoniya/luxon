@@ -204,6 +204,55 @@ test("DateTime.local accepts an options hash in any position", () => {
   }
 });
 
+test("DateTime.local preserves now, options, and positional overloads", () => {
+  const oldNow = Settings.now;
+  let zoneReads = 0;
+  Settings.now = () => 1710053999123;
+
+  try {
+    expect(DateTime.local().valueOf()).toBe(1710053999123);
+    const options = {
+      get zone() {
+        zoneReads++;
+        return "UTC+5:45";
+      },
+      locale: "fr",
+      numberingSystem: "latn",
+    };
+    const configured = DateTime.local(options);
+
+    expect(configured.zoneName).toBe("UTC+5:45");
+    expect(configured.locale).toBe("fr");
+    expect(configured.numberingSystem).toBe("latn");
+    expect(zoneReads).toBeGreaterThan(0);
+    expect(DateTime.local({ zone: "not/a-zone" }).isValid).toBe(false);
+    const customZone = {
+      type: "custom",
+      name: "Test/Local",
+      isUniversal: true,
+      isValid: true,
+      offsetName: () => "Local",
+      formatOffset: () => "+01:30",
+      offset: () => 90,
+      equals(other) {
+        return other === this;
+      },
+    };
+    expect(DateTime.local({ zone: customZone }).zone).toBe(customZone);
+    expect(DateTime.local(2024).toObject()).toEqual({
+      year: 2024,
+      month: 1,
+      day: 1,
+      hour: 0,
+      minute: 0,
+      second: 0,
+      millisecond: 0,
+    });
+  } finally {
+    Settings.now = oldNow;
+  }
+});
+
 //------
 // .utc()
 //-------
@@ -579,6 +628,38 @@ test("DateTime arithmetic enforces the TimeClip boundary", () => {
   expect(DateTime.fromMillis(-8.64e15, { zone: "UTC" }).minus({ milliseconds: 1 }).isValid).toBe(
     false
   );
+});
+
+test("DateTime civil conversion round-trips Gregorian edge cases", () => {
+  const cases = [
+    [-271821, 4, 20],
+    [-400, 2, 29],
+    [-1, 12, 31],
+    [0, 2, 29],
+    [1, 3, 1],
+    [99, 12, 31],
+    [100, 1, 1],
+    [1600, 2, 29],
+    [1900, 3, 1],
+    [1970, 1, 1],
+    [1970, 3, 31],
+    [2000, 2, 29],
+    [275760, 9, 13],
+  ];
+
+  for (const [year, month, day] of cases) {
+    const dt = DateTime.fromObject({ year, month, day }, { zone: "UTC" });
+    expect(dt.isValid).toBe(true);
+    expect(DateTime.fromMillis(dt.valueOf(), { zone: "UTC" }).toObject()).toEqual({
+      year,
+      month,
+      day,
+      hour: 0,
+      minute: 0,
+      second: 0,
+      millisecond: 0,
+    });
+  }
 });
 
 test("DateTime ISO output pads ordinary and expanded years and fixed offsets", () => {

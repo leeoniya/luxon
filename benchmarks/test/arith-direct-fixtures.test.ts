@@ -32,6 +32,7 @@ const VARIANTS: [string, PatchKey[]][] = [
   ["every patch", [...patchKeys]],
 ];
 
+const stock = await loadLuxon([]);
 const ZONE = "America/New_York";
 // one second before spring forward, so a fast path that mishandles the offset
 // lands in the hole rather than beside it
@@ -354,6 +355,7 @@ for (const [label, keys] of VARIANTS) {
 
     // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff walks mixed calendar and elapsed units across DST"
     // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff handles day differences from years 0 through 99"
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff keeps civil-day semantics across date-line jumps and differing zones"
     test("dayDiff", async () => {
       const { m } = await load();
 
@@ -378,6 +380,24 @@ for (const [label, keys] of VARIANTS) {
           `year ${year}`
         );
       }
+
+      // A deleted civil day and endpoints in different zones both still use
+      // local calendar dates, exactly as the DateTime-based route did.
+      for (const [from, fromZone, to, toZone] of [
+        ["2011-12-29T12:00", "Pacific/Apia", "2011-12-31T12:00", "Pacific/Apia"],
+        ["2024-03-09T23:00", "America/New_York", "2024-03-12T01:00", "Europe/Paris"],
+      ] as const) {
+        const got = m.DateTime.fromISO(to, { zone: toZone }).diff(
+          m.DateTime.fromISO(from, { zone: fromZone }),
+          ["days", "hours"]
+        );
+        const want = stock.DateTime.fromISO(to, { zone: toZone }).diff(
+          stock.DateTime.fromISO(from, { zone: fromZone }),
+          ["days", "hours"]
+        );
+
+        assert.deepEqual(got.toObject(), want.toObject(), `${fromZone} -> ${toZone}`);
+      }
     });
 
     // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/diff.test.js — "DateTime#diff preserves exact milliseconds across zones and directions"
@@ -397,6 +417,94 @@ for (const [label, keys] of VARIANTS) {
         m.Interval.fromDateTimes(dt, other).toDuration("milliseconds").toObject(),
         { milliseconds: 123_456_789 }
       );
+    });
+
+    // JEST-MIRROR (sync until arithDirect merges, then remove): test/datetime/create.test.js — "DateTime.local preserves now, options, and positional overloads"
+    test("DateTime.local fast overloads preserve every call shape", async () => {
+      const { m } = await load();
+      const now = 1710053999123;
+      stock.Settings.now = () => now;
+      m.Settings.now = () => now;
+
+      const view = (dt: {
+        isValid: boolean;
+        invalidReason: string | null;
+        zoneName: string | null;
+        locale: string | null;
+        valueOf(): number;
+        toObject(): Record<string, number>;
+      }) => ({
+        valid: dt.isValid,
+        reason: dt.invalidReason,
+        zone: dt.zoneName,
+        locale: dt.locale,
+        ts: dt.valueOf(),
+        fields: dt.toObject(),
+      });
+
+      try {
+        const customZone = () => ({
+          type: "custom",
+          name: "Test/Local",
+          isUniversal: true,
+          isValid: true,
+          offsetName: () => "Local",
+          formatOffset: () => "+01:30",
+          offset: () => 90,
+          equals(other: unknown) {
+            return other === this;
+          },
+        });
+        const pairs = [
+          [() => m.DateTime.local(), () => stock.DateTime.local()],
+          [
+            () => m.DateTime.local({ zone: "America/New_York" }),
+            () => stock.DateTime.local({ zone: "America/New_York" }),
+          ],
+          [
+            () => m.DateTime.local({ zone: "UTC+5:45", locale: "fr", numberingSystem: "latn" }),
+            () => stock.DateTime.local({ zone: "UTC+5:45", locale: "fr", numberingSystem: "latn" }),
+          ],
+          [
+            () => m.DateTime.local({ zone: "not/a-zone" }),
+            () => stock.DateTime.local({ zone: "not/a-zone" }),
+          ],
+          [
+            () => m.DateTime.local({ zone: customZone() as never }),
+            () => stock.DateTime.local({ zone: customZone() as never }),
+          ],
+          [() => m.DateTime.local(2024), () => stock.DateTime.local(2024)],
+          [
+            () => m.DateTime.local(2024, 3, 10, 1, 59, 59, 123, { zone: "America/New_York" }),
+            () => stock.DateTime.local(2024, 3, 10, 1, 59, 59, 123, { zone: "America/New_York" }),
+          ],
+        ] as const;
+
+        for (const [patched, original] of pairs) {
+          assert.deepEqual(view(patched()), view(original()));
+        }
+
+        let patchedReads = 0;
+        let stockReads = 0;
+        const patchedOptions = {
+          get zone() {
+            patchedReads++;
+            return "UTC";
+          },
+        };
+        const stockOptions = {
+          get zone() {
+            stockReads++;
+            return "UTC";
+          },
+        };
+
+        assert.deepEqual(view(m.DateTime.local(patchedOptions)), view(stock.DateTime.local(stockOptions)));
+        assert.equal(patchedReads, stockReads, "option getters keep their observable reads");
+      } finally {
+        stock.Settings.now = () => Date.now();
+        m.Settings.now = () => Date.now();
+      }
     });
 
     // SystemZone#offset reuses one Date across calls, so the oracle is the

@@ -8,9 +8,8 @@ import type { MutationSet } from "../lib/mutations.ts";
  */
 const set: MutationSet = {
   patch: "02-offset-scan.patch",
-  // The fixtures catch all fifteen in eight seconds; the sweep behind them
-  // catches fourteen in two minutes, missing the field-order guard no ICU
-  // triggers.
+  // The fixtures cover both conversion directions as well as the scanner and
+  // the field-order guard no production ICU is known to trigger.
   tests: ["test/offset-scan-fixtures.test.ts", "test/offset-patches.test.ts"],
   mutations: [
     // ---- days_from_civil ----
@@ -33,6 +32,53 @@ const set: MutationSet = {
       name: "gets the epoch shift wrong",
       find: "+  return era * 146097 + doe - 719468;",
       replace: "+  return era * 146097 + doe - 719469;",
+    },
+
+    // ---- civil_from_days ----
+    {
+      name: "gets the inverse epoch shift wrong",
+      find: "+  const z = days + 719468;",
+      replace: "+  const z = days + 719469;",
+    },
+    {
+      name: "truncates the inverse era, breaking ancient dates",
+      find: "+  const era = Math.floor(z / 146097);",
+      replace: "+  const era = Math.trunc(z / 146097);",
+    },
+    {
+      name: "drops the 400-year rule from the inverse year",
+      find: "+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365",
+      replace: "+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524)) / 365",
+    },
+    {
+      name: "drops the century rule from the inverse year",
+      find: "+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365",
+      replace: "+    (doe - Math.floor(doe / 1460) - Math.floor(doe / 146096)) / 365",
+    },
+    {
+      name: "drops the leap rule from the inverse day of year",
+      find: "+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));",
+      replace: "+  const doy = doe - (365 * yoe + Math.floor(yoe / 4));",
+    },
+    {
+      name: "gets the inverse month-length series wrong",
+      find: "+  const mp = Math.floor((5 * doy + 2) / 153);",
+      replace: "+  const mp = Math.floor((5 * doy + 3) / 153);",
+    },
+    {
+      name: "puts the inverse March boundary in the wrong place",
+      find: "+  const month = mp < 10 ? mp + 3 : mp - 9;",
+      replace: "+  const month = mp < 9 ? mp + 3 : mp - 9;",
+    },
+    {
+      name: "carries the inverse year at the wrong month",
+      find: "+  result.year = yoe + era * 400 + (month <= 2 ? 1 : 0);",
+      replace: "+  result.year = yoe + era * 400 + (month < 2 ? 1 : 0);",
+    },
+    {
+      name: "counts inverse civil days from zero",
+      find: "+  result.day = doy - Math.floor((153 * mp + 2) / 5) + 1;",
+      replace: "+  result.day = doy - Math.floor((153 * mp + 2) / 5);",
     },
 
     // ---- the digit scan ----

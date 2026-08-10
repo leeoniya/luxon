@@ -134,9 +134,10 @@ diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
 index b5235ba..99f0ab3 100644
 --- a/src/zones/IANAZone.js
 +++ b/src/zones/IANAZone.js
-@@ -1,9 +1,29 @@
--import { formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/util.js";
+@@ -1,8 +1,29 @@
+-import { daysFromCivil, formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/util.js";
 +import {
++  daysFromCivil,
 +  formatOffset,
 +  parseZoneInfo,
 +  isUndefined,
@@ -162,9 +163,8 @@ index b5235ba..99f0ab3 100644
 +
 +const callScan = (scan, t) => scan(t);
 +
- /** days since the epoch for a proleptic-gregorian date (Howard Hinnant) */
- function daysFromCivil(y, m, d) {
-   y -= m <= 2 ? 1 : 0;
+ function makeScanner(zoneName) {
+   const dtf = makeDTF(zoneName);
 @@ -156,6 +176,7 @@ export default class IANAZone extends Zone {
      ianaZoneCache.clear();
      dtfCache.clear();

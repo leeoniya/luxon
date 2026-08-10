@@ -25,6 +25,8 @@ const VARIANTS: [string, PatchKey[]][] = [
   ["every patch", [...patchKeys]],
 ];
 
+const stock = await loadLuxon([]);
+
 type DT = {
   toRelative: (o: unknown) => string | null;
   diff: (o: unknown, u: string) => { get: (u: string) => number };
@@ -241,6 +243,85 @@ for (const [label, keys] of VARIANTS) {
 
       assert.equal(ny.toRelativeCalendar({ base: eve }), "next year");
       assert.equal(eve.toRelativeCalendar({ base: ny }), "last year");
+    });
+
+    // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelativeCalendar preserves civil boundary counts across zones and directions"
+    test("same-zone civil counts match the generic calendary route", async () => {
+      const m = await loadLuxon(keys);
+      const cases = [
+        ["UTC", "2024-02-29T23:59", "2025-03-01T00:01"],
+        ["America/New_York", "2024-03-09T23:00", "2024-03-11T01:00"],
+        ["Pacific/Apia", "2011-12-29T12:00", "2011-12-31T12:00"],
+        ["Australia/Lord_Howe", "2024-09-30T23:30", "2024-11-01T00:30"],
+        ["Asia/Kathmandu", "1999-12-31T23:59", "2000-01-01T00:01"],
+      ] as const;
+
+      for (const [zone, from, to] of cases) {
+        for (const [a, b] of [
+          [from, to],
+          [to, from],
+        ] as const) {
+          const base = m.DateTime.fromISO(a, { zone });
+          const at = m.DateTime.fromISO(b, { zone });
+          const stockBase = stock.DateTime.fromISO(a, { zone });
+          const stockAt = stock.DateTime.fromISO(b, { zone });
+
+          for (const unit of [undefined, "years", "months", "days"] as const) {
+            const opts = unit === undefined ? { base } : { base, unit };
+            const stockOpts = unit === undefined ? { base: stockBase } : { base: stockBase, unit };
+            assert.equal(
+              at.toRelativeCalendar(opts),
+              stockAt.toRelativeCalendar(stockOpts),
+              `${zone} ${a} -> ${b} ${unit ?? "auto"}`
+            );
+          }
+        }
+      }
+    });
+
+    // PATCH-ONLY: the optimization is intentionally limited to built-in equal
+    // zones; differing and duck-typed zones must retain the generic path.
+    test("differing and custom zones retain the generic calendary path", async () => {
+      const m = await loadLuxon(keys);
+      const proto = (m.DateTime as unknown as { prototype: Record<string, unknown> }).prototype;
+      const real = proto["startOf"] as (...args: unknown[]) => unknown;
+      let calls = 0;
+
+      Object.defineProperty(proto, "startOf", {
+        configurable: true,
+        value: function (this: unknown, ...args: unknown[]) {
+          calls++;
+          return real.apply(this, args);
+        },
+      });
+
+      try {
+        const ny = m.DateTime.fromISO("2024-03-09T23:00", { zone: "America/New_York" });
+        const paris = m.DateTime.fromISO("2024-03-11T01:00", { zone: "Europe/Paris" });
+        paris.toRelativeCalendar({ base: ny, unit: "days" });
+        assert.ok(calls > 0, "differing zones use startOf/diff");
+
+        const custom = {
+          type: "custom",
+          name: "Test/Custom",
+          ianaName: "Test/Custom",
+          isUniversal: true,
+          isValid: true,
+          offsetName: () => "Custom",
+          formatOffset: () => "+00:00",
+          offset: () => 0,
+          equals(other: unknown) {
+            return other === this;
+          },
+        };
+        const base = m.DateTime.fromMillis(Date.UTC(2024, 0, 1), { zone: custom as never });
+        const at = m.DateTime.fromMillis(Date.UTC(2024, 0, 3), { zone: custom as never });
+        calls = 0;
+        at.toRelativeCalendar({ base, unit: "days" });
+        assert.ok(calls > 0, "custom zones use startOf/diff");
+      } finally {
+        Object.defineProperty(proto, "startOf", { configurable: true, writable: true, value: real });
+      }
     });
 
     // JEST-MIRROR (sync until relativeSkip merges, then remove): test/datetime/relative.test.js — "DateTime#toRelative padding crosses a day boundary in either direction"

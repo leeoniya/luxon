@@ -174,9 +174,9 @@ Each distinct subset of patches gets its own directory and therefore its own
 module instance, so one variant's internal caches can never warm another's. That
 matters more than it sounds — most of these patches *are* caches.
 
-Two patches require others (`Requires:` says which) — D's diff is written
-against A's and B's output, and I's civil math stands on the arithmetic G
-rebuilt; the loader pulls in what they need.
+Five patches require others (`Requires:` says which): D is written against A
+and B, F/G/H consume B's shared civil conversion, and I stands on G (reaching B
+transitively). The loader pulls in each closure.
 
 ## Layout
 

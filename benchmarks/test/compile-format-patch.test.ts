@@ -53,7 +53,7 @@ const VARIANTS: [string, PatchKey[]][] = [
 const stock = await loadLuxon([]);
 
 test("compileFormat replaces the formatter interpreter", async () => {
-  assert.deepEqual(withNeeds([compileFormat]), [compileFormat]);
+  assert.deepEqual(withNeeds([compileFormat]), [patchKey("offsetScan"), compileFormat]);
 
   const entry = await patchedEntry([compileFormat]);
   const formatter = await readFile(new URL("impl/formatter.js", entry), "utf8");

@@ -1,6 +1,6 @@
 # I — read-once objects dropped, and calendar boundaries as civil math
 
-`src/datetime.js` · `src/duration.js` · `src/impl/conversions.js` · `src/impl/diff.js` · `src/impl/util.js`
+`src/datetime.js` · `src/duration.js` · `src/impl/conversions.js` · `src/impl/diff.js`
 
 Two halves: objects built to be read once are dropped, and the
 `startOf`/`endOf` boundary work becomes integer math.
@@ -66,15 +66,14 @@ keep the general path.
 
 ## The boundaries
 
-**The weekday is seven lines of integer math.** Howard Hinnant's
-`days_from_civil` — the same routine B keeps privately in `IANAZone.js`, and the
-inverse of the `civil_from_days` F put under `tsToObj` — gives days since the
-epoch; day zero was a Thursday, and a floored modulo turns the count into an ISO
-weekday for dates on either side of 1970. That replaces a `Date` allocation per
-call in a function the week conversions call up to four times per operation, and
-it is why `startOf("week")` halves even before its route shortens: `set` with a
-`weekday` in it pays the round trip below, and the round trip's cost was mostly
-these four reads.
+**The weekday is integer math over B's shared civil conversion.**
+`daysFromCivil()` gives days since the epoch; day zero was a Thursday, and a
+floored modulo turns the count into an ISO weekday for dates on either side of
+1970. That replaces a `Date` allocation per call in a function the week
+conversions call up to four times per operation, and it is why
+`startOf("week")` halves even before its route shortens: `set` with a `weekday`
+in it pays the round trip below, and the round trip's cost was mostly these four
+reads.
 
 **`startOf("week")` stops asking what week it is.** The Monday of the receiver's
 week is `weekday - 1` days back, whatever its week number is, so the ISO

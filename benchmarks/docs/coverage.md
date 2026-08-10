@@ -54,10 +54,13 @@ change when both values remain in the same baseline-relative colour bucket.
 
 A `--` is a build with no semantically honest equivalent to run. moment ships no
 `Interval`, compiled format-parser API, `Duration#shiftTo`, or
-`Duration#toFormat`; date-fns likewise leaves cells blank where matching them
-would benchmark a custom reimplementation rather than its public API, including
-Luxon’s locale-listing helpers. Those columns are shaded against stock luxon
-rather than against something a baseline did not do.
+`Duration#toFormat`. Its `calendar()` also is not a `toRelativeCalendar`
+equivalent for this 90-day workload: it falls back to an absolute date where
+Luxon returns a relative calendar phrase, so that cell is intentionally blank.
+date-fns likewise leaves cells blank where matching them would benchmark a
+custom reimplementation rather than its public API, including Luxon’s
+locale-listing helpers. Those columns are shaded against stock luxon rather than
+against something a baseline did not do.
 
 ### Isolated and whole-operation columns
 
@@ -78,15 +81,10 @@ uses the ladder's existing per-column split-half floor, and runs under whichever
 engine executes `upstream.ts`; run the same ladder sequentially with Node and Bun
 when collecting promotion evidence.
 
-One exploratory Bun ladder run reported a `toRelativeCalendar` slowdown. It did
-not repeat in an isolated subtraction check: the complete stack was faster than
-the same stack without G, I, or D, both with this column's minute-spaced pool and
-with a day-spaced pool crossing calendar and DST boundaries. Fresh module
-instances varied more than the initial result while returning identical
-checksums. Treat the observation as JavaScriptCore tier/cache noise, amplified by
-D's interval-cache hit shape, not as evidence against a retained production
-change. It is not a promotion result unless it repeats in the interleaved full
-ladder above the column's own floor.
+H gives `toRelativeCalendar` a direct equal-zone path for year, month and day
+counts. The values are differences between existing civil fields and the shared
+civil-day helper, so the path avoids `hasSame`, `startOf` and generic `diff`.
+Differing zones, custom zones, weeks and quarters retain the generic route.
 
 The two easy-tz rows sit out these cases entirely — they are dropped from the
 `other` table rather than printed as a row of dashes, and the `formatting` and
