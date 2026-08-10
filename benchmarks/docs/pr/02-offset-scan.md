@@ -16,6 +16,8 @@ The offset scanner uses the forward conversion; DateTime field extraction,
 calendar diffs and weekday calculations consume the same implementation through
 their dependent patches. The inverse writes into a supplied result object so
 those callers do not trade a `Date` allocation for another allocation.
+`civilDayDiff` keeps G's and H's repeated subtraction of two civil field
+records beside the same conversion.
 
 **Field layout is measured, not assumed.** The position of each field in the
 formatted string is read once per zone from `formatToParts` at construction. Any

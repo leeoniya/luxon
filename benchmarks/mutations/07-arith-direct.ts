@@ -3,7 +3,7 @@ import type { MutationSet } from "../lib/mutations.ts";
 const nl = (...parts: string[]) => parts.join("\n");
 
 /**
- * G edits five files and nothing it does is supposed to be visible, so every one
+ * G edits six files and nothing it does is supposed to be visible, so every one
  * of these is a way for it to be wrong quietly. They are grouped the way the
  * patch is: the argument parsing that replaced fromDurationLike, the two guards
  * in adjustTime, the constants, and the three edits outside datetime.js.
@@ -42,7 +42,11 @@ const set: MutationSet = {
     },
     {
       name: "checks the value before the unit name",
-      find: nl("+      const unit = Duration.normalizeUnit(u);", "+", "+      v[unit] = asNumber(raw);"),
+      find: nl(
+        "+      const unit = Duration.normalizeUnit(u);",
+        "+",
+        "+      v[unit] = asNumber(raw);"
+      ),
       replace: nl(
         "+      const value = asNumber(raw);",
         "+",
@@ -68,13 +72,13 @@ const set: MutationSet = {
     // ---- Duration arithmetic: direct values ----
     {
       name: "Duration plus leaves the addend out",
-      find: "+        result[k] = (theirs[k] || 0) + (mine[k] || 0);",
-      replace: "+        result[k] = mine[k] || 0;",
+      find: "+      result[k] = subtract ? a - b : b + a;",
+      replace: "+      result[k] = subtract ? a - b : a;",
     },
     {
       name: "Duration minus adds the addend",
-      find: "+        result[k] = (mine[k] || 0) - (theirs[k] || 0);",
-      replace: "+        result[k] = (mine[k] || 0) + (theirs[k] || 0);",
+      find: "+      result[k] = subtract ? a - b : b + a;",
+      replace: "+      result[k] = subtract ? a + b : b + a;",
     },
 
     // ---- adjustTime: the whole-value guard ----
@@ -137,23 +141,13 @@ const set: MutationSet = {
     // ---- the hoisted constants ----
     {
       name: "loses a unit alias from DateTime's table",
-      find: '+  weekyears: "weekYear",\n',
+      find: "+  weekyears: 11,\n",
       replace: "",
     },
     {
       name: "loses a unit alias from Duration's table",
-      find: '+  quarters: "quarters",\n',
+      find: '+  "quarters",\n',
       replace: "",
-    },
-    {
-      name: "builds DateTime's unit table with Object.prototype behind it",
-      find: nl("+const normalizedUnits = Object.assign(Object.create(null), {", '+  year: "year",'),
-      replace: nl("+const normalizedUnits = Object.assign({}, {", '+  year: "year",'),
-    },
-    {
-      name: "builds Duration's unit table with Object.prototype behind it",
-      find: nl("+const normalizedUnits = Object.assign(Object.create(null), {", '+  year: "years",'),
-      replace: nl("+const normalizedUnits = Object.assign({}, {", '+  year: "years",'),
     },
     {
       name: "loses a relative-time abbreviation",
@@ -186,19 +180,8 @@ const set: MutationSet = {
     // ---- dayDiff ----
     {
       name: "subtracts civil days in the wrong direction",
-      find: nl(
-        "+    daysFromCivil(later.c.year, later.c.month, later.c.day) -",
-        "+    daysFromCivil(earlier.c.year, earlier.c.month, earlier.c.day)"
-      ),
-      replace: nl(
-        "+    daysFromCivil(earlier.c.year, earlier.c.month, earlier.c.day) -",
-        "+    daysFromCivil(later.c.year, later.c.month, later.c.day)"
-      ),
-    },
-    {
-      name: "reads the later civil month one month ahead",
-      find: "+    daysFromCivil(later.c.year, later.c.month, later.c.day) -",
-      replace: "+    daysFromCivil(later.c.year, later.c.month + 1, later.c.day) -",
+      find: "+  return civilDayDiff(earlier.c, later.c);",
+      replace: "+  return civilDayDiff(later.c, earlier.c);",
     },
     {
       name: "exact millisecond diff is one millisecond long",

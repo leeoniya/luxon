@@ -39,7 +39,7 @@ equivalent operation without the skip.
 
 For valid DateTimes in the same built-in zone, year, month and day boundary
 counts are already scalar civil arithmetic: subtract years, subtract
-`year * 12 + month`, or subtract B's shared `daysFromCivil()` results.
+`year * 12 + month`, or call B's shared `civilDayDiff()`.
 `toRelativeCalendar` uses those values before its formatter, avoiding
 `hasSame`, `startOf`, `diff` and their intermediate DateTimes and Duration.
 

@@ -22,12 +22,14 @@ const set: MutationSet = {
     {
       name: "widens the span without checking what is out there",
       find: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;",
-      replace: "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS) break;",
+      replace:
+        "+    const p = t + k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS) break;",
     },
     {
       name: "widens backwards without checking what is back there",
       find: "+    const p = t - k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS || lookup(ctx, p) !== val) break;",
-      replace: "+    const p = t - k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS) break;",
+      replace:
+        "+    const p = t - k * INTERVAL_PROBE_MS;\n+    if (Math.abs(p) > INTERVAL_MAX_TS) break;",
     },
     {
       name: "probes past the end of the representable range",
@@ -45,14 +47,15 @@ const set: MutationSet = {
       replace: "+    lo0: 0, hi0: 0, val0: null,",
     },
     {
-      name: "keeps its spans across a cache reset",
-      find: "+    intervalCache.clear();",
-      replace: "",
+      name: "gives every zone the same offset span",
+      find: "+      return intervalLookup(scan.iv || (scan.iv = newInterval()), callScan, scan, t);",
+      replace:
+        "+      return intervalLookup(callScan.iv || (callScan.iv = newInterval()), callScan, scan, t);",
     },
     {
-      name: "gives every zone the same span on the offset side",
-      find: "+      return intervalLookup(offsetInterval(this.name), callScan, scan, t);",
-      replace: '+      return intervalLookup(offsetInterval(""), callScan, scan, t);',
+      name: "gives the offset scanner a fresh span on every call",
+      find: "+      return intervalLookup(scan.iv || (scan.iv = newInterval()), callScan, scan, t);",
+      replace: "+      return intervalLookup(newInterval(), callScan, scan, t);",
     },
 
     // ---- the parts that only a count can see ----

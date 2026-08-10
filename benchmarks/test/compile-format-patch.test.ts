@@ -53,7 +53,11 @@ const VARIANTS: [string, PatchKey[]][] = [
 const stock = await loadLuxon([]);
 
 test("compileFormat replaces the formatter interpreter", async () => {
-  assert.deepEqual(withNeeds([compileFormat]), [patchKey("offsetScan"), compileFormat]);
+  assert.deepEqual(withNeeds([compileFormat]), [
+    patchKey("zoneInfoCache"),
+    patchKey("offsetScan"),
+    compileFormat,
+  ]);
 
   const entry = await patchedEntry([compileFormat]);
   const formatter = await readFile(new URL("impl/formatter.js", entry), "utf8");
@@ -64,27 +68,42 @@ test("compileFormat replaces the formatter interpreter", async () => {
 // tables, grammatical context, non-Gregorian calendars, CJK, RTL and non-Latin
 // numbering. Handler dispatch does not branch on individual locale names, and
 // the fixtures enumerate every memo field value.
-const LOCALES = [
-  "en-US", "ru", "fi", "ja", "zh-CN", "th", "ar", "hi", "bn", "fa",
-];
+const LOCALES = ["en-US", "ru", "fi", "ja", "zh-CN", "th", "ar", "hi", "bn", "fa"];
 
 // every token that resolves to a name, at every width, plus the macros and
 // compound patterns that reach several at once
 const PATTERNS = [
-  "ccc", "cccc", "ccccc", "cccccc",
-  "EEE", "EEEE", "EEEEE",
-  "LLL", "LLLL", "LLLLL",
-  "MMM", "MMMM", "MMMMM",
-  "a", "G", "GG", "GGGGG",
+  "ccc",
+  "cccc",
+  "ccccc",
+  "cccccc",
+  "EEE",
+  "EEEE",
+  "EEEEE",
+  "LLL",
+  "LLLL",
+  "LLLLL",
+  "MMM",
+  "MMMM",
+  "MMMMM",
+  "a",
+  "G",
+  "GG",
+  "GGGGG",
   "cccc, LLLL d, yyyy 'at' h:mm a",
   "EEEE d MMMM yyyy HH:mm",
   "GG yyyy MMMM EEEE a",
-  "DDDD", "ff", "FFF", "tt",
+  "DDDD",
+  "ff",
+  "FFF",
+  "tt",
 ];
 
 /** all twelve months, all seven weekdays, all 24 hours, and a BC year */
 const STAMPS = [
-  ...Array.from({ length: 24 }, (_, i) => Date.UTC(2024, i % 12, 1 + ((i * 5) % 27), i % 24, (i * 13) % 60)),
+  ...Array.from({ length: 24 }, (_, i) =>
+    Date.UTC(2024, i % 12, 1 + ((i * 5) % 27), i % 24, (i * 13) % 60)
+  ),
   Date.UTC(-40, 3, 2, 15),
   Date.UTC(1, 0, 1, 0),
 ];
@@ -117,15 +136,25 @@ for (const [name, patches] of VARIANTS) {
       const start = luxon.DateTime.fromISO("2024-04-10T12:00:00Z", { zone: "UTC", locale: "fa" });
       const got = Array.from({ length: 12 }, (_, i) => start.plus({ months: i }).toFormat("LLLL"));
       const want = Array.from({ length: 12 }, (_, i) =>
-        stock.DateTime.fromISO("2024-04-10T12:00:00Z", { zone: "UTC", locale: "fa" }).plus({ months: i }).toFormat("LLLL")
+        stock.DateTime.fromISO("2024-04-10T12:00:00Z", { zone: "UTC", locale: "fa" })
+          .plus({ months: i })
+          .toFormat("LLLL")
       );
 
       assert.deepEqual(got, want);
-      assert.equal(new Set(got).size, 12, `expected twelve distinct month names, got ${JSON.stringify(got)}`);
+      assert.equal(
+        new Set(got).size,
+        12,
+        `expected twelve distinct month names, got ${JSON.stringify(got)}`
+      );
     });
 
     test("fa eras match stock across the BC boundary", () => {
-      for (const iso of ["-000040-04-02T12:00:00Z", "0001-01-01T12:00:00Z", "2024-06-01T12:00:00Z"]) {
+      for (const iso of [
+        "-000040-04-02T12:00:00Z",
+        "0001-01-01T12:00:00Z",
+        "2024-06-01T12:00:00Z",
+      ]) {
         const opts = { zone: "UTC", locale: "fa" } as const;
 
         assert.equal(
@@ -196,7 +225,10 @@ for (const [name, patches] of VARIANTS) {
           const pattern = "GG yyyy MMMM EEEE a";
 
           assert.equal(at.toFormat(pattern), fresh.toFormat(pattern), `${locale} step ${i}`);
-          assert.equal(at.toFormat(pattern), stock.DateTime.fromMillis(at.toMillis(), { zone: "UTC", locale }).toFormat(pattern));
+          assert.equal(
+            at.toFormat(pattern),
+            stock.DateTime.fromMillis(at.toMillis(), { zone: "UTC", locale }).toFormat(pattern)
+          );
         }
       }
     });
@@ -239,7 +271,14 @@ for (const [name, patches] of VARIANTS) {
       const opts = { zone: "UTC", locale: "fr" } as const;
       const ts = Date.UTC(2024, 2, 9, 8, 5);
 
-      for (const pattern of ["'literal'", "[]{}!?", "yyyy 'at' LLLL", "''", "L'L'L", "\u00e9\u00e9 cccc"]) {
+      for (const pattern of [
+        "'literal'",
+        "[]{}!?",
+        "yyyy 'at' LLLL",
+        "''",
+        "L'L'L",
+        "\u00e9\u00e9 cccc",
+      ]) {
         assert.equal(
           luxon.DateTime.fromMillis(ts, opts).toFormat(pattern),
           stock.DateTime.fromMillis(ts, opts).toFormat(pattern),

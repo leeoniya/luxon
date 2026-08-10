@@ -6,6 +6,10 @@
 `(locale, offsetFormat, timeZone)`, which is exactly what `getCachedDTF` keys on
 and what `Locale.resetCache()` already clears, so it can use that instead.
 
+The shared utility also owns the resolved-options cache. Locale's numbering and
+English checks and F's calendar check therefore reuse the same formatter
+instead of maintaining another constructor path.
+
 The same call then pays two more costs: `formatToParts()` allocates a part object
 per field — the formatter asks for six — and `.find()` walks them while running
 `toLowerCase()` per part to pull out one string. The cached formatter is instead

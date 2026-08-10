@@ -23,7 +23,7 @@ running one does not bury its numbers in several pages of explanation:
 
 | doc | what is in it |
 | --- | --- |
-| [`docs/upstream.md`](docs/upstream.md) | the nine patches one by one, `D`'s tzdata precondition, and the order to file them in |
+| [`docs/upstream.md`](docs/upstream.md) | the ten patches one by one, `D`'s tzdata precondition, and the order to file them in |
 | [`docs/coverage.md`](docs/coverage.md) | the ladder's public API columns: why each is there, and where luxon still trails moment |
 | [`docs/suite.md`](docs/suite.md) | which patch moves which of luxon's own cases |
 | [`docs/format.md`](docs/format.md) | the outside-in question, and the known tzdata differences |
@@ -174,9 +174,10 @@ Each distinct subset of patches gets its own directory and therefore its own
 module instance, so one variant's internal caches can never warm another's. That
 matters more than it sounds — most of these patches *are* caches.
 
-Five patches require others (`Requires:` says which): D is written against A
-and B, F/G/H consume B's shared civil conversion, and I stands on G (reaching B
-transitively). The loader pulls in each closure.
+Six patches require others (`Requires:` says which): B consumes A's shared Intl
+formatter cache, D is written against A and B, F/G/H consume B's shared civil
+conversion, and I stands on G (reaching A and B transitively). The loader pulls
+in each closure.
 
 ## Layout
 

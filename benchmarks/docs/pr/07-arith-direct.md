@@ -10,10 +10,10 @@ The retained direct paths replace this temporary work:
 | file | function | was | is |
 | --- | --- | --- | --- |
 | `datetime.js` | `adjustTime` | `millisToAdd` = `Duration.fromObject({ …nine keys }).as("milliseconds")` | an integer sum |
-| `diff.js` | `dayDiff` | four `DateTime`s, two wrapper `Date`s and a `Duration`, for one civil-day subtraction | subtract B's shared `daysFromCivil()` values directly from the two existing field records |
+| `diff.js` | `dayDiff` | four `DateTime`s, two wrapper `Date`s and a `Duration`, for one civil-day subtraction | pass the two existing field records to B's shared `civilDayDiff()` |
 | `datetime.js` | `DateTime.local` | copy `arguments`, split an options object, destructure seven missing fields and build an object containing seven `undefined` values for `local()` and `local(options)` | send those two overloads directly to `quickDT`; positional overloads retain the parser |
 | `datetime.js` | `plus` / `minus` | a `Duration` built per call for `adjustTime` to read nine getters off and drop; `minus` built a second, because `negate()` clones | `durationValues` produces those nine numbers directly |
-| `duration.js` | `Duration#plus` / `minus` | normalized known unit names through getters, and `minus` cloned a negated addend before adding | read the two fixed-shape value records directly into one result |
+| `duration.js` | `Duration#plus` / `minus` | normalized known unit names through getters, and `minus` cloned a negated addend before adding | combine the two fixed-shape value records through one shared loop |
 | `diff.js` | exact millisecond diff | the calendar walk and lower-unit shift for a result already represented by endpoint subtraction | return `Duration.fromMillis(later - earlier, opts)` |
 
 ## Where the first two could go wrong
@@ -34,8 +34,8 @@ rather than preserves it: an overflowing sum flows into the timestamp and
 produces an invalid DateTime. The `whole` flag only routes fractional fields to
 the general path; it is not an overflow guard.
 
-**Civil dates.** `dayDiff` uses B's `daysFromCivil()` directly on each
-endpoint's existing fields. It therefore preserves years 0–99 without
+**Civil dates.** `dayDiff` passes each endpoint's existing fields to B's
+`civilDayDiff()`. It therefore preserves years 0–99 without
 `Date.UTC`'s legacy remapping, remains proleptic Gregorian for BCE dates, and
 keeps local-calendar semantics across DST and date-line jumps.
 
@@ -87,8 +87,9 @@ than handing the `Duration` through.
 
 The same fixed-unit observation applies inside `Duration#plus` and `minus`:
 their unit loop already has canonical names, so normalizing each through `get()`
-does not add semantics. `minus` writes the subtraction directly instead of
-cloning a negated addend and feeding it back through `plus`.
+does not add semantics. Both operations share one combination loop; `minus`
+selects subtraction instead of cloning a negated addend and feeding it back
+through `plus`.
 
 An exact `DateTime#diff(..., "milliseconds")` needs no calendar walk: both
 endpoints are already millisecond timestamps. The direct subtraction preserves
@@ -103,10 +104,11 @@ arrays inside it), and `systemZone.js` `offset` (one `Date` per lookup, now one
 reused — JS is single threaded and `getTimezoneOffset` reads it on the next
 line, so the instance cannot be observed in between). None captures anything.
 
-The two unit tables also become null-prototype, which is this patch's one
+The two unit maps share one spelling-to-index table and retain separate
+singular and plural canonical-name arrays. This is also the patch's one
 deliberate behavior change. The per-call literals leaked inherited values past
 `normalizeUnit`'s truthiness check for unit names that are `Object.prototype`
 keys: `endOf("__proto__")` quietly acted like `startOf`, and
-`as("__proto__")` threw a `TypeError` out of the conversion matrix. With the
-tables null-prototype, those names miss the lookup and throw `InvalidUnitError`
-like any other non-unit.
+`as("__proto__")` threw a `TypeError` out of the conversion matrix. An inherited
+value is not a numeric array index, so it now misses and throws
+`InvalidUnitError` like any other non-unit.

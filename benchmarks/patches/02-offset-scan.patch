@@ -1,6 +1,6 @@
 Patch: offsetScan
 Letter: B
-Requires: none
+Requires: A (zoneInfoCache)
 Files: src/impl/util.js, src/zones/IANAZone.js
 Summary: shared civil-date conversion, and IANAZone.offset reading dtf.format() digits instead of formatToParts + parseInt
 Description: benchmarks/docs/pr/02-offset-scan.md
@@ -8,7 +8,7 @@ Description: benchmarks/docs/pr/02-offset-scan.md
 diff --git a/src/impl/util.js b/src/impl/util.js
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
-@@ -200,6 +200,36 @@
+@@ -200,6 +200,40 @@
    }
  }
  
@@ -22,6 +22,10 @@ diff --git a/src/impl/util.js b/src/impl/util.js
 +  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5);
 +  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy + d - 1;
 +  return era * 146097 + doe - 719468;
++}
++
++export function civilDayDiff(a, b) {
++  return daysFromCivil(b.year, b.month, b.day) - daysFromCivil(a.year, a.month, a.day);
 +}
 +
 +// Writes into an existing result so tsToObj keeps its single allocation.
@@ -49,12 +53,20 @@ diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
 index dea03c9..b5235ba 100644
 --- a/src/zones/IANAZone.js
 +++ b/src/zones/IANAZone.js
-@@ -1,7 +1,75 @@
+@@ -1,22 +1,92 @@
 -import { formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/util.js";
-+import { daysFromCivil, formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/util.js";
++import {
++  daysFromCivil,
++  formatOffset,
++  getCachedDTF,
++  parseZoneInfo,
++  isUndefined,
++  objToLocalTS,
++  resetCachedDTF,
++} from "../impl/util.js";
  import Zone from "../zone.js";
  
- const dtfCache = new Map();
+-const dtfCache = new Map();
 +const scanCache = new Map();
 +
 +function makeScanner(zoneName) {
@@ -124,17 +136,35 @@ index dea03c9..b5235ba 100644
 +  return scan;
 +}
  function makeDTF(zoneName) {
-   let dtf = dtfCache.get(zoneName);
-   if (dtf === undefined) {
-@@ -79,6 +157,7 @@ export default class IANAZone extends Zone {
+-  let dtf = dtfCache.get(zoneName);
+-  if (dtf === undefined) {
+-    dtf = new Intl.DateTimeFormat("en-US", {
++  return getCachedDTF("en-US", {
+       hour12: false,
+       timeZone: zoneName,
+       year: "numeric",
+       month: "2-digit",
+       day: "2-digit",
+       hour: "2-digit",
+       minute: "2-digit",
+       second: "2-digit",
+       era: "short",
+-    });
+-    dtfCache.set(zoneName, dtf);
+-  }
+-  return dtf;
++  });
+ }
+@@ -79,6 +149,7 @@ export default class IANAZone extends Zone {
    static resetCache() {
      ianaZoneCache.clear();
-     dtfCache.clear();
+-    dtfCache.clear();
++    resetCachedDTF();
 +    scanCache.clear();
    }
  
    /**
-@@ -200,6 +279,15 @@ export default class IANAZone extends Zone {
+@@ -200,6 +271,15 @@ export default class IANAZone extends Zone {
     */
    offset(ts) {
      if (!this.valid) return NaN;

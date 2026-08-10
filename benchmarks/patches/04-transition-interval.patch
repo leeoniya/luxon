@@ -134,51 +134,32 @@ diff --git a/src/zones/IANAZone.js b/src/zones/IANAZone.js
 index b5235ba..99f0ab3 100644
 --- a/src/zones/IANAZone.js
 +++ b/src/zones/IANAZone.js
-@@ -1,8 +1,29 @@
--import { daysFromCivil, formatOffset, parseZoneInfo, isUndefined, objToLocalTS } from "../impl/util.js";
-+import {
-+  daysFromCivil,
-+  formatOffset,
-+  parseZoneInfo,
-+  isUndefined,
-+  objToLocalTS,
+@@ -1,15 +1,19 @@
+ import {
+   daysFromCivil,
+   formatOffset,
+   getCachedDTF,
+   parseZoneInfo,
+   isUndefined,
+   objToLocalTS,
+   resetCachedDTF,
 +  newInterval,
 +  intervalLookup,
-+} from "../impl/util.js";
+ } from "../impl/util.js";
  import Zone from "../zone.js";
  
- const dtfCache = new Map();
  const scanCache = new Map();
  
-+// UPSTREAM-D: the interval state for each zone's scanner. The name side keeps
-+// its own on the scanner object; this side needs a map because the scanner is a
-+// bare function.
-+const intervalCache = new Map();
-+
-+function offsetInterval(zoneName) {
-+  let st = intervalCache.get(zoneName);
-+  if (st == null) intervalCache.set(zoneName, (st = newInterval()));
-+  return st;
-+}
-+
 +const callScan = (scan, t) => scan(t);
 +
  function makeScanner(zoneName) {
    const dtf = makeDTF(zoneName);
-@@ -156,6 +176,7 @@ export default class IANAZone extends Zone {
-     ianaZoneCache.clear();
-     dtfCache.clear();
-     scanCache.clear();
-+    intervalCache.clear();
-   }
- 
-   /**
-@@ -283,7 +304,7 @@ export default class IANAZone extends Zone {
+@@ -283,7 +287,7 @@ export default class IANAZone extends Zone {
      if (scan != null) {
        const t = Math.trunc(ts);
        if (Number.isNaN(t) || Math.abs(t) > 8.64e15) return NaN;
 -      return scan(t);
-+      return intervalLookup(offsetInterval(this.name), callScan, scan, t);
++      return intervalLookup(scan.iv || (scan.iv = newInterval()), callScan, scan, t);
      }
  
      const date = new Date(ts);

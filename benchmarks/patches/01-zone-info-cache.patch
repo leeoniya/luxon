@@ -2,19 +2,22 @@ Patch: zoneInfoCache
 Letter: A
 Requires: none
 Files: src/impl/locale.js, src/impl/util.js
-Summary: parseZoneInfo: reuse its DTF and scan format() for the zone name
+Summary: share DTF/resolved-options caching and scan format() for zone names
 Description: benchmarks/docs/pr/01-zone-info-cache.md
 
 diff --git a/src/impl/locale.js b/src/impl/locale.js
 index 76f08a7..fd442ee 100644
 --- a/src/impl/locale.js
 +++ b/src/impl/locale.js
-@@ -1,4 +1,11 @@
+@@ -1,4 +1,14 @@
 -import { hasLocaleWeekInfo, hasRelative, padStart, roundTo, validateWeekSettings } from "./util.js";
 +import {
++  getCachedDTF,
++  getCachedIntResolvedOptions,
 +  hasLocaleWeekInfo,
 +  hasRelative,
 +  padStart,
++  resetCachedDTF,
 +  resetZoneNameCache,
 +  roundTo,
 +  validateWeekSettings,
@@ -22,18 +25,44 @@ index 76f08a7..fd442ee 100644
  import * as English from "./english.js";
  import Settings from "../settings.js";
  import DateTime from "../datetime.js";
-@@ -18,7 +25,7 @@ function getCachedLF(locString, opts = {}) {
+@@ -18,14 +28,4 @@ function getCachedLF(locString, opts = {}) {
  }
  
- const intlDTCache = new Map();
+-const intlDTCache = new Map();
 -function getCachedDTF(locString, opts = {}) {
-+export function getCachedDTF(locString, opts = {}) {
-   const key = JSON.stringify([locString, opts]);
-   let dtf = intlDTCache.get(key);
-   if (dtf === undefined) {
-@@ -368,6 +375,7 @@ export default class Locale {
+-  const key = JSON.stringify([locString, opts]);
+-  let dtf = intlDTCache.get(key);
+-  if (dtf === undefined) {
+-    dtf = new Intl.DateTimeFormat(locString, opts);
+-    intlDTCache.set(key, dtf);
+-  }
+-  return dtf;
+-}
+ 
+ const intlNumCache = new Map();
+@@ -64,13 +64,4 @@ function systemLocale() {
+ 
+-const intlResolvedOptionsCache = new Map();
+-function getCachedIntResolvedOptions(locString) {
+-  let opts = intlResolvedOptionsCache.get(locString);
+-  if (opts === undefined) {
+-    opts = new Intl.DateTimeFormat(locString).resolvedOptions();
+-    intlResolvedOptionsCache.set(locString, opts);
+-  }
+-  return opts;
+-}
+ 
+ const weekInfoCache = new Map();
+ function getCachedWeekInfo(locString) {
+@@ -363,11 +354,11 @@ export default class Locale {
+ 
+   static resetCache() {
+     sysLocaleCache = null;
+-    intlDTCache.clear();
++    resetCachedDTF();
+     intlNumCache.clear();
      intlRelCache.clear();
-     intlResolvedOptionsCache.clear();
+-    intlResolvedOptionsCache.clear();
      weekInfoCache.clear();
 +    resetZoneNameCache();
    }
@@ -43,15 +72,41 @@ diff --git a/src/impl/util.js b/src/impl/util.js
 index 32a5d9d..a2d21d7 100644
 --- a/src/impl/util.js
 +++ b/src/impl/util.js
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,33 @@
  import { InvalidArgumentError } from "../errors.js";
  import Settings from "../settings.js";
  import { dayOfWeek, isoWeekdayToLocal } from "./conversions.js";
-+import { getCachedDTF } from "./locale.js";
++
++const intlDTCache = new Map();
++const intlResolvedOptionsCache = new Map();
++
++export function getCachedDTF(locString, opts = {}) {
++  const key = JSON.stringify([locString, opts]);
++  let dtf = intlDTCache.get(key);
++  if (dtf === undefined) {
++    dtf = new Intl.DateTimeFormat(locString, opts);
++    intlDTCache.set(key, dtf);
++  }
++  return dtf;
++}
++
++export function getCachedIntResolvedOptions(locString) {
++  let opts = intlResolvedOptionsCache.get(locString);
++  if (opts === undefined) {
++    opts = getCachedDTF(locString).resolvedOptions();
++    intlResolvedOptionsCache.set(locString, opts);
++  }
++  return opts;
++}
++
++export function resetCachedDTF() {
++  intlDTCache.clear();
++  intlResolvedOptionsCache.clear();
++}
  
  /**
   * @private
-@@ -243,7 +244,85 @@ export function untruncateYear(year) {
+@@ -243,7 +270,85 @@ export function untruncateYear(year) {
  
  // PARSING
  
@@ -137,7 +192,7 @@ index 32a5d9d..a2d21d7 100644
    const date = new Date(ts),
      intlOpts = {
        hourCycle: "h23",
-@@ -260,7 +339,10 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
+@@ -260,7 +365,10 @@ export function parseZoneInfo(ts, offsetFormat, locale, timeZone = null) {
  
    const modified = { timeZoneName: offsetFormat, ...intlOpts };
  

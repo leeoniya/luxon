@@ -47,10 +47,10 @@ substitutes for. V8 affords 32 segments for the one system zone every `Date`
 shares; this cache is per zone and each fill costs ICU calls, so it carries
 three, the measured working set.
 
-**Invalidation.** `IANAZone` keeps a map keyed by zone, cleared by its existing
-`resetCache()`. The name side hangs its interval off the scanner A already caches
-per locale and style, so `Locale.resetCache()` drops it with the scanner and no
-new hook is needed.
+**Invalidation.** Both sides hang their interval state off the scanner already
+held by their respective cache. `IANAZone.resetCache()` and
+`Locale.resetCache()` therefore drop the interval with the scanner and need no
+second interval map or reset hook.
 
 **One divergence from stock, and stock is the strange one.** Asked for a generic
 name, ICU answers America/Cambridge_Bay with `MT` everywhere except the single

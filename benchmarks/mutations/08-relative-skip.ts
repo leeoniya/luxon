@@ -34,12 +34,8 @@ const set: MutationSet = {
     },
     {
       name: "subtracts civil days in the wrong direction",
-      find:
-        "+                daysFromCivil(ec.year, ec.month, ec.day) -\n" +
-        "+                daysFromCivil(sc.year, sc.month, sc.day)",
-      replace:
-        "+                daysFromCivil(sc.year, sc.month, sc.day) -\n" +
-        "+                daysFromCivil(ec.year, ec.month, ec.day)",
+      find: "+              return civilDayDiff(sc, ec);",
+      replace: "+              return civilDayDiff(ec, sc);",
     },
 
     // ---- floors raised to what tzdata looks like from a distance ----

@@ -95,7 +95,8 @@ Three boundaries, none of them visible from the code alone:
   `outputCalendar` named, and a slot keyed by the Gregorian month returns a
   neighbouring Persian one. Those two consult the resolved calendar first and
   fall back to `extract()` when it is not Gregorian, which keeps `fa` correct and
-  still lets its weekday and day period memoize.
+  still lets its weekday and day period memoize. A's resolved-options cache
+  supplies that check, so F does not construct or cache a second formatter.
 - The era slot splits on `year <= 0`, not `year < 0`. Luxon's years are proleptic,
   so year 0 is 1 BC and shares a slot with the negative ones. Off by one there is
   invisible until locales are interned, at which point a BC date formatted after

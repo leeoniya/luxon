@@ -94,15 +94,12 @@ index 76f08a7..05e57d7 100644
 +
 +    return built;
    }
- 
+@@ -363,2 +431,5 @@ export default class Locale {
    static resetCache() {
      sysLocaleCache = null;
 +    localeCache.clear();
 +    gregoryLocaleCache.clear();
 +    localeGen++;
-     intlDTCache.clear();
-     intlNumCache.clear();
-     intlRelCache.clear();
 @@ -423,6 +491,18 @@ export default class Locale {
    }
  

@@ -89,7 +89,13 @@ import {
   type ParseCase,
   type ParseCaseKey,
 } from "./lib/build.ts";
-import { LOCALE, localeFor, patternFor, zoneFormatKeys, type FormatKey } from "./lib/format-paths.ts";
+import {
+  LOCALE,
+  localeFor,
+  patternFor,
+  zoneFormatKeys,
+  type FormatKey,
+} from "./lib/format-paths.ts";
 import {
   LEAN_BUDGET,
   LEAN_BUDGET_MS,
@@ -104,7 +110,14 @@ import {
 } from "./lib/kernel.ts";
 import type { LuxonModule } from "./lib/luxon-types.ts";
 import type { IANAZone } from "luxon";
-import { allTables, cooldownMs, requestedRow, tables, withFootprint, withVerify } from "./lib/opts.ts";
+import {
+  allTables,
+  cooldownMs,
+  requestedRow,
+  tables,
+  withFootprint,
+  withVerify,
+} from "./lib/opts.ts";
 import {
   droppedPatches,
   hasPatch,
@@ -204,6 +217,8 @@ const OFFSET = inPlay(["offsetScan"]);
 // format path reaches it. The ladder's reading columns are where it shows, and
 // it has a rung of its own.
 const PARSE = inPlay(["tokenParserCache"]);
+// J keeps the regex and UTF-16 bounds for each numbering system together.
+const DIGITS = inPlay(["numberingTable"]);
 // I is on neither string direction: it drops read-once objects on the
 // arithmetic path and turns the startOf/endOf boundary work into civil math.
 // Its columns are nearly all in the `other` band; the exception is the one
@@ -214,6 +229,7 @@ const UPSTREAM = [
   ...OFFSET,
   ...PARSE,
   ...inPlay(["transitionInterval"]),
+  ...DIGITS,
   ...BOUNDARY,
 ];
 
@@ -252,9 +268,8 @@ if (UPSTREAM.length !== patchKeys.length) {
 // are caches, B is a self-contained rewrite, C memoizes an object luxon already
 // hands out through buildFormatParser, D needs the tzdata-gap argument accepted,
 // F compiles the format walk and carries its leaf fast paths, and G and H are
-// sets of leaf short-circuits. The patch files are lettered and numbered in this
-// order, so a rung's label reads in the order it built and the letter of the
-// patch without a rung is the last one.
+// sets of leaf short-circuits. J is the independent numbering-system table
+// consolidation.
 //
 // I is deliberately absent, and is what the final row adds.
 //
@@ -285,7 +300,8 @@ const RUNG_ORDER = [
   "localeIntern", // E
   "compileFormat", // F
   "arithDirect", // G
-  "relativeSkip", // H, and last of the rungs because I is not one
+  "relativeSkip", // H
+  "numberingTable", // J, and last of the rungs because I is not one
 ];
 
 /** each rung is the one above it plus one patch, so the list above is the table */
@@ -358,7 +374,14 @@ function luxonPath(id: string, patches: readonly PatchKey[], easyZone: boolean):
     pattern: patternFor("luxon", fmt),
   });
 
-  return { id, patches, ships: "luxon", easyZone, spec, make: (fmt) => spec(fmt).then(formatterFor) };
+  return {
+    id,
+    patches,
+    ships: "luxon",
+    easyZone,
+    spec,
+    make: (fmt) => spec(fmt).then(formatterFor),
+  };
 }
 
 const EASY_ZONE_MODULE = new URL("lib/easy-zone.ts", import.meta.url).pathname;
@@ -537,13 +560,18 @@ const pathById = (id: string): Path => {
 let sink = 0;
 
 const dateFnsVersion = optionalPaths.includes(dateFnsPath)
-  ? ` vs date-fns ${await pkgVersion("date-fns")} + @date-fns/tz ${await pkgVersion("@date-fns/tz")}`
+  ? ` vs date-fns ${await pkgVersion("date-fns")} + @date-fns/tz ${await pkgVersion(
+      "@date-fns/tz"
+    )}`
   : "";
 console.log(
-  `luxon ${await pkgVersion()} (this fork's src/) vs moment-timezone ${await pkgVersion("moment-timezone")} ` +
-    `and moment ${await pkgVersion("moment")}${dateFnsVersion}`
+  `luxon ${await pkgVersion()} (this fork's src/) vs moment-timezone ${await pkgVersion(
+    "moment-timezone"
+  )} ` + `and moment ${await pkgVersion("moment")}${dateFnsVersion}`
 );
-console.log(`runtime: ${runtime()}, easy-tz tables: ${tablesHost}, host ICU ${process.versions["icu"] ?? "?"}`);
+console.log(
+  `runtime: ${runtime()}, easy-tz tables: ${tablesHost}, host ICU ${process.versions["icu"] ?? "?"}`
+);
 // Each timed table states its own value count and pass count underneath itself,
 // because they differ: the ladder's two halves are calibrated separately, and
 // the default table is a third setting again. All the header can say for all of
@@ -575,24 +603,33 @@ if (tables.has("patches")) {
   }
 
   const sized = await Promise.all(
-    [...wanted].map(async ([id, keys]) => [id, await minifiedSize(await patchedEntry(keys))] as [string, number])
+    [...wanted].map(
+      async ([id, keys]) => [id, await minifiedSize(await patchedEntry(keys))] as [string, number]
+    )
   );
   const sizes = new Map(sized);
   const bytes = (n: number) => n.toLocaleString("en-US");
   const delta = (n: number) => (n < 0 ? bytes(n) : `+${bytes(n)}`);
 
   const rows: (string[] | null)[] = [
-    [`stock luxon ${await pkgVersion()}`, bytes(sizes.get("")!), "--", "the fork's src/, unpatched"],
+    [
+      `stock luxon ${await pkgVersion()}`,
+      bytes(sizes.get("")!),
+      "--",
+      "the fork's src/, unpatched",
+    ],
     null,
     // in letter order rather than in the groups the rest of this file reasons
     // in: this table is the one place every patch is listed once, so it is the
     // one that should read as the lettering does
-    ...[...UPSTREAM].sort((a, b) => LETTER(a).localeCompare(LETTER(b))).map((k) => {
-      const size = sizes.get(setKey(withNeeds(k)))!;
-      const base = sizes.get(setKey(patchNeeds.get(k)!))!;
+    ...[...UPSTREAM]
+      .sort((a, b) => LETTER(a).localeCompare(LETTER(b)))
+      .map((k) => {
+        const size = sizes.get(setKey(withNeeds(k)))!;
+        const base = sizes.get(setKey(patchNeeds.get(k)!))!;
 
-      return [`${LETTER(k)} ${k}`, bytes(size), delta(size - base), patchWhat.get(k)!];
-    }),
+        return [`${LETTER(k)} ${k}`, bytes(size), delta(size - base), patchWhat.get(k)!];
+      }),
   ];
 
   console.log("candidate upstream patches:\n");
@@ -631,7 +668,9 @@ if (tables.has("patches")) {
  */
 const ladderFormats: FormatKey[] = [...zoneFormatKeys, "text", "text fr"];
 
-const results = new Map<FormatKey, Map<string, number>>(ladderFormats.map((fmt) => [fmt, new Map()]));
+const results = new Map<FormatKey, Map<string, number>>(
+  ladderFormats.map((fmt) => [fmt, new Map()])
+);
 
 // enough to expose per-value formatter construction and to fill the caches the
 // patches add, without spending 2s of stock luxon's abbr path per row
@@ -654,7 +693,13 @@ const FOOTPRINT_PROBE = new URL("lib/footprint-probe.ts", import.meta.url).pathn
  */
 async function footprint(path: Path): Promise<Footprint | null> {
   const specs = await Promise.all(ladderFormats.map((fmt) => path.spec!(fmt)));
-  const args = [FOOTPRINT_PROBE, JSON.stringify(specs), String(FOOTPRINT_N), String(BASE_TS), String(STEP_MS)];
+  const args = [
+    FOOTPRINT_PROBE,
+    JSON.stringify(specs),
+    String(FOOTPRINT_N),
+    String(BASE_TS),
+    String(STEP_MS),
+  ];
 
   // node hands over gc() only when asked; bun has Bun.gc unconditionally
   if (process.versions["bun"] === undefined) {
@@ -696,10 +741,13 @@ const groups = [
 
 /** every build, in the order it is printed — `groups` supplies the labels */
 const allRowPaths = groups.flat().map(({ id }) => pathById(id));
-const rowPaths = requestedRow === undefined ? allRowPaths : allRowPaths.filter(({ id }) => id === requestedRow);
+const rowPaths =
+  requestedRow === undefined ? allRowPaths : allRowPaths.filter(({ id }) => id === requestedRow);
 
 if (rowPaths.length === 0) {
-  throw new Error(`no row "${requestedRow}"; choose one of: ${allRowPaths.map(({ id }) => id).join(", ")}`);
+  throw new Error(
+    `no row "${requestedRow}"; choose one of: ${allRowPaths.map(({ id }) => id).join(", ")}`
+  );
 }
 
 // Every build measured is a build printed. That was not always so, and the
@@ -708,7 +756,9 @@ if (rowPaths.length === 0) {
 if (requestedRow === undefined && rowPaths.length !== paths.length) {
   const extra = paths.filter((p) => !rowPaths.includes(p)).map((p) => p.id);
 
-  throw new Error(`${extra.length} build(s) measured with no row to print them in: ${extra.join(", ")}`);
+  throw new Error(
+    `${extra.length} build(s) measured with no row to print them in: ${extra.join(", ")}`
+  );
 }
 
 // ---- reading dates ----------------------------------------------------------
@@ -802,13 +852,14 @@ function inputPool(kase: ParseCase): string[] | null {
 type Parse = (ts: number, input: string) => number;
 
 /** The instant the loop is on, paired with its rendered input. */
-const workFor =
-  (parse: Parse, pool: readonly string[] | null): Work =>
+const workFor = (parse: Parse, pool: readonly string[] | null): Work =>
   pool === null
     ? (ts) => parse(ts, "")
     : (ts) => parse(ts, pool[((ts - BASE_TS) / STEP_MS) % pool.length]!);
 
-const parseResults = new Map<ParseCaseKey, Map<string, number>>(parseCases.map((kase) => [kase.key, new Map()]));
+const parseResults = new Map<ParseCaseKey, Map<string, number>>(
+  parseCases.map((kase) => [kase.key, new Map()])
+);
 // instants whose parse is checked before anything is timed: a build that cannot
 // read one of these shapes would otherwise post the best number in its column,
 // and reading nothing is very fast. Every instant here is a whole minute, so all
@@ -900,7 +951,10 @@ function luxonFor(path: Path): Promise<LuxonModule> {
           let zone = zones.get(name);
 
           if (zone === undefined) {
-            zones.set(name, (zone = canResolve(name) ? (new Easy(name) as IANAZone) : create(name)));
+            zones.set(
+              name,
+              (zone = canResolve(name) ? (new Easy(name) as IANAZone) : create(name))
+            );
           }
 
           return zone;
@@ -977,10 +1031,10 @@ if (tables.has("ladder")) {
         path.ships === "moment-timezone"
           ? kase.moment?.(momentInstanceFor(kase))
           : path.ships === "moment"
-            ? kase.moment?.(momentCoreInstanceFor(kase))
-            : path.ships === "date-fns"
-              ? kase.dateFns?.(await loadDateFnsApi())
-              : kase.luxon(await luxonFor(path));
+          ? kase.moment?.(momentCoreInstanceFor(kase))
+          : path.ships === "date-fns"
+          ? kase.dateFns?.(await loadDateFnsApi())
+          : kase.luxon(await luxonFor(path));
 
       if (work !== undefined) perKey.set(kase.key, work);
     }
@@ -1022,7 +1076,9 @@ if (tables.has("ladder")) {
       // easy-tz supplies in tzdata style where ICU returns a GMT offset for some
       // zones — the same carve-out the format columns make.
       const rows = kase.key === "toFormat abbr" ? checked : [...checked, ...easyRows];
-      const sums = rows.map((p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum);
+      const sums = rows.map(
+        (p) => timeLoop(built.get(p.id)!.get(kase.key)!, BASE_TS, STEP_MS, CHECK_N).checksum
+      );
 
       if (sums.some((s) => s !== sums[0]!)) {
         disagree.push(`${kase.key}: ${rows.map((p, i) => `${p.id}=${sums[i]!}`).join(" ")}`);
@@ -1031,7 +1087,9 @@ if (tables.has("ladder")) {
 
     if (disagree.length > 0) {
       throw new Error(
-        `builds disagree on ${disagree.length} API case(s), so the table below is not comparable:\n${disagree.join("\n")}`
+        `builds disagree on ${
+          disagree.length
+        } API case(s), so the table below is not comparable:\n${disagree.join("\n")}`
       );
     }
 
@@ -1043,7 +1101,10 @@ if (tables.has("ladder")) {
     // On a module instance of its own, so the wrapping cannot follow a case into
     // the timings, and unwrapped again either way.
     const probe = await loadLuxon([], 2);
-    const proto = probe.IANAZone.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const proto = probe.IANAZone.prototype as unknown as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >;
     const stockZoneCalls = { offset: proto["offset"]!, offsetName: proto["offsetName"]! };
     const misannotated: string[] = [];
     let zoneCalls = 0;
@@ -1067,7 +1128,9 @@ if (tables.has("ladder")) {
         for (let i = 0; i < 8; i++) work(BASE_TS + i * STEP_MS);
 
         if (zoneCalls > 0 !== (kase.zoned === true)) {
-          misannotated.push(`${kase.key}: ${zoneCalls} zone call(s) in 8, marked zoned=${kase.zoned === true}`);
+          misannotated.push(
+            `${kase.key}: ${zoneCalls} zone call(s) in 8, marked zoned=${kase.zoned === true}`
+          );
         }
       }
     } finally {
@@ -1076,7 +1139,9 @@ if (tables.has("ladder")) {
 
     if (misannotated.length > 0) {
       throw new Error(
-        `ApiCase#zoned disagrees with what ${misannotated.length} case(s) ask their zone:\n${misannotated.join("\n")}`
+        `ApiCase#zoned disagrees with what ${
+          misannotated.length
+        } case(s) ask their zone:\n${misannotated.join("\n")}`
       );
     }
 
@@ -1096,7 +1161,10 @@ if (tables.has("ladder")) {
 
   const bytesFor = new Map(
     await Promise.all(
-      rowPaths.map(async (p) => [p.id, (await minifiedSize(await shippedEntry(p))).toLocaleString("en-US")] as const)
+      rowPaths.map(
+        async (p) =>
+          [p.id, (await minifiedSize(await shippedEntry(p))).toLocaleString("en-US")] as const
+      )
     )
   );
 
@@ -1152,7 +1220,8 @@ if (tables.has("ladder")) {
     legend?: string;
   }
 
-  const inBand = (band: ApiBand) => apiCases.filter((kase) => kase.band === band).map((kase) => kase.key);
+  const inBand = (band: ApiBand) =>
+    apiCases.filter((kase) => kase.band === band).map((kase) => kase.key);
   const lean = (keys: LadderKey[]): Segment => ({
     keys,
     passBudget: LEAN_BUDGET,
@@ -1195,9 +1264,13 @@ if (tables.has("ladder")) {
       legend: ladderFormats
         .map((fmt, i) => {
           const pattern = patternFor("moment", fmt);
-          const twin = ladderFormats.slice(0, i).find((seen) => patternFor("moment", seen) === pattern);
+          const twin = ladderFormats
+            .slice(0, i)
+            .find((seen) => patternFor("moment", seen) === pattern);
 
-          return `${fmt}: ${twin === undefined ? pattern : `${twin}'s pattern, in ${localeFor(fmt)}`}`;
+          return `${fmt}: ${
+            twin === undefined ? pattern : `${twin}'s pattern, in ${localeFor(fmt)}`
+          }`;
         })
         .join("   "),
     },
@@ -1280,7 +1353,9 @@ if (tables.has("ladder")) {
     const rows = rowPaths.filter((path) => columns.some((key) => built.get(path.id)!.has(key)));
     /** rules go where the block changes, which moves when rows are left out */
     const ruleAt = new Set(
-      rows.flatMap((path, i) => (i > 0 && groupOf.get(path.id) !== groupOf.get(rows[i - 1]!.id) ? [i] : []))
+      rows.flatMap((path, i) =>
+        i > 0 && groupOf.get(path.id) !== groupOf.get(rows[i - 1]!.id) ? [i] : []
+      )
     );
     // No unit on the timing headers: it was on every one of them, which spent
     // three characters per column repeating one fact that does not vary. The
@@ -1379,8 +1454,8 @@ if (tables.has("ladder")) {
         const held = !withFootprint
           ? []
           : fp === null
-            ? ["err", "err"]
-            : [fp.rssMB.toFixed(1), fp.intl.toLocaleString("en-US")];
+          ? ["err", "err"]
+          : [fp.rssMB.toFixed(1), fp.intl.toLocaleString("en-US")];
 
         table.row([
           label.get(path.id)!,
@@ -1431,7 +1506,9 @@ if (tables.has("ladder")) {
   }
 
   if (!withFootprint) {
-    console.log(`\n--footprint adds rss and Intl.DateTimeFormat counts, one subprocess per row (~2.5s).`);
+    console.log(
+      `\n--footprint adds rss and Intl.DateTimeFormat counts, one subprocess per row (~2.5s).`
+    );
   }
 
   console.log();
@@ -1568,7 +1645,8 @@ const DEFAULT_CASES: DefaultCase[] = [
     named: (m) => {
       const pool = tokenPool(m, ZONE);
       let i = 0;
-      return () => m.DateTime.fromFormat(pool[i++ % pool.length]!, NUM_PATTERN, { zone: ZONE }).valueOf();
+      return () =>
+        m.DateTime.fromFormat(pool[i++ % pool.length]!, NUM_PATTERN, { zone: ZONE }).valueOf();
     },
     moment: (mo) => {
       const pool = momentTokenPool(mo);
@@ -1634,8 +1712,9 @@ const DEFAULT_CASES: DefaultCase[] = [
 /** rendered by the build under test, so every column reads identical strings */
 function isoPool(m: LuxonModule, zone: string | undefined): string[] {
   const opts = zone === undefined ? {} : { zone };
-  return Array.from({ length: PARSE_POOL }, (_, i) =>
-    m.DateTime.fromMillis(BASE_TS + i * STEP_MS, opts).toISO({ includeOffset: false })!
+  return Array.from(
+    { length: PARSE_POOL },
+    (_, i) => m.DateTime.fromMillis(BASE_TS + i * STEP_MS, opts).toISO({ includeOffset: false })!
   );
 }
 
@@ -1647,11 +1726,15 @@ function tokenPool(m: LuxonModule, zone: string | undefined): string[] {
 }
 
 function momentIsoPool(mo: MomentTz): string[] {
-  return Array.from({ length: PARSE_POOL }, (_, i) => mo(BASE_TS + i * STEP_MS).format("YYYY-MM-DDTHH:mm:ss.SSS"));
+  return Array.from({ length: PARSE_POOL }, (_, i) =>
+    mo(BASE_TS + i * STEP_MS).format("YYYY-MM-DDTHH:mm:ss.SSS")
+  );
 }
 
 function momentTokenPool(mo: MomentTz): string[] {
-  return Array.from({ length: PARSE_POOL }, (_, i) => mo(BASE_TS + i * STEP_MS).format(MO_NUM_PATTERN));
+  return Array.from({ length: PARSE_POOL }, (_, i) =>
+    mo(BASE_TS + i * STEP_MS).format(MO_NUM_PATTERN)
+  );
 }
 
 // Fixed rather than budget-driven, for the reason the parse table's is: these
@@ -1693,12 +1776,32 @@ if (tables.has("default")) {
     group: number;
     work: (kase: DefaultCase) => Work | undefined;
   }[] = [
-    { pathId: "moment-core", label: "moment", group: 0, work: (kase) => kase.moment?.(momentCoreInstance(kase)) },
-    { pathId: "moment", label: "moment-timezone", group: 0, work: (kase) => kase.moment?.(momentTzInstance(kase)) },
+    {
+      pathId: "moment-core",
+      label: "moment",
+      group: 0,
+      work: (kase) => kase.moment?.(momentCoreInstance(kase)),
+    },
+    {
+      pathId: "moment",
+      label: "moment-timezone",
+      group: 0,
+      work: (kase) => kase.moment?.(momentTzInstance(kase)),
+    },
     { pathId: "luxon (stock)", label: "luxon", group: 0, work: (kase) => kase.system(stock) },
     { pathId: FULL, label: patchedLabel, group: 1, work: (kase) => kase.system(patched) },
-    { pathId: "luxon (stock)", label: `luxon, ${ZONE}`, group: 2, work: (kase) => kase.named(stock) },
-    { pathId: FULL, label: `${patchedLabel}, ${ZONE}`, group: 2, work: (kase) => kase.named(patched) },
+    {
+      pathId: "luxon (stock)",
+      label: `luxon, ${ZONE}`,
+      group: 2,
+      work: (kase) => kase.named(stock),
+    },
+    {
+      pathId: FULL,
+      label: `${patchedLabel}, ${ZONE}`,
+      group: 2,
+      work: (kase) => kase.named(patched),
+    },
   ];
 
   // bytes as on every other table: a property of the build, so the named row
@@ -1707,7 +1810,10 @@ if (tables.has("default")) {
     await Promise.all(
       [...new Set(DEFAULT_ROWS.map((row) => row.pathId))].map(
         async (id) =>
-          [id, (await minifiedSize(await shippedEntry(pathById(id)))).toLocaleString("en-US")] as const
+          [
+            id,
+            (await minifiedSize(await shippedEntry(pathById(id)))).toLocaleString("en-US"),
+          ] as const
       )
     )
   );
@@ -1851,8 +1957,8 @@ if (tables.has("ladder") && withVerify) {
         path.ships === "date-fns" || path.ships === "moment"
           ? "library semantics"
           : path.easyZone && fmt === "abbr"
-            ? "by design"
-            : "must be 0";
+          ? "by design"
+          : "must be 0";
 
       if (expected === "must be 0") {
         patchedMismatches += diff;
@@ -1893,7 +1999,9 @@ if (tables.has("ladder") && withVerify) {
 // magnitudes, so it quotes no cell from any table above and cannot go stale
 // against one. A magnitude stays in the table that measured it.
 
-console.log(`\nwhat these tables mean: ${DOCS}/upstream.md   how they are timed: ${DOCS}/methodology.md`);
+console.log(
+  `\nwhat these tables mean: ${DOCS}/upstream.md   how they are timed: ${DOCS}/methodology.md`
+);
 
 // ---- machine-readable results -----------------------------------------------
 // benchmarks/cross-engine.ts runs this file under node and bun and diffs the
@@ -1925,7 +2033,9 @@ if (allTables) {
         // they are written because they were measured, and because which patches
         // pay off on the parse path is exactly the kind of thing the two engines
         // could disagree about.
-        parse: Object.fromEntries([...parseResults].map(([kase, ms]) => [kase, Object.fromEntries(ms)])),
+        parse: Object.fromEntries(
+          [...parseResults].map(([kase, ms]) => [kase, Object.fromEntries(ms)])
+        ),
       },
       null,
       2

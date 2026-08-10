@@ -53,11 +53,11 @@ diff --git a/src/datetime.js b/src/datetime.js
 diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 --- a/src/impl/formatter.js
 +++ b/src/impl/formatter.js
-@@ -1,16 +1,359 @@
+@@ -1,16 +1,351 @@
  import * as English from "./english.js";
  import * as Formats from "./formats.js";
 -import { padStart } from "./util.js";
-+import { padStart, roundTo } from "./util.js";
++import { getCachedIntResolvedOptions, padStart, roundTo } from "./util.js";
  
 -function stringifyTokens(splits, tokenToString) {
 -  let s = "";
@@ -79,7 +79,6 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +// carries year: "numeric"), and swapping them silently changes what fi and fa
 +// render.
 +const cfNames = new WeakMap();
-+const cfCalendars = new WeakMap();
 +
 +function cfMemo(f, dt, opts, field, key, size, at) {
 +  let per = cfNames.get(f.loc);
@@ -113,14 +112,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
 +// which is null in exactly that case. Weekdays and day periods do not depend on
 +// the calendar and so never ask.
 +function cfGregorian(loc) {
-+  let ok = cfCalendars.get(loc);
-+
-+  if (ok == null) {
-+    ok = new Intl.DateTimeFormat(loc.intl).resolvedOptions().calendar === "gregory";
-+    cfCalendars.set(loc, ok);
-+  }
-+
-+  return ok;
++  return getCachedIntResolvedOptions(loc.intl).calendar === "gregory";
 +}
 +
 +function cfOffset(format) {
@@ -419,7 +411,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
    return s;
  }
  
-@@ -41,12 +384,31 @@
+@@ -41,12 +376,31 @@
   * @private
   */
  
@@ -451,7 +443,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
      // white-space is always considered a literal in user-provided formats
      // the " " token has a special meaning (see unitForToken)
  
-@@ -132,6 +503,22 @@
+@@ -132,6 +486,22 @@
        return padStart(n, p);
      }
  
@@ -474,7 +466,7 @@ diff --git a/src/impl/formatter.js b/src/impl/formatter.js
      const opts = { ...this.opts };
  
      if (p > 0) {
-@@ -145,304 +532,14 @@
+@@ -145,304 +515,14 @@
    }
  
    formatDateTimeFromString(dt, fmt) {

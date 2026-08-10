@@ -202,7 +202,8 @@ const set: MutationSet = {
     {
       name: "counts weekdays from one where the slots count from zero",
       find: '+    en ? English.weekdayForDateTime(dt, length) : cfMemo(f, dt, opts, "weekday", key, 7, dt.weekday - 1);',
-      replace: '+    en ? English.weekdayForDateTime(dt, length) : cfMemo(f, dt, opts, "weekday", key, 7, dt.weekday);',
+      replace:
+        '+    en ? English.weekdayForDateTime(dt, length) : cfMemo(f, dt, opts, "weekday", key, 7, dt.weekday);',
       survives: "as above: still one slot per weekday, one slot wider.",
     },
     {
@@ -241,8 +242,8 @@ const set: MutationSet = {
     },
     {
       name: "asks loc.outputCalendar instead of the calendar Intl resolved",
-      find: '+    ok = new Intl.DateTimeFormat(loc.intl).resolvedOptions().calendar === "gregory";',
-      replace: '+    ok = !loc.outputCalendar || loc.outputCalendar === "gregory";',
+      find: '+  return getCachedIntResolvedOptions(loc.intl).calendar === "gregory";',
+      replace: '+  return !loc.outputCalendar || loc.outputCalendar === "gregory";',
     },
     {
       name: "skips the calendar check for eras",
@@ -252,7 +253,7 @@ const set: MutationSet = {
     // ---- the compiled program ----
     {
       name: "drops the literal run that precedes a handler",
-      find: "+      lits.push(lit);\n+      lit = \"\";\n+      fns.push(handler);",
+      find: '+      lits.push(lit);\n+      lit = "";\n+      fns.push(handler);',
       replace: '+      lits.push("");\n+      lit = "";\n+      fns.push(handler);',
     },
     {

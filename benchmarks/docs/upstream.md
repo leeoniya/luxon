@@ -172,7 +172,7 @@ pattern that holds its locale fixed, and the calls it was written for are in the
 
 ### Why I comes last
 
-Eight of the nine patches have a rung. I does not, so the final row is the one
+Nine of the ten patches have a rung. I does not, so the final row is the one
 that adds it, and the last two rows of the table differ by I alone.
 
 The last position answers a different question from the rest of the ladder.
@@ -193,8 +193,9 @@ another, so no rung's price depends on an ordering choice this table made.
 
 The one that matters, and barely an optimization. `parseZoneInfo` built a fresh
 `Intl.DateTimeFormat` per value, so any pattern containing a zone name paid
-formatter construction *per formatted value*. Routing it through luxon's existing
-`getCachedDTF` is a one-line change and is most of the abbreviated format's cost.
+formatter construction *per formatted value*. A centralizes the DTF and
+resolved-options caches in `impl/util.js`, so locale checks, zone names, B's
+offset scanner and F's calendar check all reuse the same formatter path.
 
 The same patch reads the zone name out of `dtf.format()` instead of allocating a
 part per field and walking them. That is what unbounds the abbreviated format,
@@ -203,9 +204,8 @@ never asks for it. Together the two changes make A the clearest illustration of
 the table's formatting/parsing split: it takes most of the abbreviated format
 and moves no parse column at all.
 
-The cache lookup itself is a one-line substitution; the measured scanner,
-layout validation, reset hook and fallback bring the whole patch to 710
-minified bytes.
+The measured scanner, layout validation, shared cache and fallback make up the
+rest of the patch.
 
 ### B — `offsetScan`
 
@@ -237,8 +237,8 @@ lookup and a reset, and it takes better than half off both token-parsing columns
 
 ### D — `transitionInterval`
 
-One interval cache serving both lookups: the offset and the name are cached
-together across the interval that two probes prove transition-free. Apart from F
+One interval mechanism serving both lookups: each scanner owns the intervals
+that its probes prove transition-free. Apart from F
 it is the only rung that helps both formats, because it is the one patch that
 touches both calls. Its diff builds on both zone lookup rewrites, so D requires
 A and B.
@@ -429,8 +429,8 @@ is already carrying, one exact-unit shortcut, plus the four constants above.
 
 `adjustTime` was building a nine-key `Duration` and converting it to milliseconds
 on every `plus` and `minus`, where an integer sum will do; `impl/diff.js`'s
-`dayDiff` was building four DateTimes, two Dates and a Duration where subtracting
-B's shared civil-day values gives the result directly. Every `plus` and
+`dayDiff` was building four DateTimes, two Dates and a Duration where B's shared
+`civilDayDiff` gives the result directly. Every `plus` and
 `minus` goes through `adjustTime`, which puts it under `endOf`, `hasSame`,
 `diff`, `toRelative` and `Interval#splitBy` as well — and the `formatting` and
 `parsing` tables have a column for none of those. The `other` table is where this
@@ -489,9 +489,9 @@ guards only the `Duration` it was handed, so a mutation that stops `plus`
 advancing does not fail the suite — it appends until the machine is out of
 memory. Cap each run's wall time and heap.
 
-`Duration#plus` and `minus` already hold canonical unit names, so they read the
-two value records directly and write one result, without `get()` normalization
-or a cloned negated addend. An exact
+`Duration#plus` and `minus` already hold canonical unit names, so one shared
+loop combines the two value records directly, without `get()` normalization or
+a cloned negated addend. An exact
 `diff(..., "milliseconds")` now returns the endpoint subtraction directly,
 which also reaches `Interval#toDuration("milliseconds")`.
 
@@ -521,7 +521,7 @@ them rather than under.
 `toRelativeCalendar` counts boundaries instead of elapsed time, so it does not
 use those floors. For valid DateTimes in one built-in zone, its year, month and
 day counts come directly from the existing civil fields and B's shared
-`daysFromCivil()`. Differing or custom zones, weeks, quarters and unsupported
+`civilDayDiff()`. Differing or custom zones, weeks, quarters and unsupported
 units keep the generic `hasSame`/`startOf`/`diff` route. Moment's `calendar()`
 cell is blank for this benchmark because its 90-day input falls back to an
 absolute date rather than returning a comparable relative phrase.
@@ -581,7 +581,7 @@ looks its argument up in an object literal where `"__proto__"` and
 `"constructor"` both find something truthy enough to pass the check meant to
 throw on them. The rewrite throws `InvalidUnitError` for any answer that is not
 one of the nine ordered units — belt-and-braces on the full ladder, where G's
-null-prototype tables already make `normalizeUnit` itself throw it.
+indexed unit table already makes `normalizeUnit` itself throw it.
 
 `endOf`'s memo is the small part. It is a null-prototype bag rather than an
 object literal for the same reason from the other direction: the key is
@@ -619,6 +619,17 @@ period on the receiver's side, and leap days before year 100 answer their own
 weekday where stock reads off March 1 — both unreachable from any benchmark
 zone, both pinned by its fixtures
 ([09-boundary-math.md](pr/09-boundary-math.md)).
+
+### J — `numberingTable`
+
+`digits.js` carried the same numbering-system keys in parallel regex and
+UTF-16-range tables. J stores each system's expression and numeric bounds in
+one record. Parsing and regex construction retain their existing paths, while a
+new numbering system can no longer be added to only one table.
+
+The patch is independent of A–I and is checked against stock for every
+supported numbering system, including the existing fullwidth range and unknown
+numbering-system behavior.
 
 ### Asking what a patch is worth, rather than what it adds
 
@@ -787,10 +798,10 @@ path; nothing calls it today.
 
 In the order they are lettered, which is what the letters are for.
 
-1. **A, B and C.** All three are self-contained and need no dependency
-   argument. A removes the per-value zone-name formatter and scan, B makes the
-   offset lookup cheap, and C reuses an object luxon already hands callers for
-   compiled parsing.
+1. **A, then B and C.** A removes the per-value zone-name formatter and owns the
+   shared Intl cache. B builds its offset scanner on that cache, while C remains
+   independent and reuses an object luxon already hands callers for compiled
+   parsing.
 2. **D.** File after A and B because its shared transition-interval cache is
    written against both lookup rewrites. It also needs the tzdata-gap argument
    accepted once, and pays off on both calls for it.
@@ -806,6 +817,8 @@ In the order they are lettered, which is what the letters are for.
    the ladder. It is the one patch arguing output corrections, so its position
    asks "what does the finished tree lose without this" — and the answer is
    the three `endOf` columns and `hasSame day`.
+6. **J.** Independent of the performance stack. It consolidates the parallel
+   numbering-system tables and can be filed separately.
 
 A, B, D and F are the ones that hold on any engine — all four remove an Intl call
 or most of one, which no engine can be fast at — and C does the same on the

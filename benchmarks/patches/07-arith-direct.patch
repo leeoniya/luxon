@@ -1,7 +1,7 @@
 Patch: arithDirect
 Letter: G
 Requires: B (offsetScan)
-Files: src/datetime.js, src/duration.js, src/impl/diff.js, src/impl/english.js, src/zones/systemZone.js
+Files: src/datetime.js, src/duration.js, src/impl/diff.js, src/impl/english.js, src/impl/util.js, src/zones/systemZone.js
 Summary: arithmetic and local-construction paths that built or normalized temporary objects per call to reach values already available directly
 Description: benchmarks/docs/pr/07-arith-direct.md
 
@@ -9,16 +9,17 @@ diff --git a/src/datetime.js b/src/datetime.js
 index fd32d47..c674ee0 100644
 --- a/src/datetime.js
 +++ b/src/datetime.js
-@@ -19,6 +19,8 @@ import {
+@@ -19,6 +19,9 @@ import {
    roundTo,
    objToLocalTS,
    padStart,
 +  asNumber,
 +  hasOwnProperty,
++  unitIndexes,
  } from "./impl/util.js";
  import { normalizeZone } from "./impl/zoneUtil.js";
  import diff from "./impl/diff.js";
-@@ -149,31 +151,181 @@ function objToTS(obj, offset, zone) {
+@@ -149,31 +152,181 @@ function objToTS(obj, offset, zone) {
    return fixOffset(objToLocalTS(obj), offset, zone);
  }
  
@@ -218,39 +219,25 @@ index fd32d47..c674ee0 100644
      localTS = objToLocalTS(c);
  
    let [ts, o, wasHole] = fixOffset(localTS, oPre, inst.zone);
-@@ -342,33 +494,38 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
+@@ -342,33 +495,24 @@ const orderedUnits = ["year", "month", "day", "hour", "minute", "second", "milli
    orderedOrdinalUnits = ["year", "ordinal", "hour", "minute", "second", "millisecond"];
  
  // standardize case and plurality in units
-+// UPSTREAM-G: null-prototype unit table. Prototype-key names ("__proto__",
-+// "constructor") miss and throw InvalidUnitError; the per-call literal leaked
-+// those inherited values past the truthiness check below.
-+const normalizedUnits = Object.assign(Object.create(null), {
-+  year: "year",
-+  years: "year",
-+  month: "month",
-+  months: "month",
-+  day: "day",
-+  days: "day",
-+  hour: "hour",
-+  hours: "hour",
-+  minute: "minute",
-+  minutes: "minute",
-+  quarter: "quarter",
-+  quarters: "quarter",
-+  second: "second",
-+  seconds: "second",
-+  millisecond: "millisecond",
-+  milliseconds: "millisecond",
-+  weekday: "weekday",
-+  weekdays: "weekday",
-+  weeknumber: "weekNumber",
-+  weeksnumber: "weekNumber",
-+  weeknumbers: "weekNumber",
-+  weekyear: "weekYear",
-+  weekyears: "weekYear",
-+  ordinal: "ordinal",
-+});
++const normalizedUnits = [
++  "year",
++  "quarter",
++  "month",
++  undefined,
++  "day",
++  "hour",
++  "minute",
++  "second",
++  "millisecond",
++  "weekday",
++  "weekNumber",
++  "weekYear",
++  "ordinal",
++];
 +
  function normalizeUnit(unit) {
 -  const normalized = {
@@ -279,11 +266,11 @@ index fd32d47..c674ee0 100644
 -    weekyears: "weekYear",
 -    ordinal: "ordinal",
 -  }[unit.toLowerCase()];
-+  const normalized = normalizedUnits[unit.toLowerCase()];
++  const normalized = normalizedUnits[unitIndexes[unit.toLowerCase()]];
  
    if (!normalized) throw new InvalidUnitError(unit);
  
-@@ -653,6 +810,14 @@ export default class DateTime {
+@@ -653,6 +797,14 @@ export default class DateTime {
     * @return {DateTime}
     */
    static local() {
@@ -298,7 +285,7 @@ index fd32d47..c674ee0 100644
      const [opts, args] = lastOpts(arguments),
        [year, month, day, hour, minute, second, millisecond] = args;
      return quickDT({ year, month, day, hour, minute, second, millisecond }, opts);
-@@ -1713,8 +1881,9 @@ export default class DateTime {
+@@ -1713,8 +1865,9 @@ export default class DateTime {
     */
    plus(duration) {
      if (!this.isValid) return this;
@@ -310,7 +297,7 @@ index fd32d47..c674ee0 100644
    }
  
    /**
-@@ -1725,8 +1883,9 @@ export default class DateTime {
+@@ -1725,8 +1878,9 @@ export default class DateTime {
     */
    minus(duration) {
      if (!this.isValid) return this;
@@ -326,37 +313,48 @@ diff --git a/src/duration.js b/src/duration.js
 index ed27f9c..2d997e3 100644
 --- a/src/duration.js
 +++ b/src/duration.js
-@@ -118,6 +118,29 @@ const reverseUnits = orderedUnits.slice(0).reverse();
+@@ -10,6 +10,7 @@
+   isUndefined,
+   normalizeObject,
+   roundTo,
++  unitIndexes,
+   snapFloatingPoint,
+ } from "./impl/util.js";
+ import Settings from "./settings.js";
+@@ -118,6 +119,32 @@ const reverseUnits = orderedUnits.slice(0).reverse();
  // for toHuman due to missing support from Intl.
  // if value is set, then key is what to convert to and value is what to convert
  // if value is null, then key is a unit to be ignored
-+// UPSTREAM-G: null-prototype unit table, same reason as DateTime's: a
-+// prototype-key unit name throws InvalidUnitError instead of leaking.
-+const normalizedUnits = Object.assign(Object.create(null), {
-+  year: "years",
-+  years: "years",
-+  quarter: "quarters",
-+  quarters: "quarters",
-+  month: "months",
-+  months: "months",
-+  week: "weeks",
-+  weeks: "weeks",
-+  day: "days",
-+  days: "days",
-+  hour: "hours",
-+  hours: "hours",
-+  minute: "minutes",
-+  minutes: "minutes",
-+  second: "seconds",
-+  seconds: "seconds",
-+  millisecond: "milliseconds",
-+  milliseconds: "milliseconds",
-+});
++const normalizedUnits = [
++  "years",
++  "quarters",
++  "months",
++  "weeks",
++  "days",
++  "hours",
++  "minutes",
++  "seconds",
++  "milliseconds",
++];
++
++function combineValues(mine, theirs, subtract) {
++  const result = {};
++
++  for (const k of orderedUnits) {
++    if (hasOwnProperty(theirs, k) || hasOwnProperty(mine, k)) {
++      const a = mine[k] || 0,
++        b = theirs[k] || 0;
++      result[k] = subtract ? a - b : b + a;
++    }
++  }
++
++  return result;
++}
 +
  const humanizeUnitConversion = {
    months: "quarters",
    quarters: null,
-@@ -415,26 +438,7 @@ export default class Duration {
+@@ -415,26 +442,7 @@ export default class Duration {
     * @private
     */
    static normalizeUnit(unit) {
@@ -380,27 +378,26 @@ index ed27f9c..2d997e3 100644
 -      millisecond: "milliseconds",
 -      milliseconds: "milliseconds",
 -    }[unit ? unit.toLowerCase() : unit];
-+    const normalized = normalizedUnits[unit ? unit.toLowerCase() : unit];
++    const normalized = normalizedUnits[unitIndexes[unit ? unit.toLowerCase() : unit]];
  
      if (!normalized) throw new InvalidUnitError(unit);
  
-@@ -682,11 +686,14 @@ export default class Duration {
+@@ -682,11 +690,8 @@ export default class Duration {
      if (!this.isValid) return this;
  
      const dur = Duration.fromDurationLike(duration),
 +      mine = this.values,
 +      theirs = dur.values,
-       result = {};
+-      result = {};
++      result = combineValues(mine, theirs, false);
  
-     for (const k of orderedUnits) {
-       if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
+-    for (const k of orderedUnits) {
+-      if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
 -        result[k] = dur.get(k) + this.get(k);
-+        // UPSTREAM-G: get() normalizes a known constant before this same read.
-+        result[k] = (theirs[k] || 0) + (mine[k] || 0);
-       }
-     }
+-      }
+-    }
  
-@@ -701,8 +708,21 @@ export default class Duration {
+@@ -701,8 +706,15 @@ export default class Duration {
    minus(duration) {
      if (!this.isValid) return this;
  
@@ -412,13 +409,7 @@ index ed27f9c..2d997e3 100644
 +    const dur = Duration.fromDurationLike(duration),
 +      mine = this.values,
 +      theirs = dur.values,
-+      result = {};
-+
-+    for (const k of orderedUnits) {
-+      if (hasOwnProperty(dur.values, k) || hasOwnProperty(this.values, k)) {
-+        result[k] = (mine[k] || 0) - (theirs[k] || 0);
-+      }
-+    }
++      result = combineValues(mine, theirs, true);
 +
 +    return clone(this, { values: result }, true);
    }
@@ -428,9 +419,9 @@ diff --git a/src/impl/diff.js b/src/impl/diff.js
 index ebd129e..6790fd3 100644
 --- a/src/impl/diff.js
 +++ b/src/impl/diff.js
-@@ -1,9 +1,13 @@
+@@ -1,9 +1,10 @@
  import Duration from "../duration.js";
-+import { daysFromCivil } from "./util.js";
++import { civilDayDiff } from "./util.js";
  
  function dayDiff(earlier, later) {
 -  const utcDayStart = (dt) => dt.toUTC(0, { keepLocalTime: true }).startOf("day").valueOf(),
@@ -438,14 +429,11 @@ index ebd129e..6790fd3 100644
 -  return Math.floor(Duration.fromMillis(ms).as("days"));
 +  // UPSTREAM-G: both values are already civil dates. The shared integer
 +  // conversion preserves years 0-99 and removes two DateTimes and two Dates.
-+  return (
-+    daysFromCivil(later.c.year, later.c.month, later.c.day) -
-+    daysFromCivil(earlier.c.year, earlier.c.month, earlier.c.day)
-+  );
++  return civilDayDiff(earlier.c, later.c);
  }
  
  function highOrderDiffs(cursor, later, units) {
-@@ -65,6 +81,12 @@ function highOrderDiffs(cursor, later, units) {
+@@ -65,6 +66,12 @@ function highOrderDiffs(cursor, later, units) {
  }
  
  export default function (earlier, later, units, opts) {
@@ -500,6 +488,48 @@ index cf93798..cb0ac8c 100644
  
    if (numeric === "auto" && lastable) {
      const isDay = unit === "days";
+diff --git a/src/impl/util.js b/src/impl/util.js
+--- a/src/impl/util.js
++++ b/src/impl/util.js
+@@ -29,6 +29,38 @@
+ export function isString(o) {
+   return typeof o === "string";
+ }
++
++// UPSTREAM-G: one spelling table for DateTime and Duration. Each consumer maps
++// the index to its own singular or plural canonical name; inherited names map
++// to no array slot and are rejected like any other unknown unit.
++export const unitIndexes = {
++  year: 0,
++  years: 0,
++  quarter: 1,
++  quarters: 1,
++  month: 2,
++  months: 2,
++  week: 3,
++  weeks: 3,
++  day: 4,
++  days: 4,
++  hour: 5,
++  hours: 5,
++  minute: 6,
++  minutes: 6,
++  second: 7,
++  seconds: 7,
++  millisecond: 8,
++  milliseconds: 8,
++  weekday: 9,
++  weekdays: 9,
++  weeknumber: 10,
++  weeksnumber: 10,
++  weeknumbers: 10,
++  weekyear: 11,
++  weekyears: 11,
++  ordinal: 12,
++};
+ 
+ export function isDate(o) {
+   return Object.prototype.toString.call(o) === "[object Date]";
 diff --git a/src/zones/systemZone.js b/src/zones/systemZone.js
 index 533e663..29b4d0b 100644
 --- a/src/zones/systemZone.js

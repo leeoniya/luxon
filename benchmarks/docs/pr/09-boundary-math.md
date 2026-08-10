@@ -47,8 +47,8 @@ in an object literal, where `"__proto__"` finds `Object.prototype` and
 `"constructor"` finds a function, both truthy enough to pass the check meant to
 reject them; `shiftTo` then indexed the conversion matrix with it and threw a
 `TypeError`. Here, any unit `normalizeUnit` answers that is not one of the nine
-ordered units throws `InvalidUnitError` — and with patch G's null-prototype
-tables applied, `normalizeUnit` itself already throws it, so the branch is
+ordered units throws `InvalidUnitError` — and with patch G's indexed unit table
+applied, `normalizeUnit` itself already throws it, so the branch is
 belt-and-braces on the full ladder.
 
 `endOf`'s memo is a null-prototype bag rather than a literal for the same
