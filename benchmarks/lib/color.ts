@@ -35,6 +35,21 @@ const DEAD = STEPS[0]!;
 const FASTER = [151, 114, 77, 40];
 const SLOWER = [181, 174, 167, 160];
 
+function shadeColor(value: number, anchor: number | undefined): number | undefined {
+  if (anchor === undefined || !(anchor > 0) || !(value > 0)) return undefined;
+
+  const d = Math.log2(value / anchor);
+  const magnitude = Math.abs(d);
+
+  if (magnitude < DEAD) return undefined;
+
+  let step = 0;
+
+  while (step < STEPS.length - 1 && magnitude >= STEPS[step + 1]!) step++;
+
+  return (d < 0 ? FASTER : SLOWER)[step]!;
+}
+
 /**
  * Whether to emit colour at all. NO_COLOR and FORCE_COLOR are the de-facto
  * standard pair (no-color.org); the TTY check is what keeps redirected output
@@ -70,21 +85,55 @@ export function shade(
   anchor: number | undefined,
   enabled = colorEnabled
 ): string {
-  if (!enabled || anchor === undefined || !(anchor > 0) || !(value > 0)) return text;
+  if (!enabled) return text;
 
-  const d = Math.log2(value / anchor);
-  const magnitude = Math.abs(d);
+  const color = shadeColor(value, anchor);
 
-  if (magnitude < DEAD) return text;
-
-  let step = 0;
-
-  while (step < STEPS.length - 1 && magnitude >= STEPS[step + 1]!) step++;
-
-  return `\u001b[38;5;${(d < 0 ? FASTER : SLOWER)[step]!}m${text}\u001b[0m`;
+  return color === undefined ? text : `\u001b[38;5;${color}m${text}\u001b[0m`;
 }
 
-/** Removes the colour escapes emitted by `shade`. */
+/**
+ * Underlines a patch rung when it differs significantly from the rung above it
+ * but remains in the same baseline-relative colour bucket.
+ *
+ * `relativeFloor` is the measured within-cell spread (0.1 means 10%). It can
+ * widen, but never narrow, the default 10% deadband so noise does not acquire a
+ * mark merely because two independently noisy rows happened to separate.
+ *
+ * `text` may already carry one of `shade`'s colour escapes. In that case the
+ * underline joins the same SGR sequence.
+ */
+export function underlineSignificantStep(
+  text: string,
+  value: number,
+  previous: number | undefined,
+  anchor: number | undefined,
+  relativeFloor: number,
+  enabled = colorEnabled
+): string {
+  if (!enabled || previous === undefined || !(previous > 0) || !(value > 0)) return text;
+
+  const measuredDead =
+    Number.isFinite(relativeFloor) && relativeFloor > 0 ? Math.log2(1 + relativeFloor) : 0;
+  const change = Math.log2(value / previous);
+  const magnitude = Math.abs(change);
+
+  // Crossing a rendered digit boundary is already conspicuous and an underline
+  // would make the columns jump horizontally. Timings are printed to one
+  // decimal place throughout the ladder.
+  if (stripColor(text).length !== previous.toFixed(1).length) return text;
+  // Tiny absolute movements in otherwise cheap cells are dominated by thermal
+  // variation even when their ratio looks large.
+  if (Math.abs(value - previous) <= 1.5) return text;
+  if (magnitude < Math.max(Math.log2(1.1), measuredDead)) return text;
+  if (shadeColor(value, anchor) !== shadeColor(previous, anchor)) return text;
+
+  if (text.startsWith("\u001b[38;5;")) return text.replace("\u001b[38;5;", "\u001b[4;38;5;");
+
+  return `\u001b[4m${text}\u001b[0m`;
+}
+
+/** Removes terminal styling for redirected output and width measurement. */
 export function stripColor(text: string): string {
   // eslint-disable-next-line no-control-regex
   return text.replace(/\u001b\[[0-9;]*m/g, "");

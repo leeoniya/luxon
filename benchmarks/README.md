@@ -76,13 +76,20 @@ when iterating on a patch and comparing a run against itself rather than reading
 rows against each other; `--cooldown <ms>` sets it to anything else.
 
 Timings in the tables that have a moment baseline — `upstream`'s ladder and
-`format` — are shaded against it on a terminal: moment keeps the
-default colour, cells faster than it go green, cells slower go red, and further
-either way is more saturated. It is a log scale, since these ratios run from
-about a fifth of moment's time to fifty times it, and anything within ~10% is
-left plain. Redirected output is never shaded, so piping to a file gets the same
-plain text it always did; `--no-color` or `NO_COLOR=1` turns it off on a terminal
-too, and `FORCE_COLOR=1` turns it on anywhere.
+`format` — are shaded against it on a terminal: moment keeps the default colour,
+cells faster than it go green, cells slower go red, and further either way is
+more saturated. It is a log scale, and anything within ~10% is left plain.
+
+In `upstream`'s ladder, a significant change from the preceding patch rung is
+also underlined. The first patch compares with stock luxon. Underlines appear
+only when both rows retain the same baseline-relative shade; reference and
+footer rows never carry them. Either cell's measured spread can widen the 10%
+threshold. The generated HTML adds the single-letter class `d` alongside the
+colour class and uses `text-decoration`. Differences of 1.5ms or less are
+treated as thermal noise regardless of ratio, and a change in the rendered
+value's string length is already visible enough to omit the underline.
+Redirected terminal output is plain; `--no-color` or `NO_COLOR=1` turns styling
+off on a terminal, and `FORCE_COLOR=1` turns it on anywhere.
 
 `--drop <letters>` leaves patches out of every build a run makes — `--drop F`,
 `--drop CF`. It answers a question the ladder cannot: a rung measures what a

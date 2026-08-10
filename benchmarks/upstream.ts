@@ -98,6 +98,7 @@ import {
   pkgVersion,
   runtime,
   timeLoop,
+  type RowResult,
   type SampleBudget,
   type Work,
 } from "./lib/kernel.ts";
@@ -119,7 +120,7 @@ import {
   writeEntry,
   type PatchKey,
 } from "./lib/patches.ts";
-import { colorEnabled, shade, stripColor } from "./lib/color.ts";
+import { colorEnabled, shade, stripColor, underlineSignificantStep } from "./lib/color.ts";
 import { htmlReport } from "./lib/html-report.ts";
 import { printTable } from "./lib/print-table.ts";
 import { streamTable } from "./lib/stream-table.ts";
@@ -1266,10 +1267,8 @@ if (tables.has("ladder")) {
     },
   ];
 
-  // What every other row is shaded against, filled by the row that supplies it.
-  // moment is rowPaths[0], so it is in hand before anything needs it — but read
-  // off the row rather than assumed, since a table whose colours silently
-  // inverted if the rows were reordered would be worse than one with no colours.
+  // What every row is coloured against. Moment-timezone supplies the common
+  // APIs and stock luxon fills the operations moment does not expose.
   const anchor = new Map<LadderKey, number>();
 
   for (const band of BANDS) {
@@ -1315,6 +1314,7 @@ if (tables.has("ladder")) {
     });
 
     let index = 0;
+    let previous: { path: Path; measured: RowResult<LadderKey> } | undefined;
 
     // A row is one build across this table's columns, and a row is what the
     // table compares — so the builds are separated by a cooldown while each
@@ -1339,6 +1339,18 @@ if (tables.has("ladder")) {
         if (ruleAt.has(index)) table.rule();
         index++;
 
+        const group = groupOf.get(path.id);
+        const previousGroup = previous === undefined ? undefined : groupOf.get(previous.path.id);
+        // The ladder starts from stock luxon and then compares every patch with
+        // the rung immediately above it. Library/reference and footer rows get
+        // no underline because they are not patch steps.
+        const stepAnchor =
+          previous !== undefined &&
+          group === 1 &&
+          (previousGroup === 1 || previous.path.id === "luxon (stock)")
+            ? previous.measured
+            : undefined;
+
         // The two sets cross-engine.ts reads. Recorded here rather than derived
         // afterwards, since only the table that measured a column knows it.
         for (const fmt of ladderFormats) {
@@ -1353,15 +1365,6 @@ if (tables.has("ladder")) {
           parseResults.get(kase.key)!.set(path.id, measured.best.get(kase.key)!);
         }
 
-        // moment is the baseline wherever moment has an answer. Where it does
-        // not — including Interval and Luxon-specific compiled parsing and
-        // Duration operations — stock luxon stands in, so those columns are
-        // shaded against what the patches started from rather than printing
-        // flat. Both rows are in `groups`
-        // ahead of every row that reads this, and in this order, but the fill
-        // is written as "first row that has one wins" rather than assuming it:
-        // colours that silently inverted if the rows were reordered would be
-        // worse than no colours.
         if (path.id === "moment" || path.id === "luxon (stock)") {
           for (const key of columns) {
             const v = measured.best.get(key);
@@ -1383,12 +1386,31 @@ if (tables.has("ladder")) {
           label.get(path.id)!,
           ...columns.map((key) => {
             const v = measured.best.get(key);
+            const currentSpread = measured.spread.get(key);
+            const previousSpread = stepAnchor?.spread.get(key);
+            const relativeFloor = Math.max(
+              Number.isFinite(currentSpread) ? currentSpread! : 0,
+              Number.isFinite(previousSpread) ? previousSpread! : 0
+            );
 
-            return v === undefined ? "--" : shade(v.toFixed(1), v, anchor.get(key), true);
+            if (v === undefined) return "--";
+
+            const colored = shade(v.toFixed(1), v, anchor.get(key), true);
+
+            return underlineSignificantStep(
+              colored,
+              v,
+              stepAnchor?.best.get(key),
+              anchor.get(key),
+              relativeFloor,
+              true
+            );
           }),
           ...held,
           bytesFor.get(path.id)!,
         ]);
+
+        previous = { path, measured };
       }
     );
 

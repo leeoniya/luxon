@@ -5,7 +5,7 @@ const SHADE_CLASSES = new Map([
   [151, "j"],
   [160, "r"],
   [167, "s"],
-  [174, "u"],
+  [174, "p"],
   [181, "v"],
 ]);
 
@@ -14,21 +14,29 @@ function escapeHtml(text: string): string {
 }
 
 function styledOutput(text: string): string {
-  const ansi = /\u001b\[38;5;(\d+)m([\s\S]*?)\u001b\[0m/g;
+  const ansi = /\u001b\[(?:(4);)?(?:38;5;(\d+)|(4))m([\s\S]*?)\u001b\[0m/g;
   let at = 0;
   let html = "";
 
   for (const match of text.matchAll(ansi)) {
     const index = match.index;
-    const color = Number(match[1]);
-    const className = SHADE_CLASSES.get(color);
+    const color = match[2] === undefined ? undefined : Number(match[2]);
+    const classNames: string[] = [];
 
-    if (className === undefined) {
-      throw new Error(`no HTML class for ANSI color ${color}`);
+    if (color !== undefined) {
+      const className = SHADE_CLASSES.get(color);
+
+      if (className === undefined) {
+        throw new Error(`no HTML class for ANSI color ${color}`);
+      }
+
+      classNames.push(className);
     }
 
+    if (match[1] !== undefined || match[3] !== undefined) classNames.push("d");
+
     html += escapeHtml(text.slice(at, index));
-    html += `<span class="${className}">${escapeHtml(match[2]!)}</span>`;
+    html += `<span class="${classNames.join(" ")}">${escapeHtml(match[4]!)}</span>`;
     at = index + match[0].length;
   }
 
@@ -61,8 +69,12 @@ body {
 .j { color: #afd7af; }
 .r { color: #d70000; }
 .s { color: #d75f5f; }
-.u { color: #d78787; }
+.p { color: #d78787; }
 .v { color: #d7afaf; }
+.d {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
 </style>
 </head>
 <body>

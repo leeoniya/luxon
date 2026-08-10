@@ -44,19 +44,27 @@ On a terminal, tables with a moment baseline shade each timing by how it compare
 to moment's: moment itself keeps the default colour, faster goes green, slower
 goes red, on a log scale because these ratios span two orders of magnitude.
 Anything within ~10% is left plain, which is loose on purpose — it is a rough
-stand-in for the noise floor, not a substitute for the measured per-column floors
-printed under each table, and a margin can clear the shading while still sitting
-inside its column's floor. Redirected output is never shaded.
+stand-in for the noise floor, not a substitute for the measured per-column
+floors printed under each table. Redirected terminal output is never shaded.
+
+`upstream` adds an independent row-to-row signal without replacing those
+colours: a significant patch step is underlined in both the terminal and HTML.
+The first patch is compared with stock luxon and each later patch with the rung
+above it. An underline is added only when that movement stays within the same
+baseline-relative colour bucket; reference and footer rows are never marked.
+The threshold starts at 10%; either cell's measured spread can widen it so noise
+does not acquire emphasis.
+An absolute difference of 1.5ms or less is also left unmarked regardless of its
+ratio, since movement that small is treated as thermal noise.
+If the rendered values have different string lengths, the digit-boundary change
+is left to speak for itself and no underline is added.
 
 Columns for Luxon-only operations have no moment cell to shade against: moment
 ships no `Interval`, compiled format-parser API, `Duration#shiftTo`, or
 `Duration#toFormat`. Date-fns fills its row only where its public API expresses
 the same operation; it is not a shading anchor. Missing moment cells take stock
-luxon as their baseline instead, so they
-are read as what the patches did to luxon rather than as a comparison between
-libraries — which is the question those columns can answer. The legend above the
-tables names both baselines; without it a coloured cell would not say which one
-it meant.
+luxon as their colour baseline instead, so they are read as what the patches did
+to luxon rather than as a comparison between libraries.
 
 A row is usually one interleaved group, but it can be several: `upstream`'s
 ladder times its writing and its reading columns as two, because they need
@@ -94,11 +102,11 @@ the gap between two worse estimates is wider than the gap between two better
 ones. So the floor errs wide. That is the safe direction for a threshold, but a
 constant calibrated against the old control does not carry across unchanged.
 
-Baseline columns are not controls and have not gone anywhere: moment,
+Reference rows are not controls and have not gone anywhere: moment,
 moment-timezone, stock luxon, the unpatched easy-tz zone, and stock luxon with a
 zone named are all still there; date-fns with `@date-fns/tz` is available as an
-optional row. A control repeats a configuration to measure noise; a baseline is
-what the patches are being compared *to*.
+optional row. A control repeats a configuration to measure noise; a reference
+is a distinct implementation or configuration worth reading beside the ladder.
 
 ## Pass sizing and scaling
 
@@ -109,8 +117,7 @@ resolution. Cells are then scaled to a common denominator for reporting.
 That is safe here because per-value cost is flat in the pass length — the work
 is fixed per value, and none of these paths amortize anything across a loop that
 the pool doesn't already defeat. Where a bench scales a row it says so under the
-table, and the baseline every ratio is against is always timed over the full
-count.
+table, and every reference used for a comparison is timed over the full count.
 
 Inputs come from a pre-rendered pool, cycled, since neither library caches by
 input string and a single repeated input would measure a branch predictor.

@@ -43,18 +43,21 @@ and `Interval#splitBy`, and the other two tables have a column for none of those
 
 moment-timezone is the top row of the ladder and what every cell below it is
 shaded against, because it is the number the work is aimed at. Moment core sits
-below it in process-local mode, pinned to the same America/New_York zone. The date-fns +
-`@date-fns/tz` row can be enabled as an independent idiomatic baseline before
-stock luxon, which records the distance travelled by the patches. Where moment
-has no cell, stock luxon remains the shading anchor.
+below it in process-local mode, pinned to the same America/New_York zone. The
+date-fns + `@date-fns/tz` row can be enabled as an independent idiomatic
+baseline before stock luxon, which records the distance travelled by the
+patches. Where moment has no cell, stock luxon remains the shading anchor.
+
+An underline carries a second comparison: the first patch against stock luxon,
+then every patch against the rung immediately above it. It marks a significant
+change when both values remain in the same baseline-relative colour bucket.
 
 A `--` is a build with no semantically honest equivalent to run. moment ships no
 `Interval`, compiled format-parser API, `Duration#shiftTo`, or
 `Duration#toFormat`; date-fns likewise leaves cells blank where matching them
 would benchmark a custom reimplementation rather than its public API, including
-Luxon’s locale-listing helpers. Those
-columns are shaded against stock luxon rather than against something a baseline
-did not do.
+Luxon’s locale-listing helpers. Those columns are shaded against stock luxon
+rather than against something a baseline did not do.
 
 ### Isolated and whole-operation columns
 
@@ -135,8 +138,8 @@ The footnote under the table names five: `text fr`, `toFormat text fr`,
 the same user-visible answer by different means — it expands its own bundled
 locale tables where luxon's names come from ICU, which is part of what the bytes
 column charges it for. Those are two libraries doing comparable work rather
-than two implementations of one algorithm, so the shading across those columns is
-a library comparison and should not be read as one implementation beating
+than two implementations of one algorithm, so the shading across those columns
+is a library comparison and should not be read as one implementation beating
 another.
 
 ### The Info columns
